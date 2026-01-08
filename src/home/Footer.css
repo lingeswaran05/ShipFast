@@ -1,0 +1,40 @@
+.footer {
+  margin-top: auto; 
+  background: #ffffff;
+  border-top: 1px solid #e5e7eb;
+  padding: 16px 40px;
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.fleft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fleft img {
+  width: 120px;
+}
+
+.fright {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.fright a {
+  text-decoration: none;
+  color: #475569;
+}
+
+.fright a:hover {
+  color: #4138eb;
+}
