@@ -5,7 +5,7 @@ function Dashboard() {
     <div>
        <div className="rcont">
           <div className="rc1">
-            <h1 className='welcome'> Welcome back, 717823s132!👋</h1>
+            <h1 className='welcome'> Welcome back, Lingeswaran👋</h1>
             <h3>Here's what's happening with your shipments</h3>
           </div>
           <div className="rc2">
