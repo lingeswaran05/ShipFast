@@ -4,11 +4,11 @@ import ShipmentCard from "./ShipmentCard";
 import "./MyShipments.css";
 
 export default function MyShipments() {
-
-  // 🔹 STATE (DB READY)
+  const [activeTab, setActiveTab] = useState("");
   const [shipments] = useState([
     // ACTIVE (10)
-    ...Array.from({ length: 10 }, (_, i) => ({
+    ...Array.from({ length: 3 }, (_, i) => ({
+      shiplogo:<i class="bi bi-clock"></i>,
       shipId: `SF-ACT-${i + 1}`,
       status: "active",
       statusLabel: "In Transit",
@@ -20,8 +20,8 @@ export default function MyShipments() {
       expected: "2025-01-06",
     })),
 
-    // DELIVERED (10)
-    ...Array.from({ length: 10 }, (_, i) => ({
+    ...Array.from({ length: 2 }, (_, i) => ({
+      shiplogo:<i class="bi bi-fire"></i>,
       shipId: `SF-DEL-${i + 1}`,
       status: "delivered",
       statusLabel: "Delivered",
@@ -33,8 +33,8 @@ export default function MyShipments() {
       expected: "2025-01-03",
     })),
 
-    // DELAYED (5)
-    ...Array.from({ length: 5 }, (_, i) => ({
+    ...Array.from({ length: 1 }, (_, i) => ({
+      shiplogo:<i class="bi bi-hourglass-split"></i>,
       shipId: `SF-DLY-${i + 1}`,
       status: "delayed",
       statusLabel: "Needs Attention",
@@ -46,8 +46,8 @@ export default function MyShipments() {
       expected: "2025-01-05",
     })),
 
-    // CANCELLED (5)
-    ...Array.from({ length: 5 }, (_, i) => ({
+    ...Array.from({ length: 1 }, (_, i) => ({
+      shiplogo:<i class="bi bi-ban"></i>,
       shipId: `SF-CAN-${i + 1}`,
       status: "cancelled",
       statusLabel: "Refunded",
@@ -62,8 +62,6 @@ export default function MyShipments() {
 
   return (
     <div className="myshipments">
-
-      {/* HEADER */}
       <div className="ms-header">
         <div>
           <h1>Shipment History</h1>
@@ -72,42 +70,23 @@ export default function MyShipments() {
         <button className="export-btn">⬇ Export All</button>
       </div>
 
-      {/* SEARCH (UI ONLY FOR NOW) */}
       <div className="ms-search">
         <input placeholder="Search by tracking number, receiver name, or city..." />
         <button>Filters</button>
       </div>
-
-      {/* TABS */}
-      <nav className="ms-tabs">
-        <NavLink end to="">All Shipments</NavLink>
-        <NavLink to="active">Active</NavLink>
-        <NavLink to="delivered">Delivered</NavLink>
-        <NavLink to="delayed">Delayed</NavLink>
-        <NavLink to="cancelled">Cancelled</NavLink>
-      </nav>
-
-      {/* CONTENT (NO LAYOUT CHANGE) */}
-      <Routes>
-        <Route index element={<ShipmentCard data={shipments} />} />
-        <Route
-          path="active"
-          element={<ShipmentCard data={shipments.filter(s => s.status === "active")} />}
-        />
-        <Route
-          path="delivered"
-          element={<ShipmentCard data={shipments.filter(s => s.status === "delivered")} />}
-        />
-        <Route
-          path="delayed"
-          element={<ShipmentCard data={shipments.filter(s => s.status === "delayed")} />}
-        />
-        <Route
-          path="cancelled"
-          element={<ShipmentCard data={shipments.filter(s => s.status === "cancelled")} />}
-        />
-      </Routes>
-
+      <div className="ms-tabs">
+      <button className={`tab-btn active-tab ${activeTab === "" ? "active-all" : "hov-blue"}`} onClick={() => setActiveTab("")}>All Shipments</button>
+      <button className={`tab-btn active-tab ${activeTab === "active" ? "active-blue" : "hov-blue"}`} onClick={() => setActiveTab("active")}>Active</button>
+      <button className={`tab-btn active-tab ${activeTab === "delayed" ? "active-orenge" : "hov-orenge"}`} onClick={() => setActiveTab("delayed")}>Delayed</button>
+      <button className={`tab-btn active-tab ${activeTab === "delivered" ? "active-green" : "hov-green"}`} onClick={() => setActiveTab("delivered")}>Delivered</button>
+      <button className={`tab-btn active-tab ${activeTab === "cancelled" ? "active-red" : "hov-red"}`} onClick={() => setActiveTab("cancelled")}>Cancelled</button>
+      </div>
+      {activeTab === "" && <ShipmentCard data={shipments} />}
+      {activeTab === "active" && <ShipmentCard data={shipments.filter(s => s.status === "active")} />}
+      {activeTab === "delivered" && <ShipmentCard data={shipments.filter(s => s.status === "delivered")}/>}
+      {activeTab === "delayed" && <ShipmentCard data={shipments.filter(s => s.status === "delayed")} />}
+      {activeTab === "cancelled" && <ShipmentCard data={shipments.filter(s => s.status === "cancelled")} />}
     </div>
   );
 }
+
