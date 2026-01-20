@@ -58,7 +58,7 @@
 .shipment-card {
   display: flex;
   justify-content: space-between;
-  padding: 20px;
+  padding: 20px;width: 100%;
   border-radius: 16px;
   background: white;
   box-shadow: 0 8px 24px rgba(0,0,0,0.08);
@@ -70,9 +70,8 @@
 }
 
 .sc-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  border-radius: 12px;display: flex;justify-content: center;
+  color: white;height: min-content;width: 50px;align-items: center;
 }
 
 .sc-icon.active { background: #3b82f6; }
@@ -110,30 +109,28 @@
 
 .ms-tabs {
   display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 10px;justify-content: start;
+  margin-bottom: 20px;height:40px;
 }
-
-.ms-tabs a {
-  padding: 8px 16px;
-  border-radius: 20px;
-  border: 1px solid #ddd;
-  text-decoration: none;
-  color: #333;
-  white-space: nowrap;
+.active-all{  background-color: #8419ff;}
+.active-blue{  background-color: rgb(65, 138, 255);}
+.active-red{  background-color: #ef4444;}
+.active-orenge{  background-color: #fb923c;}
+.active-green{  background-color: #22c55e;}
+.active-all,.active-blue,.active-green,.active-orenge,.active-red{
+  width: 120px;border:none;color: white;
 }
-
-.ms-tabs a.active {
-  background: linear-gradient(135deg,#4138eb,#8c2eff);
-  color: white;
-  border: none;
-}
+.hov-blue,.hov-red,.hov-orenge,.hov-green{border-radius: 15px;background-color: white;color: rgb(72, 71, 71);width: 120px;border: solid 1px gray;}
+.hov-blue:hover{border: solid #3b82f6 2px;}
+.hov-red:hover{border: solid #ef4444 2px;}
+.hov-orenge:hover{border: solid #fb923c 2px;}
+.hov-green:hover{border: solid #22c55e 2px;}
 
 .shipment-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 400px; /* prevents jump */
+  min-height: 400px;
 }
 
 .shipment-card {
