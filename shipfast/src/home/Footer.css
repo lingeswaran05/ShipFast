@@ -1,0 +1,10 @@
+.fleft{
+    display: flex;
+}
+.fright{
+    gap:20px;
+    display: flex;
+}
+.flogo img{
+    width: 150px;
+}
