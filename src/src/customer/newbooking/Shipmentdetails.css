@@ -1,0 +1,127 @@
+.booking-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 32px;
+  max-width: 100%;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  border:  solid 1px rgb(226, 225, 225);
+}
+
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.section-heading {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #0f172a;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.field input,
+.field textarea{
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5f5;
+  font-size: 14px;
+  outline: none;
+}
+.grid-4 input{
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5f5;
+  font-size: 14px;
+  outline: none;margin-bottom: 10px;
+}
+.field textarea {
+  resize: none;
+  min-height: 90px;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #4f46e5;
+}
+
+/* Layout helpers */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+/* Upload box */
+.upload-box {
+  border: 2px dashed #c7d2fe;
+  border-radius: 14px;
+  padding: 28px;
+  text-align: center;
+  color: #475569;
+  cursor: pointer;
+  position: relative;
+}
+
+.upload-box input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.upload-box p {
+  font-weight: 600;
+}
+
+.upload-box span {
+  font-size: 12px;
+}
+
+/* Button */
+.submit-btn {
+  background: linear-gradient(135deg, #4138eb, #8c2eff);
+  color: white;
+  border: none;
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.submit-btn:hover {
+  opacity: 0.9;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .grid-2,
+  .grid-4 {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,40 @@
+*{
+    font-family: 'Poppins', sans-serif;
+}
+.logoimg{
+    width: 140px;
+}
+.logoname{
+    font-size: 40px;
+    margin: -45px 10px -70px 0px;
+    background: -webkit-linear-gradient(#f5ef99fe, #f23030);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.light{
+    width: 30px;
+}
+.cont{
+    display: flex;
+    justify-content: space-between;
+}
+.left{
+    display: flex;
+}
+button{
+    border-radius: 10px;
+    padding: 10px;
+}
+/* button:hover{
+    color: aqua;background-color: black;
+    transform:scale(130%);
+    margin: 0px 30px 0px 30px;
+    transition: 13ms;
+} */
+.right{
+    text-align: center;
+    align-items: center;
+    gap: 10px;
+    display: flex;
+    justify-content:space-around;
+}

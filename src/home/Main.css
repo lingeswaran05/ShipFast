@@ -1,0 +1,40 @@
+.cont1{
+    display: flex;
+}
+.conright1 img{
+    width:600px;
+}
+.tag{
+    background-image: linear-gradient( rgba(0, 39, 155, 0), rgb(149, 0, 255));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    border: 1px solid;
+    border-radius:70px;padding: 10px;
+    display: flex;width: max-content;
+    background-color: rgb(253, 253, 253);
+}
+.con-text h2{
+    font-family: 'Poppins', sans-serif;
+    font-size: 80px;
+}
+.con-text p{
+    font-size: 25px;padding-right: 40px;
+    font-family: sans-serif;
+}
+.contlbut{
+    display: flex;
+    font-size: larger;
+    justify-content: space-between;
+}
+.conleft1{
+    margin-left: 20px;
+}
+.contlbut button{
+    padding: 10px 90px;
+    font-size: 20px;
+}
+/* .cont2{
+    display: grid;
+  place-items: center; 
+  height: 200px;
+} */
