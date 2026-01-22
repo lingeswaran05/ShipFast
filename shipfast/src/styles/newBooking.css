@@ -1,0 +1,178 @@
+/* ---------- PAGE WRAPPER ---------- */
+.new-booking-page {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #0e153a, #0b1023);
+  padding: 24px;
+  color: #0f172a;
+}
+
+/* ---------- STEP INDICATOR ---------- */
+.steps {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.step .circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.step.active {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.step.active .circle {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* ---------- FORM CARD ---------- */
+.form-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- SECTION TITLES ---------- */
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- FORM GRID ---------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.form-grid.full {
+  grid-template-columns: 1fr;
+}
+
+/* ---------- INPUTS ---------- */
+.form-card label {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.form-card input,
+.form-card textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 14px;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-card textarea {
+  resize: none;
+  min-height: 70px;
+}
+
+.form-card input:focus,
+.form-card textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* ---------- PACKAGE INFO GRID ---------- */
+.package-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .package-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+/* ---------- NAV BUTTONS (Overview / New Booking) ---------- */
+
+.nav-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+/* Button base */
+.nav-links span {
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition:
+    background 0.25s ease,
+    transform 0.2s ease,
+    box-shadow 0.25s ease,
+    color 0.25s ease;
+}
+
+/* Hover effect (button feel) */
+.nav-links span:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+}
+
+/* Active button */
+.nav-links .active {
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 10px 26px rgba(99, 102, 241, 0.5);
+}
+
+/* Keep active button stable on hover */
+.nav-links .active:hover {
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  transform: none;
+}

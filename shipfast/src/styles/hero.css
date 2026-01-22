@@ -1,0 +1,193 @@
+.hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 80px 60px;
+  gap: 60px;
+  align-items: center;
+  background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.12'%3E%3Cpath d='M19.5 18.5V16h1v2.5H23v1h-2.5V22h-1v-2.5H17v-1h2.5z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Badge */
+.badge {
+  background: rgba(255,255,255,0.1);
+  padding: 10px 18px;
+  border-radius: 20px;
+  display: inline-block;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: #c7bfff;
+  font-family: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Heading */
+.hero-left h1 {
+  font-size: 56px;
+  line-height: 1.1;
+  font-family: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.hero-left h1 span {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+
+/* Text */
+.hero-left p {
+  margin-top: 24px;
+  color: #cbd5e1;
+  max-width: 480px;
+}
+
+/* Buttons */
+.buttons {
+  margin-top: 32px;
+  display: flex;
+  gap: 16px;
+}
+
+.primary {
+  background: linear-gradient(90deg, #4f7cff, #8b5cf6);
+  padding: 14px 28px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 20px;
+  color: white;
+  box-shadow: 0 0 25px rgba(99,102,241,0.7);
+  transition: all 0.3s ease;
+  font-family: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 45px rgba(139,92,246,1);
+}
+
+.secondary {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 14px 28px;
+  border-radius: 10px;
+  font-size: 20px;
+  color:whitesmoke;
+  font-family: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Social Proof */
+/* ---------- SOCIAL PROOF ---------- */
+.social-proof {
+  margin-top: 32px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+/* Avatars */
+.avatars {
+  display: flex;
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  margin-left: -10px;
+  border: 2px solid #0b1023;
+  background: linear-gradient(135deg, #4f7cff, #a855f7);
+}
+
+.avatar:first-child {
+  margin-left: 0;
+}
+
+/* Customers text */
+.customers strong {
+  color: #ffffff;
+  margin-right: 4px;
+}
+
+/* Rating */
+.rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #facc15;
+}
+
+.rating span {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+/* Right Section */
+.hero-right {
+  position: relative;
+  border-radius: 24px;
+ 
+}
+
+.hero-right img {
+  width: 100%;
+  border-radius: 24px;
+}
+
+/* On-Time Delivery */
+.stat-card {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  transform: translate(-60px,-40px);
+  background: white;
+  color: black;
+  padding: 16px 22px;
+  border-radius: 16px;
+  box-shadow: 0 18px 35px rgba(0,0,0,0.25);
+  z-index: 2;
+}
+
+/* Tracking Card */
+.track-card {
+   position: absolute;
+  bottom: 24px;
+  left: 24px;
+  background: white;
+  padding: 22px 28px;          /* ⬅ increased */
+  border-radius: 20px;         /* ⬅ smoother */
+  min-width: 535px;            /* ⬅ makes it wide like image */
+  box-shadow: 0 22px 45px rgba(0,0,0,0.25);
+  z-index: 2;
+
+}
+
+.track-card p {
+   font-size: 14px;             /* ⬅ clearer */
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.track-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Express Delivery */
+.express-card {
+  position: absolute;
+  bottom: 20px;
+  right: 30px;
+  transform: translate(60px,40px);
+  background: linear-gradient(135deg, #ff7a18, #ff375f);
+  color: white;
+  padding: 18px 10px;
+  border-radius: 18px;
+  box-shadow: 0 20px 35px rgba(0,0,0,0.3);
+  z-index: 2;
+}
+
+.express-card strong {
+  display: block;
+  font-size: 22px;
+}
