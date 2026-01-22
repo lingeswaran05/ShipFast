@@ -18,7 +18,6 @@ export default function App() {
   return (
     <>
       <Navbar />
-
       <Routes>
         <Route
           path="/"
