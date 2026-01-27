@@ -23,6 +23,7 @@ export default function App() {
           path="/"
           element={
             <> 
+            
                <Hero />
               <HeroBottom />
               <Features />
