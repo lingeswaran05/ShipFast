@@ -3,6 +3,7 @@ import CreateAccount from "./pages/CreateAccount";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import NewBooking from "./pages/NewBooking";
 import AgentDashboard from "./pages/AgentDashboard";
+import QuickBook from "./pages/QuickBook"
 import AdminDashboard from "./pages/AdminDashboard";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
@@ -37,6 +38,8 @@ export default function App() {
       <Route path="/shipment" element={<TrackShipment />} />
       <Route path="/customer" element={<CustomerDashboard />} />
       <Route path="/agent" element={<AgentDashboard />} />
+      <Route path="/agent/quick-book" element={<QuickBook/>} />
+      <Route path="/" element={<Home1/>}/>
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/customer/new-booking" element={<NewBooking />} />
       <Route path="/create-account" element={<CreateAccount />} />

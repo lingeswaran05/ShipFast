@@ -1,0 +1,148 @@
+.form-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.form-header h2 {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.form-header p {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.booking-card {
+  background: #1e293b; /* Dark slate blue from image */
+  border-radius: 12px;
+  padding: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.form-section {
+  margin-bottom: 32px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.step-number {
+  background: #0ea5e9;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.step-purple { background: #a855f7; }
+.step-orange { background: #f97316; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.full-width {
+  grid-column: span 2;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.input-group input, 
+.input-group textarea, 
+.input-group select {
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 12px;
+  color: white;
+  font-size: 14px;
+}
+
+.input-group textarea {
+  height: 80px;
+  resize: none;
+}
+
+/* Pricing Banner */
+.price-banner {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid #f97316;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 30px;
+}
+
+.price-info p, .tracking-info p {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.price-info h3 { font-size: 24px; color: white; }
+.tracking-code { color: #f97316; font-family: monospace; }
+
+/* Buttons */
+.form-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-primary {
+  flex: 2;
+  background: linear-gradient(to right, #f97316, #ef4444);
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.btn-secondary {
+  flex: 1;
+  background: #475569;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
