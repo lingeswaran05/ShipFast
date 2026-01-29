@@ -22,14 +22,13 @@ export default function App() {
         <Route
           path="/"
           element={
-            <> 
-            
-               <Hero />
+            <>
+              <Hero />
               <HeroBottom />
               <Features />
               <Stats />
               <FinalCTA />
-              <Footer /> 
+              <Footer />
             </>
           }
         />
