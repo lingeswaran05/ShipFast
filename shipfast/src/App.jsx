@@ -19,19 +19,17 @@ export default function App() {
   return (
     <>
       <Navbar />
-
       <Routes>
         <Route
           path="/"
           element={
             <>
-           <h1>hi da cherubaa</h1>
-               <Hero />
+              <Hero />
               <HeroBottom />
               <Features />
               <Stats />
               <FinalCTA />
-              <Footer /> 
+              <Footer />
             </>
           }
         />
