@@ -1,16 +1,21 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import "../styles/agentDashboard.css";
 
 export default function AgentDashboard() {
+  const navigate = useNavigate();
+
   return (
     <div className="agent-dashboard">
       <header className="agent-navbar">
-        <div className="logo">
+        <div className="logo" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>
           🚚 <span>ShipFast</span>
         </div>
 
         <nav className="agent-nav">
-          <button className="active">Overview</button>
-          <button>Quick Book</button>
+          <button className="active" onClick={() => navigate('/agent')}>Overview</button>
+          {/* NAVIGATION TRIGGER 1 */}
+          <button onClick={() => navigate('/quick-book')}>Quick Book</button>
           <button>Scan Parcels</button>
           <button>Run Sheets</button>
           <button>Cash Collection</button>
@@ -19,42 +24,57 @@ export default function AgentDashboard() {
         <div className="agent-user">
           <img src="https://i.pravatar.cc/40" alt="agent" />
           <div>
-            <strong>Agent User</strong>
+            <strong>Branch Owner</strong>
             <small>Branch Agent</small>
           </div>
         </div>
       </header>
+
       <main className="agent-content">
         <h2>Agent Dashboard</h2>
         <p className="subtitle">Mumbai Central Branch</p>
+        
         <div className="agent-stats">
-          <div className="stat-card">
-            <h4>Today's Bookings</h4>
+          <div className="state-cards">
+            <div className="stat-header">
+               <h4>Today's Bookings</h4>
+               <span className="icon">📦</span>
+            </div>
             <h3>24</h3>
-            <span>+3 from yesterday</span>
+            <span className="trend">+3 from yesterday</span>
           </div>
 
-          <div className="stat-card">
-            <h4>Parcels Scanned</h4>
+          <div className="state-cards">
+            <div className="stat-header">
+               <h4>Parcels Scanned</h4>
+               <span className="icon">🔍</span>
+            </div>
             <h3>156</h3>
             <span>Last 24 hours</span>
           </div>
 
-          <div className="stat-card">
-            <h4>Cash Collected</h4>
+          <div className="state-cards">
+            <div className="stat-header">
+               <h4>Cash Collected</h4>
+               <span className="icon">💰</span>
+            </div>
             <h3>₹12,450</h3>
             <span>Today</span>
           </div>
 
-          <div className="stat-card">
-            <h4>Pending Delivery</h4>
+          <div className="state-cards">
+            <div className="stat-header">
+               <h4>Pending Delivery</h4>
+               <span className="icon">📄</span>
+            </div>
             <h3>18</h3>
             <span>Assigned to you</span>
           </div>
         </div>
 
         <div className="agent-actions">
-          <div className="action blue">
+          {/* NAVIGATION TRIGGER 2 */}
+          <div className="action blue" onClick={() => navigate('/quick-book')}>
             <h3>Quick Booking</h3>
             <p>Book walk-in customer shipments</p>
           </div>
@@ -70,33 +90,19 @@ export default function AgentDashboard() {
           </div>
         </div>
 
-        {/* RECENT ACTIVITY */}
         <section className="activity">
-          <h3>Recent Activity</h3>
-
-          <div className="activity-item">
-            <span>SF123456789</span>
-            <p>Received at Hub</p>
-            <small>10 mins ago</small>
-          </div>
-
-          <div className="activity-item">
-            <span>SF123456788</span>
-            <p>New Booking</p>
-            <small>25 mins ago</small>
-          </div>
-
-          <div className="activity-item">
-            <span>SF123456787</span>
-            <p>Delivery Complete</p>
-            <small>1 hour ago</small>
-          </div>
-
-          <div className="activity-item">
-            <span>SF123456786</span>
-            <p>Out for Delivery</p>
-            <small>2 hours ago</small>
-          </div>
+          <h3 className="activity-title">Recent Activity</h3>
+          {[
+            { id: "SF123456789", status: "Received at Hub", time: "10 mins ago" },
+            { id: "SF123456788", status: "New Booking", time: "25 mins ago" },
+            { id: "SF123456787", status: "Delivery Complete", time: "1 hour ago" }
+          ].map((item, i) => (
+            <div key={i} className="activity-item">
+              <span className="activity-id">{item.id}</span>
+              <p className="activity-status">{item.status}</p>
+              <small className="activity-time">{item.time}</small>
+            </div>
+          ))}
         </section>
       </main>
     </div>

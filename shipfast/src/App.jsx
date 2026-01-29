@@ -11,6 +11,7 @@ import Features from "./components/Features";
 import Stats from "./components/Stats";
 import FinalCTA from "./components/FinalCTA";
 import Footer from "./components/Footer";
+import Quick
 import Login from "./pages/Login";
 import TrackShipment from "./pages/TrackShipment";
 import Home1 from './home/Home'
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/shipment" element={<TrackShipment />} />
       <Route path="/customer" element={<CustomerDashboard />} />
       <Route path="/agent" element={<AgentDashboard />} />
+      <Route path="/" element={<Home1/>}/>
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/customer/new-booking" element={<NewBooking />} />
       <Route path="/create-account" element={<CreateAccount />} />
