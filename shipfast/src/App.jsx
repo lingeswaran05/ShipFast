@@ -11,7 +11,6 @@ import Features from "./components/Features";
 import Stats from "./components/Stats";
 import FinalCTA from "./components/FinalCTA";
 import Footer from "./components/Footer";
-import Quick
 import Login from "./pages/Login";
 import TrackShipment from "./pages/TrackShipment";
 import Home1 from './home/Home'
