@@ -1,15 +1,21 @@
 .login-page {
   min-height: 100vh;
   display: grid;
+  color: black;
+  background:transparent;
   grid-template-columns: 1.1fr 0.9fr;
-  background: #2b145f;
-  background-size: 20px 20px;
+  background: linear-gradient(135deg, #703df0, #8a3ef5, #8b5cf6, #ec4899);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 /* LEFT */
-.login-left {
+.login-left{
   padding: 80px;
   color: white;
+}
+.login-left,.login-right{  
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.20' %3E%3Cpath d='M19.5 18.5V16h1v2.5H23v1h-2.5V22h-1v-2.5H17v-1h2.5z'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 .brand {
@@ -38,9 +44,11 @@
   display: flex;
   gap: 16px;
   padding: 18px;
+  border: solid 1px rgb(201, 191, 191);
   border-radius: 14px;
   margin-bottom: 16px;
   background: rgba(255, 255, 255, 0.08);
+  
 }
 
 .feature-card h4 {
@@ -69,27 +77,31 @@
 /* RIGHT */
 .login-right {
   display: flex;
+  margin-top: 40px;
   align-items: center;
-  justify-content: center;
 }
 
 .login-card {
-  width: 420px;
+  width: 90%;
   background: white;
   padding: 40px;
   border-radius: 20px;
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
 }
-
-.badge {
-  display: inline-block;
-  padding: 6px 14px;
-  background: #eef2ff;
-  color: #6366f1;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 999px;
-  margin-bottom: 14px;
+.login-card{
+  label{text-align: left;}
+  text-align: center;
+  .badge {
+    display: inline-flex;
+    padding: 6px 14px;
+    background: linear-gradient(120deg,rgb(206, 206, 255),rgb(253, 217, 253));
+    color: linear-gradient(rgb(44, 44, 183),rgb(193, 75, 247));;
+    color: #3b82f6;
+    font-size: 15px;
+    font-weight: 500;
+    border-radius: 999px;
+    margin-bottom: 14px;
+  }
 }
 
 .login-card h2 {
@@ -123,13 +135,15 @@ input:focus {
 }
 
 .options {
-  display: flex;
+  display: flex;flex-direction: row;
   color: #6366f1;
   justify-content: space-between;
   font-size: 12px;
   margin: 14px 0 20px;
 }
-
+.remember-cont{
+  display: flex;flex-direction: row;
+}
 .options a {
   color: #6366f1;
   cursor: pointer;

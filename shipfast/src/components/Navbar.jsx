@@ -9,9 +9,8 @@ import { useState, useEffect } from "react";
 
 export default function Navbar() {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState("dark"); // default = dark
+  const [theme, setTheme] = useState("light"); 
 
-  // Apply theme globally
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);

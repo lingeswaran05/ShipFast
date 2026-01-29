@@ -29,7 +29,6 @@ export default function Login() {
 
   const handleLogin = () => {
     setError("");
-
     const user = Object.values(USERS).find(
       (u) => u.email === email && u.password === password
     );
@@ -45,12 +44,8 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-left">
-        <div className="brand">
-          🚚 <span>ShipFast</span>
-        </div>
-
         <h1>
-          Welcome to the Future of <br /> Logistics
+          Welcome to the Future of Logistics
         </h1>
 
         <p className="subtitle">
@@ -87,6 +82,7 @@ export default function Login() {
         </div>
       </div>
       <div className="login-right">
+        
         <div className="login-card">
           <span className="badge">SECURE LOGIN</span>
 
@@ -116,9 +112,9 @@ export default function Login() {
           )}
 
           <div className="options">
-            <label className="remember">
-              <input type="checkbox" /> Remember me
-            </label>
+            <label className="remember" >
+              <input className="ip" type="checkbox" /> Remember me</label>
+            
             <a>Forgot Password?</a>
           </div>
 
