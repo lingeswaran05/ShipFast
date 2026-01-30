@@ -1,9 +1,24 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  IoLocationOutline,
+  IoSunnyOutline,
+  IoMoonOutline,
+} from "react-icons/io5";
+import { useState, useEffect } from "react";
 import "../styles/agentDashboard.css";
-
 export default function AgentDashboard() {
   const navigate = useNavigate();
+  const [theme, setTheme] = useState("dark"); // default = dark
+  
+    // Apply theme globally
+    useEffect(() => {
+      document.documentElement.setAttribute("data-theme", theme);
+    }, [theme]);
+  
+    const toggleTheme = () => {
+      setTheme(prev => (prev === "dark" ? "light" : "dark"));
+    };
 
   return (
     <div className="agent-dashboard">
@@ -11,16 +26,22 @@ export default function AgentDashboard() {
         <div className="logo" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>
           🚚 <span>ShipFast</span>
         </div>
+        
 
         <nav className="agent-nav">
           <button className="active" onClick={() => navigate('/agent')}>Overview</button>
           {/* NAVIGATION TRIGGER 1 */}
           <button onClick={() => navigate('/quick-book')}>Quick Book</button>
-          <button>Scan Parcels</button>
-          <button>Run Sheets</button>
-          <button>Cash Collection</button>
+          <button onClick={() => navigate('/scan-parcels')}>Scan Parcels</button>
+          <button onClick={() => navigate('/run-sheets')}>Run Sheets</button>
+          <button onClick={() => navigate('/cash-collection')}>Cash Collection</button>
         </nav>
-
+        <div className="nav-actions">
+        {/* THEME TOGGLE */}
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {theme === "dark" ? <IoSunnyOutline /> : <IoMoonOutline />}
+        </button>
+</div>
         <div className="agent-user">
           <img src="https://i.pravatar.cc/40" alt="agent" />
           <div>

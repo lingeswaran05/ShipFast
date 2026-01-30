@@ -1,0 +1,153 @@
+/* PAGE BACKGROUND */
+[data-theme="dark"] .agent-dashboard {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 70% 15%, rgba(255,90,0,.25), transparent 60%),
+    linear-gradient(180deg,#020617 0%,#020617 30%,#1b0b07 65%,#3a1208 100%);
+  color: #fff;
+}
+
+/* CONTAINER */
+.runs-container {
+  max-width: 1100px;
+  margin: 40px auto 80px;
+}
+
+/* HEADER */
+.runs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.runs-header h2 {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.runs-header p {
+  color: #cbd5f5;
+  font-size: 14px;
+}
+
+.create-btn {
+  background: linear-gradient(135deg,#ff3d00,#ff7a00);
+  border: none;
+  padding: 10px 16px;
+  color: #fff;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* STATS */
+.run-stats {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.state-card {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 12px;
+  padding: 16px;
+  
+}
+
+.state-card span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.state-card h3 {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+/* RUN LIST */
+.runs-card {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 40px 90px rgba(0,0,0,.6);
+}
+
+.runs-card h3 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 16px;
+}
+
+/* ITEM */
+.run-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.run-item:first-of-type {
+  border-top: none;
+}
+
+.run-info {
+  display: flex;
+  gap: 12px;
+}
+
+.run-icon {
+  background: #fff1e6;
+  color: #f97316;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.run-info p {
+  font-size: 13px;
+  color: #334155;
+}
+
+.run-info small {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* STATUS */
+.run-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+}
+
+.status.inprogress {
+  background: #e0e7ff;
+  color: #2563eb;
+}
+
+.status.completed {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.print {
+  cursor: pointer;
+}
+.run-stats {
+  margin-top: 24px;
+}

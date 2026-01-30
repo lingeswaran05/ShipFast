@@ -1,10 +1,24 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import "../styles/agentDashboard.css"; // Reuse the layout CSS
-
+import "../styles/quickbook.css"; // Reuse the layout CSS
+import "../styles/agentDashboard.css";
+import { useState, useEffect } from "react";
+import {
+  IoLocationOutline,
+  IoSunnyOutline,
+  IoMoonOutline,
+} from "react-icons/io5";
 export default function QuickBook() {
   const navigate = useNavigate();
-
+   const [theme, setTheme] = useState("dark");
+   useEffect(() => {
+         document.documentElement.setAttribute("data-theme", theme);
+       }, [theme]);
+     
+       const toggleTheme = () => {
+         setTheme(prev => (prev === "dark" ? "light" : "dark"));
+       };
+   
   return (
     <div className="agent-dashboard">
       <header className="agent-navbar">
@@ -12,12 +26,18 @@ export default function QuickBook() {
           🚚 <span>ShipFast</span>
         </div>
         <nav className="agent-nav">
-          <button onClick={() => navigate('/')}>Overview</button>
+          <button onClick={() => {navigate('/agent');}}>Overview</button>
           <button className="active">Quick Book</button>
-          <button>Scan Parcels</button>
-          <button>Run Sheets</button>
-          <button>Cash Collection</button>
+          <button onClick={() => {navigate('/scan-parcels');}}>Scan Parcels</button>
+          <button onClick={() => navigate('/run-sheets')}>Run Sheets</button>
+          <button onClick={() => navigate("/cash-collection")}>Cash Collection</button>
         </nav>
+         <div className="nav-actions">
+                {/* THEME TOGGLE */}
+                <button className="theme-toggle" onClick={toggleTheme}>
+                  {theme === "dark" ? <IoSunnyOutline /> : <IoMoonOutline />}
+                </button>
+        </div>
         <div className="agent-user">
           <img src="https://i.pravatar.cc/40" alt="agent" />
           <div><strong>Branch Owner</strong><small>Branch Agent</small></div>
@@ -48,7 +68,14 @@ export default function QuickBook() {
               <div className="input-field full"><label>Delivery Address *</label><textarea placeholder="Complete address with landmark"></textarea></div>
             </div>
           </div>
-
+     <div className="form-section">
+            <div className="section-label"><span className="step s3">3</span> Shipment Details</div>
+            <div className="grid-3">
+              <div className="input-field"><label>Weight (kg) *</label><input type="text" placeholder="1.5" /></div>
+              <div className="input-field"><label>Service Type *</label><input type="text" placeholder="+91 98765 43210" /></div>
+              <div className="input-field full"><label>Item Description *</label><textarea placeholder="e.g., Documents, Electronics, Clothing"></textarea></div>
+            </div>
+          </div>
           {/* Pricing Row */}
           <div className="price-box">
              <div><small>Estimated Shipping Cost</small><h3>₹250.00</h3></div>

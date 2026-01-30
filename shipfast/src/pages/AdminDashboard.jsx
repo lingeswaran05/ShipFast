@@ -1,101 +1,136 @@
-import "../styles/adminDashboard.css";
+import React, { useEffect, useState } from "react";
+import { IoSunnyOutline, IoMoonOutline } from "react-icons/io5";
+import "../styles/admindashboard.css";
 
 export default function AdminDashboard() {
+  const [theme, setTheme] = useState("dark");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
   return (
-    <div className="admin-dashboard">
+    <div className="admin-root">
+      {/* NAVBAR */}
       <header className="admin-navbar">
-        <div className="logo">
+        <div className="brand">
           🚚 <span>ShipFast</span>
         </div>
-        <nav className="admin-nav">
+
+        <nav className="nav-links">
           <button className="active">Overview</button>
-          <button>Branches&Hubs</button>
+          <button>Branches & Hubs</button>
           <button>Pricing</button>
           <button>Fleet</button>
           <button>Staff</button>
           <button>Performance</button>
         </nav>
-        <div className="admin-user">
-          <img src="https://i.pravatar.cc/40" alt="agent" />
-          <div>
-            <strong>Admin User</strong>
-            <small>Administrator</small>
+
+        <div className="nav-right">
+          <button
+            className="theme-btn"
+            onClick={() => setTheme(t => (t === "dark" ? "light" : "dark"))}
+          >
+            {theme === "dark" ? <IoSunnyOutline /> : <IoMoonOutline />}
+          </button>
+
+          <div className="user-box">
+            <img src="https://i.pravatar.cc/40" alt="admin" />
+            <div>
+              <strong>Admin User</strong>
+              <small>Administrator</small>
+            </div>
           </div>
         </div>
       </header>
-      <main className="admin-content">
-        <h2>Network Overview</h2>
-        <p className="subtitle">
-          System-wide performance and operations
-        </p>
-        <div className="admin-stats">
-          <div className="stat blue">
+
+      {/* PAGE */}
+      <main className="admin-page">
+        <div className="page-title">
+          <h1>Network Overview</h1>
+          <p>System-wide performance and operations</p>
+        </div>
+
+        {/* TOP METRICS */}
+        <div className="metric-row">
+          <div className="metric blue">
             <h4>Active Shipments</h4>
-            <h3>12,456</h3>
+            <h2>12,456</h2>
             <span>+8.2% from last week</span>
           </div>
-          <div className="stat green">
+
+          <div className="metric green">
             <h4>Revenue Today</h4>
-            <h3>₹8,45,200</h3>
+            <h2>₹8,45,200</h2>
             <span>Target: ₹10,00,000</span>
           </div>
-          <div className="stat orange">
+
+          <div className="metric orange">
             <h4>Active Branches</h4>
-            <h3>45</h3>
-            <span>Across 12 States</span>
+            <h2>45</h2>
+            <span>Across 12 states</span>
           </div>
-          <div className="stat purple">
+
+          <div className="metric purple">
             <h4>Fleet Vehicles</h4>
-            <h3>128</h3>
-            <span>98% Operational</span>
+            <h2>128</h2>
+            <span>98% operational</span>
           </div>
+        </div>
+
+        {/* INFO CARDS */}
+        <div className="info-row">
+          <div className="info-card">
+            <h3>Delivery Performance</h3>
+            <div className="info-line"><span>On-Time Delivery</span><b>94.2%</b></div>
+            <div className="info-line"><span>Average Transit Time</span><b>2.3 days</b></div>
+            <div className="info-line"><span>Customer Satisfaction</span><b>4.6/5</b></div>
           </div>
-          <div className="admin-cards">
-            <div className="card">
-              <h4>Delivery Performance</h4>
-              <p>On-Time Delivery</p><span>94.2%</span>
-              <p>Average Transit Time</p><span>2.3 Days</span>
-              <p>Customer Satisfaction</p><span>4.6/5</span>
-              </div>
-            <div className="card">
-              <h4>Staff Overview</h4>
-              <p>Total Staff</p><span>342</span>
-              <p>Active Agents</p><span>156</span>
-              <p>Drivers</p><span>98</span>
-              </div>
-            <div className="card">
-              <h4>Revenue Breakdown</h4>
-              <p>Express</p><span>₹5.2L</span>
-              <p>Standard</p><span>₹3.2L</span>
-              <p>Other Service</p><span>₹0.45L</span>
-              </div>
-         
+
+          <div className="info-card">
+            <h3>Staff Overview</h3>
+            <div className="info-line"><span>Total Staff</span><b>342</b></div>
+            <div className="info-line"><span>Active Agents</span><b>156</b></div>
+            <div className="info-line"><span>Drivers</span><b>98</b></div>
           </div>
-           <section className="branches">
-            <h3>Top Performing Branches</h3>
-            <div className="branch">
-              <div>
-                <strong>Mumbai Centeral</strong>
-                <small>2456 shipments</small>
-              </div>
-              <span className="positive">₹2.4L (+12%)</span>
+
+          <div className="info-card">
+            <h3>Revenue Breakdown</h3>
+            <div className="info-line"><span>Express</span><b>₹5.2L</b></div>
+            <div className="info-line"><span>Standard</span><b>₹3.2L</b></div>
+            <div className="info-line"><span>Other Services</span><b>₹0.45L</b></div>
+          </div>
+        </div>
+
+        {/* TABLE */}
+        <div className="table-card">
+          <h3>Top Performing Branches</h3>
+
+          <div className="branch-row">
+            <div>
+              <strong>Mumbai Central</strong>
+              <p>2456 shipments</p>
             </div>
-            <div className="branch">
+            <div className="profit">₹2.4L <span>+12%</span></div>
+          </div>
+
+          <div className="branch-row">
             <div>
               <strong>Delhi Hub</strong>
-              <small>2134 shipments</small>
+              <p>2134 shipments</p>
             </div>
-            <span className="positive">₹2.1L (+8%)</span>
+            <div className="profit">₹2.1L <span>+8%</span></div>
           </div>
-          <div className="branch">
+
+          <div className="branch-row">
             <div>
               <strong>Bangalore Tech Park</strong>
-              <small>1876 shipments</small>
+              <p>1876 shipments</p>
             </div>
-            <span className="positive">₹1.9L (+15%)</span>
+            <div className="profit">₹1.9L <span>+15%</span></div>
           </div>
-          </section>
+        </div>
       </main>
-      </div>
+    </div>
   );
 }
