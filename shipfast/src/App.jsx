@@ -1,8 +1,13 @@
 import { Routes, Route } from "react-router-dom";
 import CreateAccount from "./pages/CreateAccount";
-import CustomerDashboard from "./pages/CustomerDashboard";
 import NewBooking from "./pages/NewBooking";
 import AgentDashboard from "./pages/AgentDashboard";
+
+
+import "bootstrap-icons/font/bootstrap-icons.css"
+
+
+import CustomerDashboard from "./customer/Customer";
 import QuickBook from "./pages/QuickBook"
 import AdminDashboard from "./pages/AdminDashboard";
 import Navbar from "./components/Navbar";
@@ -36,7 +41,7 @@ export default function App() {
 
       <Route path="/login" element={<Login />} />
       <Route path="/shipment" element={<TrackShipment />} />
-      <Route path="/customer" element={<CustomerDashboard />} />
+      <Route path="/customer/*" element={<CustomerDashboard />} />
       <Route path="/agent" element={<AgentDashboard />} />
       <Route path="/agent/quick-book" element={<QuickBook/>} />
       <Route path="/" element={<Home1/>}/>
