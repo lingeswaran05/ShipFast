@@ -121,7 +121,7 @@
 }
 
 .metric.blue { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
-.metric.green { background: linear-gradient(135deg,#16a34a,#22c55e); }
+.metric.green { background: linear-gradient(135deg,#16a34a,#22c55e);color: #fff; }
 .metric.orange { background: linear-gradient(135deg,#f97316,#ea580c); }
 .metric.purple { background: linear-gradient(135deg,#9333ea,#a855f7); }
 

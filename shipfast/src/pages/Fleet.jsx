@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { IoSunnyOutline, IoMoonOutline } from "react-icons/io5";
 import { useNavigate } from "react-router-dom";
-import "../styles/brancheshubs.css";
+import "../styles/fleet.css";
 
-export default function BranchesHubs() {
+export default function Fleet() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState("dark");
 
@@ -21,9 +21,9 @@ export default function BranchesHubs() {
 
         <nav className="nav-links">
           <button onClick={() => navigate("/admin")}>Overview</button>
-          <button className="active">Branches & Hubs</button>
+          <button onClick={() => navigate("/branches-hubs")}>Branches & Hubs</button>
           <button onClick={() => navigate("/pricing")}>Pricing</button>
-          <button onClick={() => navigate("/fleet")}>Fleet</button>
+          <button className="active">Fleet</button>
           <button onClick={() => navigate("/staff")}>Staff</button>
           <button onClick={() => navigate("/performance")}>Performance</button>
         </nav>
@@ -48,10 +48,11 @@ export default function BranchesHubs() {
 
       {/* PAGE */}
       <main className="admin-page">
+
         <div className="page-title">
             <div>
-                <h1>Branch & Hub Management</h1>
-                <p>Manage branch locations and hub hierarchy</p>
+                <h1>Fleet Management</h1>
+                <p>Track vehicles and driver assignments</p>
             </div>
             <div className="bh-action">
              <button className="button">Add Vehicle</button>
@@ -61,32 +62,35 @@ export default function BranchesHubs() {
         {/* STATS */}
         <div className="bh-stats">
           <div className="bh-stat">
-            <span>Total Branches</span>
-            <h3>45</h3>
+            <span>Total Vehicles</span>
+            <h3>128</h3>
           </div>
 
           <div className="bh-stat">
-            <span>Regional Hubs</span>
-            <h3>8</h3>
+            <span>On Route</span>
+            <h3>96</h3>
           </div>
 
           <div className="bh-stat">
-            <span>Coverage Cities</span>
-            <h3>120+</h3>
+            <span>Available</span>
+            <h3>29</h3>
+          </div>
+
+          <div className="bh-stat">
+            <span>Maintenance</span>
+            <h3>3</h3>
           </div>
         </div>
-        
-        {/* LIST CARD */}
         <div className="bh-card">
-          {/* FILTER */}
           <div className="bh-filter">
             <input placeholder="Search branches..." />
             <select>
               <option>All States</option>
+              <option>Maharashtra</option>
+                <option>Delhi</option>
+                <option>Karnataka</option>
             </select>
           </div>
-
-          {/* ROWS */}
           <BranchRow
             title="Mumbai Central Hub"
             meta="Maharashtra • 45 staff members"

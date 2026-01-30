@@ -7,12 +7,9 @@ export default function CreateAccount() {
   return (
     <div className="login-page">
       <div className="login-left">
-        <div className="brand">
-          🚚 <span>ShipFast</span>
-        </div>
 
         <h1>
-          Create Your <br /> ShipFast Account
+          Create Your  ShipFast <br /> Account
         </h1>
 
         <p className="subtitle">
@@ -44,7 +41,10 @@ export default function CreateAccount() {
 
           <label>Password</label>
           <input type="password" placeholder="Create a strong password" />
-
+          
+          <label>Confirm Password</label>
+          <input type="password" placeholder="Create a strong password" />
+            <br /><br />
           <button className="signin-btn">
             Create Account →
           </button>

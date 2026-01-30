@@ -18,7 +18,12 @@
   color: #0f172a;
   margin-bottom: 4px;
 }
-
+.page-title{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
 .bh-header p {
   font-size: 14px;
   color: #64748b;
@@ -28,7 +33,7 @@
   text-align: right;
 }
 .button {
-  background: #3a4662;
+  background: #1b212f;
   color: #ffffff;
   padding: 10px 16px;
   font-size: 13px;
@@ -43,16 +48,23 @@
 }
 .bh-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-top: 32px;
 }
 
 .bh-stat {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 18px;
+ background: #ffffff;
+  border-radius: 16px;
+  padding: 22px;
+  text-align: left;
+  min-height: 110px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 }
 
 .bh-stat span {
@@ -182,6 +194,7 @@
 
 [data-theme="dark"] .bh-stat,
 [data-theme="dark"] .bh-card {
-  background: #ffffff;
+ background: #ffffff;
   color: #0f172a;
+
 }

@@ -1,0 +1,98 @@
+.page-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+/* METRICS */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(4,1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.metric-card span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.metric-card h2 {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+/* TABLE */
+.table-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.table-filter {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.table-filter input,
+.table-filter select {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+}
+
+.table-filter input {
+  flex: 1;
+}
+
+/* ROW */
+.table-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.table-row:first-child {
+  border-top: none;
+}
+
+.table-row p {
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* RIGHT */
+.row-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.status.active {
+  background: #dcfce7;
+  color: #16a34a;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-weight: 600;
+  cursor: pointer;
+}

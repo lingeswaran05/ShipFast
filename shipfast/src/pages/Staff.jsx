@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { IoSunnyOutline, IoMoonOutline } from "react-icons/io5";
 import { useNavigate } from "react-router-dom";
-import "../styles/brancheshubs.css";
+import "../styles/staff.css";
 
-export default function BranchesHubs() {
+export default function Staff() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState("dark");
 
@@ -15,23 +15,29 @@ export default function BranchesHubs() {
     <div className="admin-root">
       {/* NAVBAR */}
       <header className="admin-navbar">
-        <div className="brand" onClick={() => navigate("/admin")} style={{ cursor: "pointer" }}>
+        <div
+          className="brand"
+          onClick={() => navigate("/admin")}
+          style={{ cursor: "pointer" }}
+        >
           🚚 <span>ShipFast</span>
         </div>
 
         <nav className="nav-links">
           <button onClick={() => navigate("/admin")}>Overview</button>
-          <button className="active">Branches & Hubs</button>
+          <button onClick={() => navigate("/branches-hubs")}>Branches & Hubs</button>
           <button onClick={() => navigate("/pricing")}>Pricing</button>
           <button onClick={() => navigate("/fleet")}>Fleet</button>
-          <button onClick={() => navigate("/staff")}>Staff</button>
+          <button className="active">Staff</button>
           <button onClick={() => navigate("/performance")}>Performance</button>
         </nav>
 
         <div className="nav-right">
           <button
             className="theme-btn"
-            onClick={() => setTheme(t => (t === "dark" ? "light" : "dark"))}
+            onClick={() =>
+              setTheme((t) => (t === "dark" ? "light" : "dark"))
+            }
           >
             {theme === "dark" ? <IoSunnyOutline /> : <IoMoonOutline />}
           </button>
@@ -48,67 +54,69 @@ export default function BranchesHubs() {
 
       {/* PAGE */}
       <main className="admin-page">
+        {/* PAGE TITLE */}
         <div className="page-title">
-            <div>
-                <h1>Branch & Hub Management</h1>
-                <p>Manage branch locations and hub hierarchy</p>
-            </div>
-            <div className="bh-action">
-             <button className="button">Add Vehicle</button>
-            </div>
+          <div>
+            <h1>Staff Management</h1>
+            <p>Manage team members and access control</p>
+          </div>
+
+          <div className="bh-action">
+            <button className="button">Add Staff Member</button>
+          </div>
         </div>
 
         {/* STATS */}
         <div className="bh-stats">
           <div className="bh-stat">
-            <span>Total Branches</span>
-            <h3>45</h3>
+            <span>Total Staff</span>
+            <h3>342</h3>
           </div>
 
           <div className="bh-stat">
-            <span>Regional Hubs</span>
-            <h3>8</h3>
+            <span>Agents</span>
+            <h3>156</h3>
           </div>
 
           <div className="bh-stat">
-            <span>Coverage Cities</span>
-            <h3>120+</h3>
+            <span>Drivers</span>
+            <h3>98</h3>
+          </div>
+
+          <div className="bh-stat">
+            <span>Admins</span>
+            <h3>12</h3>
           </div>
         </div>
-        
+
         {/* LIST CARD */}
         <div className="bh-card">
           {/* FILTER */}
           <div className="bh-filter">
-            <input placeholder="Search branches..." />
+            <input placeholder="Search staff..." />
             <select>
-              <option>All States</option>
+              <option>All Roles</option>
+              <option>Agents</option>
+              <option>Drivers</option>
+              <option>Admins</option>
             </select>
           </div>
 
           {/* ROWS */}
-          <BranchRow
-            title="Mumbai Central Hub"
-            meta="Maharashtra • 45 staff members"
-            type="Hub"
+          <StaffRow
+            name="Rajesh Kumar"
+            meta="Agent • Mumbai Central"
+            status="Active"
           />
-
-          <BranchRow
-            title="Mumbai Andheri Branch"
-            meta="Maharashtra • 12 staff members"
-            type="Branch"
+          <StaffRow
+            name="Priya Sharma"
+            meta="Driver • Delhi Hub"
+            status="Active"
           />
-
-          <BranchRow
-            title="Delhi NCR Hub"
-            meta="Delhi • 38 staff members"
-            type="Hub"
-          />
-
-          <BranchRow
-            title="Bangalore Tech Park"
-            meta="Karnataka • 18 staff members"
-            type="Branch"
+          <StaffRow
+            name="Amit Singh"
+            meta="Agent • Bangalore"
+            status="Active"
           />
         </div>
       </main>
@@ -116,19 +124,19 @@ export default function BranchesHubs() {
   );
 }
 
-function BranchRow({ title, meta, type }) {
+function StaffRow({ name, meta, status }) {
   return (
     <div className="bh-row">
       <div className="bh-left">
-        <div className="bh-icon">🏢</div>
+        <div className="bh-icon">👤</div>
         <div>
-          <strong>{title}</strong>
+          <strong>{name}</strong>
           <p>{meta}</p>
         </div>
       </div>
 
       <div className="bh-right">
-        <span className={`tag ${type.toLowerCase()}`}>{type}</span>
+        <span className="status active">{status}</span>
         <button className="manage-btn">Manage</button>
       </div>
     </div>

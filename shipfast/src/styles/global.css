@@ -16,7 +16,7 @@ body {
   background: var(--bg-main);
   color: var(--text-primary);
   line-height: 1.6;
-
+  padding-top: 10px;
   transition:
     background 0.35s ease,
     color 0.35s ease;
@@ -161,4 +161,11 @@ button:active {
     background-color 0.3s ease,
     color 0.3s ease,
     border-color 0.3s ease;
+}
+* {
+  transition:
+    background-color 0.35s ease,
+    color 0.35s ease,
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
 }

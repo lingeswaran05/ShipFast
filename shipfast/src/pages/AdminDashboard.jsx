@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { IoSunnyOutline, IoMoonOutline } from "react-icons/io5";
 import "../styles/admindashboard.css";
-
+import { useNavigate } from 'react-router-dom';
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [theme, setTheme] = useState("dark");
 
   useEffect(() => {
@@ -18,12 +19,12 @@ export default function AdminDashboard() {
         </div>
 
         <nav className="nav-links">
-          <button className="active">Overview</button>
-          <button>Branches & Hubs</button>
-          <button>Pricing</button>
-          <button>Fleet</button>
-          <button>Staff</button>
-          <button>Performance</button>
+          <button className="active" onClick={() => navigate('/agent')}>Overview</button>
+          <button onClick={() => navigate('/branches-hubs')}>Branches & Hubs</button>
+          <button onClick={() => navigate('/pricing')}>Pricing</button>
+          <button onClick={() => navigate('/fleet')}>Fleet</button>
+          <button onClick={() => navigate('/staff')}>Staff</button>
+          <button onClick={() => navigate('/performance')}>Performance</button>
         </nav>
 
         <div className="nav-right">
@@ -46,7 +47,7 @@ export default function AdminDashboard() {
 
       {/* PAGE */}
       <main className="admin-page">
-        <div className="page-title">
+        <div >
           <h1>Network Overview</h1>
           <p>System-wide performance and operations</p>
         </div>

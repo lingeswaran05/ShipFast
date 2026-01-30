@@ -1,0 +1,53 @@
+.section-title {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 16px;
+  color: #0f172a;
+}
+
+.zone-row {
+  margin-bottom: 14px;
+}
+
+.zone-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.zone-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.zone-bar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.zone-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 999px;
+}
+
+.green {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+/* DARK MODE FIX */
+[data-theme="dark"] .section-title,
+[data-theme="dark"] .zone-top {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .zone-bar {
+  background: rgba(255,255,255,.15);
+}

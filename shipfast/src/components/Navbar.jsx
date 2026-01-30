@@ -9,9 +9,8 @@ import { useState, useEffect } from "react";
 
 export default function Navbar() {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState("light"); // default = dark
+  const [theme, setTheme] = useState("light");
 
-  // Apply theme globally
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
@@ -33,14 +32,12 @@ export default function Navbar() {
         </span>
       </div>
 
-      {/* ACTIONS */}
       <div className="nav-actions">
         {/* THEME TOGGLE */}
         <button className="theme-toggle" onClick={toggleTheme}>
           {theme === "dark" ? <IoSunnyOutline /> : <IoMoonOutline />}
         </button>
 
-        {/* TRACK SHIPMENT */}
         <button
           className="track-btn-1"
           onClick={() => navigate("/shipment")}
@@ -49,7 +46,6 @@ export default function Navbar() {
           Track <div>Shipment</div>
         </button>
 
-        {/* SIGN IN */}
         <button
           className="signin-btn"
           onClick={() => navigate("/login")}
