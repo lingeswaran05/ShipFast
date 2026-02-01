@@ -1,0 +1,571 @@
+/* ---------- PAGE ---------- */
+.agent-dashboard {
+  min-height: 100vh;
+  background: #fff8ef; /* exact cream background */
+  font-family: "Inter", system-ui, sans-serif;
+  color: #0f172a;
+}
+
+/* ---------- NAVBAR ---------- */
+.agent-navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 36px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.logo span {
+  font-weight: 800;
+  font-size: 22px;
+  color: #f97316;
+}
+
+/* ---------- NAV ---------- */
+.agent-nav {
+  display: flex;
+  gap: 20px;
+}
+
+.agent-nav button {
+  padding: 8px 18px;
+  border-radius: 14px;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #475569;
+}
+
+.agent-nav .active {
+  background: #f97316;
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(249, 115, 22, 0.35);
+}
+
+/* ---------- USER ---------- */
+.agent-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  padding: 6px 12px;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+}
+
+.agent-user img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.agent-user strong {
+  font-size: 13px;
+}
+
+.agent-user small {
+  color: #f97316;
+  font-size: 11px;
+}
+
+/* ---------- CONTENT ---------- */
+.agent-content {
+  padding: 48px 36px;
+  max-width: 1200px;
+  margin: auto;
+}
+
+.agent-content h2 {
+  font-size: 36px;
+  font-weight: 800;
+}
+
+.subtitle {
+  color: #64748b;
+  margin-bottom: 28px;
+}
+
+/* ---------- STATS ---------- */
+.agent-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.state-cards {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+}
+
+.stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.state-cards h4 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.state-cards h3 {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.state-cards span {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.trend {
+  color: #16a34a;
+}
+
+/* ---------- ACTIONS ---------- */
+.agent-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 36px 0;
+}
+
+.action {
+  padding: 28px;
+  border-radius: 22px;
+  color: white;
+  cursor: pointer;
+}
+
+.action.blue {
+  background: #2563eb;
+}
+
+.action.orange {
+  background: #f97316;
+}
+
+.action.dark {
+  background: #5b6b82;
+}
+
+.action h3 {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.action p {
+  margin-top: 8px;
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+/* ---------- ACTIVITY ---------- */
+.activity {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+}
+
+.activity-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 1.2fr 2fr 1fr;
+  padding: 16px 0;
+  border-top: 1px solid #e5e7eb;
+  font-size: 14px;
+}
+
+.activity-item:first-of-type {
+  border-top: none;
+}
+
+.activity-time {
+  color: #64748b;
+  text-align: right;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 900px) {
+  .agent-stats,
+  .agent-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+/* ========================================================= */
+/* ===================== DARK THEME ONLY =================== */
+/* ========================================================= */
+
+[data-theme="dark"] .agent-dashboard {
+  background: linear-gradient(
+    135deg,
+    #020617 0%,
+    #0b1224 45%,
+    #3b0a00 100%
+  );
+  color: #e5e7eb;
+}
+
+/* ---------- NAVBAR (DARK) ---------- */
+[data-theme="dark"] .agent-navbar {
+  background: linear-gradient(
+    90deg,
+    #020617,
+    #0b1224 50%,
+    #020617
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .logo span {
+  color: #fb923c;
+}
+
+/* ---------- NAV BUTTONS (DARK) ---------- */
+[data-theme="dark"] .agent-nav button {
+  color: #cbd5f5;
+}
+
+[data-theme="dark"] .agent-nav .active {
+  background: linear-gradient(135deg, #f97316, #ef4444);
+  box-shadow: 0 0 18px rgba(249, 115, 22, 0.6);
+}
+
+/* ---------- THEME TOGGLE ---------- */
+.theme-toggle {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #facc15;
+}
+
+[data-theme="dark"] .theme-toggle {
+  color: #facc15;
+}
+
+/* ---------- USER CARD (DARK) ---------- */
+[data-theme="dark"] .agent-user {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .agent-user small {
+  color: #fb923c;
+}
+
+/* ---------- HEADINGS (DARK) ---------- */
+[data-theme="dark"] .agent-content h2 {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .subtitle {
+  color: #94a3b8;
+}
+
+/* ---------- STATS CARDS (DARK – stay white like design) ---------- */
+[data-theme="dark"] .state-cards {
+  background: #ffffff;
+  color: #020617;
+}
+
+/* ---------- ACTION CARDS (DARK) ---------- */
+[data-theme="dark"] .action.blue {
+  background: #2563eb;
+}
+
+[data-theme="dark"] .action.orange {
+  background: #f97316;
+}
+
+[data-theme="dark"] .action.dark {
+  background: #64748b;
+}
+
+/* ---------- ACTIVITY (DARK – white card) ---------- */
+[data-theme="dark"] .activity {
+  background: #ffffff;
+  color: #020617;
+}
+/* ===================================================== */
+/* =============== EXACT DARK NAVBAR =================== */
+/* ===================================================== */
+
+[data-theme="dark"] .agent-navbar {
+  height: 72px;
+  padding: 0 40px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background: linear-gradient(
+    90deg,
+    #020617 0%,
+    #0b1224 45%,
+    #020617 100%
+  );
+
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- LOGO ---------- */
+[data-theme="dark"] .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+[data-theme="dark"] .logo span {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #f97316;
+}
+
+/* ---------- NAV ITEMS ---------- */
+[data-theme="dark"] .agent-nav {
+  display: flex;
+  align-items: center;
+  gap: 34px;
+}
+
+[data-theme="dark"] .agent-nav button {
+  background: transparent;
+  border: none;
+
+  color: #cbd5f5;
+  font-size: 15px;
+  font-weight: 500;
+
+  cursor: pointer;
+  padding: 10px 0;
+}
+
+/* ---------- ACTIVE TAB (OVERVIEW) ---------- */
+[data-theme="dark"] .agent-nav .active {
+  padding: 12px 26px;
+  border-radius: 16px;
+
+  background: linear-gradient(
+    135deg,
+    #ff4d00,
+    #ff6a00
+  );
+
+  color: #ffffff;
+  font-weight: 600;
+
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 8px 30px rgba(255, 90, 0, 0.55);
+}
+
+/* ---------- RIGHT SIDE ICONS ---------- */
+[data-theme="dark"] .nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* THEME ICON */
+[data-theme="dark"] .theme-toggle {
+  font-size: 18px;
+  color: #facc15;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* ---------- USER CARD ---------- */
+[data-theme="dark"] .agent-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 10px 16px;
+  border-radius: 16px;
+
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .agent-user img {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid #f97316;
+}
+
+[data-theme="dark"] .agent-user strong {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .agent-user small {
+  color: #fb923c;
+  font-size: 12px;
+}
+
+/* ---------- LOGOUT ICON (RIGHTMOST) ---------- */
+[data-theme="dark"] .agent-navbar svg,
+[data-theme="dark"] .agent-navbar i {
+  color: #94a3b8;
+  cursor: pointer;
+}
+/* ===================================================== */
+/* =============== EXACT LIGHT NAVBAR ================== */
+/* ===================================================== */
+
+[data-theme="light"] .agent-navbar,
+.agent-navbar {
+  height: 72px;
+  padding: 0 44px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* ---------- LOGO ---------- */
+.agent-navbar .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-navbar .logo span {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #ff4d00;
+}
+
+/* ---------- NAV ITEMS ---------- */
+.agent-navbar .agent-nav {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+
+.agent-navbar .agent-nav button {
+  background: transparent;
+  border: none;
+
+  color: #475569;
+  font-size: 15px;
+  font-weight: 500;
+
+  cursor: pointer;
+  padding: 10px 0;
+}
+
+/* ---------- ACTIVE TAB (OVERVIEW) ---------- */
+.agent-navbar .agent-nav .active {
+  padding: 12px 28px;
+  border-radius: 16px;
+
+  background: linear-gradient(
+    135deg,
+    #ff4d00,
+    #ff7a00
+  );
+
+  color: #ffffff;
+  font-weight: 600;
+
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 10px 26px rgba(255, 90, 0, 0.45);
+}
+
+/* ---------- RIGHT ACTIONS ---------- */
+.agent-navbar .nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* THEME ICON (MOON) */
+.agent-navbar .theme-toggle {
+  font-size: 18px;
+  color: #334155;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* ---------- USER CARD ---------- */
+.agent-navbar .agent-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 10px 16px;
+  border-radius: 18px;
+
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+}
+
+.agent-navbar .agent-user img {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid #ff4d00;
+}
+
+.agent-navbar .agent-user strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.agent-navbar .agent-user small {
+  font-size: 12px;
+  color: #ff4d00;
+}
+/* ===================================================== */
+/* ========== AGENT USER PILL – DARK MODE FIX =========== */
+/* ===================================================== */
+
+[data-theme="dark"] .agent-user {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] .agent-user strong {
+  color: #ffffff;
+}
+
+[data-theme="dark"] .agent-user small {
+  color: #fb923c;
+}
+
+[data-theme="dark"] .agent-user img {
+  border-color: #f97316;
+}

@@ -1,0 +1,197 @@
+/* =========================
+   NAVBAR CONTAINER
+========================= */
+.navbar {
+  height: 72px;
+  padding: 0 64px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background: linear-gradient(
+    180deg,
+    var(--bg-main),
+    var(--bg-secondary)
+  );
+
+  border-bottom: 1px solid var(--border-color);
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+/* =========================
+   LOGO
+========================= */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.logo-icon {
+  font-size: 22px;
+}
+
+.logo-text {
+  font-family: "Poppins", system-ui, sans-serif;
+  font-size: 30px;
+  font-weight: 800;
+
+  background: linear-gradient(
+    90deg,
+    #3b82f6 0%,
+    #8b5cf6 50%,
+    #ec4899 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* =========================
+   RIGHT ACTIONS WRAPPER
+========================= */
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+/* =========================
+   THEME TOGGLE ICON
+========================= */
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+
+  color: #facc15;
+  font-size: 18px;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
+}
+
+.theme-toggle:hover {
+  border-color: rgba(139, 92, 246, 0.7);
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+  transform: scale(1.05);
+}
+
+/* =========================
+   TRACK SHIPMENT BUTTON
+========================= */
+.track-btn-1 {
+  background: transparent;
+  border:  rgba(255, 255, 255, 0.25);
+  border-radius: px;
+  
+  padding: 1px 2px;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    color 0.25s ease,
+    transform 0.2s ease;
+}
+
+.track-btn-1 svg {
+  font-size: 20px;
+  color: var(--text-secondary);
+  transition: color 0.25s ease;
+}
+
+.track-btn-1:hover {
+  color: var(--text-primary);
+  border-color: rgba(139, 92, 246, 0.8);
+
+  box-shadow:
+    0 0 14px rgba(139, 92, 246, 0.35),
+    inset 0 0 0 999px rgba(139, 92, 246, 0.05);
+
+  transform: translateY(-1px);
+}
+
+.track-btn-1:hover svg {
+  color: var(--text-primary);
+}
+
+/* =========================
+   SIGN IN BUTTON
+========================= */
+.signin-btn {
+  background: linear-gradient(
+    90deg,
+    #3b82f6 0%,
+    #8b5cf6 100%
+  );
+
+  border: none;
+  color: white;
+
+  padding: 12px 18px;
+  border-radius: 999px;
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 0 18px rgba(99, 102, 241, 0.8),
+    0 0 36px rgba(139, 92, 246, 0.6);
+
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.signin-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 28px rgba(99, 102, 241, 1),
+    0 0 48px rgba(139, 92, 246, 0.9);
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0 24px;
+  }
+
+  .track-btn-1 {
+    display: none;
+  }
+}
