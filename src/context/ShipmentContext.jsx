@@ -69,11 +69,66 @@ export function ShipmentProvider({ children }) {
       { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore' },
   ]);
   const [staff, setStaff] = useState([
-      { id: 1, name: 'Arun Singh', role: 'Manager', branch: 'Mumbai Central Hub', status: 'Active', phone: '9876543210' },
-      { id: 2, name: 'Vijay Kumar', role: 'Driver', branch: 'Delhi North Gate', status: 'Active', phone: '9123456789' },
-      { id: 3, name: 'Sita Verma', role: 'Agent', branch: 'Bangalore Tech Park', status: 'Active', phone: '9988776655' },
-      { id: 4, name: 'Rohan Gupta', role: 'Sorter', branch: 'Chennai Port', status: 'Leave', phone: '8877665544' },
-      { id: 5, name: 'Kavita Mishra', role: 'Manager', branch: 'Kolkata East', status: 'Active', phone: '7766554433' },
+      { 
+        id: 1, 
+        name: 'Arun Singh', 
+        role: 'Manager', 
+        branch: 'Mumbai Central Hub', 
+        status: 'Active', 
+        phone: '9876543210',
+        email: 'arun.singh@shipfast.com',
+        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_arun.pdf', licenseFile: 'license_arun.pdf' },
+        personalDetails: { dob: '1985-05-12', joiningDate: '2020-01-15', address: '123, Mumbai Main Rd, MH', bloodGroup: 'O+' },
+        performance: { deliveries: 0, rating: 4.8, shift: 'Day' }
+      },
+      { 
+        id: 2, 
+        name: 'Vijay Kumar', 
+        role: 'Driver', 
+        branch: 'Delhi North Gate', 
+        status: 'Active', 
+        phone: '9123456789',
+        email: 'vijay.kumar@shipfast.com',
+        documents: { aadhar: true, license: true, pan: false, aadharFile: 'aadhar_vijay.jpg', licenseFile: 'license_vijay.jpg' },
+        personalDetails: { dob: '1990-08-22', joiningDate: '2021-06-10', address: '45, Delhi Lane, DL', bloodGroup: 'A+' },
+        performance: { deliveries: 1250, rating: 4.5, shift: 'Night' }
+      },
+      { 
+        id: 3, 
+        name: 'Sita Verma', 
+        role: 'Agent', 
+        branch: 'Bangalore Tech Park', 
+        status: 'Active', 
+        phone: '9988776655',
+        email: 'sita.verma@shipfast.com',
+        documents: { aadhar: true, license: false, pan: true, aadharFile: 'aadhar_sita.pdf', licenseFile: null },
+        personalDetails: { dob: '1992-11-30', joiningDate: '2022-03-01', address: '78, Tech Park Ave, KA', bloodGroup: 'B+' },
+        performance: { deliveries: 3400, rating: 4.9, shift: 'Day' }
+      },
+      { 
+        id: 4, 
+        name: 'Rohan Gupta', 
+        role: 'Sorter', 
+        branch: 'Chennai Port', 
+        status: 'Leave', 
+        phone: '8877665544',
+        email: 'rohan.gupta@shipfast.com',
+        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_rohan.png', licenseFile: 'license_rohan.png' },
+        personalDetails: { dob: '1995-02-14', joiningDate: '2023-01-20', address: '12, Port Road, TN', bloodGroup: 'O-' },
+        performance: { deliveries: 0, rating: 4.2, shift: 'Night' }
+      },
+      { 
+        id: 5, 
+        name: 'Kavita Mishra', 
+        role: 'Manager', 
+        branch: 'Kolkata East', 
+        status: 'Active', 
+        phone: '7766554433',
+        email: 'kavita.mishra@shipfast.com',
+        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_kavita.pdf', licenseFile: 'license_kavita.pdf' },
+        personalDetails: { dob: '1988-07-19', joiningDate: '2019-11-05', address: '89, Kolkata Street, WB', bloodGroup: 'AB+' },
+        performance: { deliveries: 0, rating: 4.7, shift: 'Day' }
+      },
   ]);
   const [notifications, setNotifications] = useState([]);
 

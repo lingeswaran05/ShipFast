@@ -1,0 +1,18 @@
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-visible, .print-visible * {
+    visibility: visible;
+  }
+  .print-visible {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  /* Hide buttons during print */
+  button {
+    display: none !important;
+  }
+}
