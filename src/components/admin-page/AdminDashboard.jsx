@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { useShipment } from '../../context/ShipmentContext';
@@ -80,25 +80,32 @@ export function AdminDashboard({ view }) {
       setShowStaffModal(true);
   };
   
-  const revenueData = [
-    { name: 'Mon', revenue: 4000 },
-    { name: 'Tue', revenue: 3000 },
-    { name: 'Wed', revenue: 2000 },
-    { name: 'Thu', revenue: 2780 },
-    { name: 'Fri', revenue: 1890 },
-    { name: 'Sat', revenue: 2390 },
-    { name: 'Sun', revenue: 3490 },
-  ];
+  // Dynamic Analytics Data
+  const { revenueData, volumeData } = useMemo(() => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const today = new Date();
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - (6 - i));
+        return { 
+            name: days[d.getDay()], 
+            date: d.toISOString().split('T')[0],
+            revenue: 0,
+            volume: 0 
+        };
+    });
 
-  const volumeData = [
-      { name: 'Mon', volume: 240 },
-      { name: 'Tue', volume: 138 },
-      { name: 'Wed', volume: 980 },
-      { name: 'Thu', volume: 390 },
-      { name: 'Fri', volume: 480 },
-      { name: 'Sat', volume: 380 },
-      { name: 'Sun', volume: 430 },
-  ];
+    shipments.forEach(s => {
+        const sDate = s.date; // YYYY-MM-DD
+        const dayEntry = last7Days.find(d => d.date === sDate);
+        if (dayEntry) {
+            dayEntry.volume += 1;
+            dayEntry.revenue += parseFloat(s.cost) || 0;
+        }
+    });
+
+    return { revenueData: last7Days, volumeData: last7Days };
+  }, [shipments]);
 
 
 

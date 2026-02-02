@@ -17,14 +17,25 @@ export function TopNavbar({ user }) {
 
   return (
     <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
-       <div className="text-sm font-medium text-slate-500">
-         {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-       </div>
+      {/* Left side - Logo */}
+      <div 
+        onClick={() => navigate('/')} 
+        className="flex items-center gap-3 cursor-pointer group"
+      >
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-lg shadow-lg group-hover:shadow-purple-500/30 transition-all duration-300">
+          S
+        </div>
+        <span className="font-heading font-bold text-xl bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent group-hover:from-purple-600 group-hover:to-pink-500 transition-all duration-300">
+          ShipFast
+        </span>
+      </div>
+
+      {/* Right side - Notifications & Profile */}
        <div className="flex items-center gap-4">
           <div className="relative">
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all relative"
+              className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-full transition-all relative"
             >
               <Bell className="w-5 h-5" />
               {notifications.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
@@ -48,18 +59,19 @@ export function TopNavbar({ user }) {
           </div>
 
           <div className="h-8 w-px bg-slate-200 mx-2"></div>
+          
           <div 
             onClick={handleProfileClick}
-            className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors"
+            className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-1.5 pr-3 rounded-full border border-transparent hover:border-slate-100 transition-all duration-300"
           >
              <div className="text-right hidden sm:block">
-               <div className="text-sm font-bold text-slate-900 leading-tight">{user?.name}</div>
-               <div className="text-xs text-purple-600 font-medium capitalize">{user?.role}</div>
+               <div className="text-sm font-bold text-slate-900 leading-tight group-hover:text-purple-600 transition-colors">{user?.name}</div>
+               <div className="text-xs text-slate-500 font-medium capitalize">{user?.role}</div>
              </div>
              <img
                src={user?.profilePic || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop'}
                alt={user?.name}
-               className="w-10 h-10 rounded-full object-cover border-2 border-slate-100 shadow-sm"
+               className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-md"
              />
           </div>
        </div>

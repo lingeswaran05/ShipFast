@@ -7,56 +7,86 @@ export function AgentDashboard({ view }) {
   const [scanId, setScanId] = useState('');
   const [scanResult, setScanResult] = useState(null);
   const [activeTab, setActiveTab] = useState('deliveries'); 
-  const [statusUpdate, setStatusUpdate] = useState({ id: '', status: '', note: '' });
+  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterCity, setFilterCity] = useState('');
 
-  const todaysDeliveries = useMemo(() => {
-    return shipments.filter(s => 
-       ['In Transit', 'Out for Delivery', 'Received at Hub'].includes(s.status)
-    );
+  // Derived state for stats
+  const stats = useMemo(() => {
+     return {
+         toDeliver: shipments.filter(s => ['In Transit', 'Out for Delivery', 'Received at Hub', 'Booked'].includes(s.status)).length,
+         completed: shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status)).length,
+         cashCollected: shipments
+            .filter(s => s.status === 'Delivered' && s.paymentMode === 'Cash')
+            .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0)
+     };
   }, [shipments]);
 
-  const history = useMemo(() => {
-     return shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status));
-  }, [shipments]);
+  // Dynamic Shipment List based on Tab & Filters
+  const shipmentList = useMemo(() => {
+    let list = [];
+    if (activeTab === 'deliveries') {
+        list = shipments.filter(s => ['In Transit', 'Out for Delivery', 'Received at Hub', 'Booked'].includes(s.status));
+    } else if (activeTab === 'history') {
+        list = shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status));
+    } else if (activeTab === 'pickups') {
+         list = shipments.filter(s => s.status === 'Booked');
+    }
+
+    if (filterStatus !== 'All') {
+        list = list.filter(s => s.status === filterStatus);
+    }
+    if (filterCity) {
+        list = list.filter(s => s.receiver.city.toLowerCase().includes(filterCity.toLowerCase()) || s.sender.city.toLowerCase().includes(filterCity.toLowerCase()));
+    }
+    return list;
+  }, [shipments, activeTab, filterStatus, filterCity]);
 
   const handleQuickStatusUpdate = (id, newStatus) => {
-      updateShipmentStatus(id, newStatus);
+      // Simulate "Real-time" assignment or update
+      updateShipmentStatus(id, newStatus, 'Agent Update');
   };
   
- const handleScan = (e) => {
+  const handleScan = (e) => {
     e.preventDefault();
     if (!scanId) return;
 
-    updateShipmentStatus(scanId, 'Received at Hub');
-    setScanResult({
-        id: scanId,
-        status: 'Received at Hub',
-        timestamp: new Date().toLocaleString()
-    });
+    // Check if shipment exists
+    const shipment = shipments.find(s => s.id === scanId);
+    if (shipment) {
+        updateShipmentStatus(scanId, 'Received at Hub');
+        setScanResult({
+            id: scanId,
+            status: 'Received at Hub',
+            timestamp: new Date().toLocaleString(),
+            success: true
+        });
+    } else {
+        setScanResult({
+            id: scanId,
+            status: 'Not Found',
+            timestamp: new Date().toLocaleString(),
+            success: false
+        });
+    }
     setScanId('');
     setTimeout(() => setScanResult(null), 3000);
   };
 
-  const calculateCashCollected = () => {
-      return history
-        .filter(s => s.status === 'Delivered' && s.paymentMode === 'Cash')
-        .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
-  };
-
   return (
     <div className="space-y-6 animate-fade-in-up">
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-            <div className="text-slate-500 text-xs font-semibold uppercase mb-1">To Deliver</div>
-            <div className="text-2xl font-bold text-slate-800">{todaysDeliveries.length}</div>
+            <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Active Shipments</div>
+            <div className="text-2xl font-bold text-slate-800">{stats.toDeliver}</div>
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
             <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Completed</div>
-            <div className="text-2xl font-bold text-slate-800">{history.length}</div>
+            <div className="text-2xl font-bold text-slate-800">{stats.completed}</div>
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
             <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Cash in Hand</div>
-            <div className="text-2xl font-bold text-emerald-600">₹{calculateCashCollected()}</div>
+            <div className="text-2xl font-bold text-emerald-600">₹{stats.cashCollected}</div>
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
              <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Shift Timer</div>
@@ -68,58 +98,93 @@ export function AgentDashboard({ view }) {
 
       {view === 'overview' && (
         <div className="space-y-6">
-            <div className="flex gap-2 overflow-x-auto pb-2">
-                {['deliveries', 'pickups', 'history', 'profile'].map(tab => (
-                    <button 
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-6 py-2 rounded-full font-bold text-sm capitalize whitespace-nowrap transition-all ${
-                            activeTab === tab 
-                            ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20' 
-                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                        }`}
-                    >
-                        {tab}
-                    </button>
-                ))}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex gap-2 overflow-x-auto pb-2 w-full sm:w-auto">
+                    {['deliveries', 'pickups', 'history', 'profile'].map(tab => (
+                        <button 
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            className={`px-6 py-2 rounded-full font-bold text-sm capitalize whitespace-nowrap transition-all ${
+                                activeTab === tab 
+                                ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20' 
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                            }`}
+                        >
+                            {tab}
+                        </button>
+                    ))}
+                </div>
+                
+                {activeTab !== 'profile' && (
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:flex-initial">
+                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                             <input 
+                                type="text" 
+                                placeholder="Filter city..." 
+                                className="pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+                                value={filterCity}
+                                onChange={(e) => setFilterCity(e.target.value)}
+                             />
+                        </div>
+                        <select 
+                            className="pl-3 pr-8 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value)}
+                        >
+                            <option value="All">All Status</option>
+                            <option value="Booked">Booked</option>
+                            <option value="In Transit">In Transit</option>
+                            <option value="Out for Delivery">Out for Delivery</option>
+                        </select>
+                    </div>
+                )}
             </div>
 
             {activeTab === 'profile' && (
                 <AgentProfileView currentUser={currentUser} />
             )}
 
-            {activeTab === 'deliveries' && (
+            {activeTab !== 'profile' && (
                 <div className="space-y-4">
-                    <h2 className="font-bold text-slate-800 flex items-center gap-2">
-                        <Truck className="w-5 h-5 text-indigo-600" />
-                        Today's Route ({todaysDeliveries.length})
+                    <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+                        {activeTab === 'deliveries' && <Truck className="w-5 h-5 text-indigo-600" />}
+                        {activeTab === 'pickups' && <Package className="w-5 h-5 text-indigo-600" />}
+                        {activeTab === 'history' && <Clock className="w-5 h-5 text-slate-600" />}
+                        
+                        <span className="capitalize">{activeTab}</span> 
+                        <span className="text-slate-400 font-normal text-sm ml-2">({shipmentList.length})</span>
                     </h2>
                     
-                    {todaysDeliveries.length === 0 ? (
-                        <div className="text-center py-10 bg-white rounded-xl border border-slate-200 border-dashed">
+                    {shipmentList.length === 0 ? (
+                        <div className="text-center py-10 bg-white rounded-xl border border-slate-200 border-dashed animate-fade-in">
                              <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                             <p className="text-slate-500">No deliveries assigned for today yet.</p>
-                             <button className="mt-4 text-indigo-600 font-bold hover:underline">Refresh List</button>
+                             <p className="text-slate-500">No {activeTab} found matching your filters.</p>
+                             <button onClick={() => {setFilterStatus('All'); setFilterCity('');}} className="mt-4 text-indigo-600 font-bold hover:underline">Clear Filters</button>
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            {todaysDeliveries.map(shipment => (
-                                <div key={shipment.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {shipmentList.map(shipment => (
+                                <div key={shipment.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="font-bold text-lg text-slate-900">{shipment.id}</span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                            </div>
+                                            <div className="flex gap-2 mb-2">
+                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                                     shipment.paymentMode === 'Cash' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
                                                 }`}>
                                                     {shipment.paymentMode}
                                                 </span>
+                                                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs font-bold">
+                                                    {shipment.status}
+                                                </span>
                                             </div>
-                                            <div className="text-sm text-slate-500 font-medium">{shipment.type} Shipment • {shipment.weight}kg</div>
                                         </div>
                                         <div className="text-right">
                                             <div className="font-bold text-xl text-slate-900">₹{shipment.cost}</div>
-                                            <div className="text-xs text-slate-400">Amount to Collect</div>
+                                            <div className="text-xs text-slate-400">Value</div>
                                         </div>
                                     </div>
 
@@ -127,64 +192,45 @@ export function AgentDashboard({ view }) {
                                         <div className="flex items-start gap-3">
                                             <MapPin className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
                                             <div>
-                                                <div className="font-bold text-slate-800 text-sm">{shipment.receiver.name}</div>
-                                                <div className="text-sm text-slate-600 leading-snug">{shipment.receiver.city} (Full address mock)</div>
+                                                <div className="font-bold text-slate-800 text-sm">
+                                                    {activeTab === 'pickups' ? shipment.sender.name : shipment.receiver.name}
+                                                </div>
+                                                <div className="text-sm text-slate-600 leading-snug">
+                                                    {activeTab === 'pickups' ? shipment.sender.city : shipment.receiver.city}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <Phone className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                                            <a href={`tel:${shipment.receiver.phone}`} className="text-sm font-bold text-emerald-600 hover:underline">{shipment.receiver.phone}</a>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3">
+                                    {activeTab === 'deliveries' && (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button 
+                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Delivered')}
+                                                className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                            >
+                                                <CheckCircle className="w-4 h-4" /> Delivered
+                                            </button>
+                                            <button 
+                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Out for Delivery')}
+                                                className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                            >
+                                                <Truck className="w-4 h-4" /> Out for Delivery
+                                            </button>
+                                        </div>
+                                    )}
+                                    {activeTab === 'pickups' && (
                                         <button 
-                                            onClick={() => handleQuickStatusUpdate(shipment.id, 'Delivered')}
-                                            className="py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                            onClick={() => handleQuickStatusUpdate(shipment.id, 'Received at Hub')}
+                                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                         >
-                                            <CheckCircle className="w-4 h-4" /> Delivered
+                                            <Package className="w-4 h-4" /> Confirm Pickup
                                         </button>
-                                        <button 
-                                            onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed')}
-                                            className="py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
-                                        >
-                                            <AlertTriangle className="w-4 h-4" /> Failed attempt
-                                        </button>
-                                    </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
-            )}
-
-            {activeTab === 'history' && (
-                 <div className="space-y-4">
-                    <h2 className="font-bold text-slate-800 flex items-center gap-2">
-                        <Clock className="w-5 h-5 text-indigo-600" />
-                        Work History
-                    </h2>
-                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                        <div className="divide-y divide-slate-100">
-                             {history.map(s => (
-                                 <div key={s.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
-                                     <div>
-                                         <div className="font-bold text-slate-900">{s.id}</div>
-                                         <div className="text-xs text-slate-500">{s.receiver.city} • ₹{s.cost}</div>
-                                     </div>
-                                     <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                         s.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                     }`}>
-                                         {s.status}
-                                     </span>
-                                 </div>
-                             ))}
-                             {history.length === 0 && (
-                                 <div className="p-8 text-center text-slate-500 text-sm">No history available</div>
-                             )}
-                        </div>
-                    </div>
-                 </div>
             )}
         </div>
       )}
@@ -225,13 +271,17 @@ export function AgentDashboard({ view }) {
             </form>
 
             {scanResult && (
-               <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-4 animate-fade-in-up">
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-                     <CheckCircle className="w-6 h-6" />
+               <div className={`border rounded-xl p-4 flex items-center gap-4 animate-fade-in-up ${scanResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${scanResult.success ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                     {scanResult.success ? <CheckCircle className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
                   </div>
                   <div>
-                     <div className="font-bold text-green-800">Status Updated Successfully</div>
-                     <div className="text-green-700 text-sm">{scanResult.id} marked as {scanResult.status}</div>
+                     <div className={`font-bold ${scanResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                        {scanResult.success ? 'Status Updated Successfully' : 'Shipment Not Found'}
+                     </div>
+                     <div className={`text-sm ${scanResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                        {scanResult.id} : {scanResult.status}
+                     </div>
                   </div>
                </div>
             )}
@@ -250,11 +300,11 @@ export function AgentDashboard({ view }) {
       )}
 
       {view === 'runsheets' && (
-         <RunSheetView todaysDeliveries={todaysDeliveries} />
+         <RunSheetView todaysDeliveries={shipments.filter(s => ['Received at Hub', 'Booked'].includes(s.status))} />
       )}
 
       {view === 'cash' && (
-         <CashCollectionView history={history} />
+         <CashCollectionView history={stats.cashCollected} />
       )}
     </div>
   );

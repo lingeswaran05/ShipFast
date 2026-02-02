@@ -7,130 +7,98 @@ export function useShipment() {
 }
 
 export function ShipmentProvider({ children }) {
-  const [shipments, setShipments] = useState([
+  // Helper to load from localStorage or use default
+  const loadState = (key, defaultValue) => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : defaultValue;
+    } catch (e) {
+      console.error(`Error loading ${key} from localStorage`, e);
+      return defaultValue;
+    }
+  };
+
+  // Helper to save to localStorage
+  const saveState = (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error(`Error saving ${key} to localStorage`, e);
+    }
+  };
+
+  const defaultShipments = [
     {
       id: 'SF123456789',
-      sender: { name: 'Rahul Sharma', phone: '9876543210', city: 'Mumbai' },
-      receiver: { name: 'Priya Singh', phone: '9123456780', city: 'Delhi' },
+      sender: { name: 'Rahul Sharma', phone: '9876543210', city: 'Mumbai', pincode: '400001' },
+      receiver: { name: 'Priya Singh', phone: '9123456780', city: 'Delhi', pincode: '110001' },
       status: 'In Transit',
       type: 'Standard',
       weight: '2.5',
       cost: '250',
-      date: '2025-01-30',
+      date: new Date().toISOString().split('T')[0],
+      paymentMode: 'UPI',
       history: [
-        { status: 'Booked', location: 'Mumbai', timestamp: '2025-01-30 09:00 AM' },
-        { status: 'Received at Hub', location: 'Mumbai Central', timestamp: '2025-01-30 11:00 AM' },
-        { status: 'In Transit', location: 'Mumbai - Delhi Highway', timestamp: '2025-01-30 04:00 PM' }
+        { status: 'Booked', location: 'Mumbai', timestamp: new Date(Date.now() - 7200000).toLocaleString() },
+        { status: 'Received at Hub', location: 'Mumbai Central', timestamp: new Date(Date.now() - 3600000).toLocaleString() },
+        { status: 'In Transit', location: 'Mumbai - Delhi Highway', timestamp: new Date().toLocaleString() }
       ]
     },
     {
       id: 'SF987654321',
-      sender: { name: 'Amit Kumar', phone: '8877665544', city: 'Bangalore' },
-      receiver: { name: 'Sneha Gupta', phone: '7766554433', city: 'Chennai' },
+      sender: { name: 'Amit Kumar', phone: '8877665544', city: 'Bangalore', pincode: '560001' },
+      receiver: { name: 'Sneha Gupta', phone: '7766554433', city: 'Chennai', pincode: '600001' },
       status: 'Delivered',
       type: 'Express',
       weight: '1.2',
       cost: '450',
-      date: '2025-01-28',
+      date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+      paymentMode: 'Card',
       history: [
-        { status: 'Booked', location: 'Bangalore', timestamp: '2025-01-28 10:00 AM' },
-        { status: 'Delivered', location: 'Chennai', timestamp: '2025-01-29 02:00 PM' }
+        { status: 'Booked', location: 'Bangalore', timestamp: new Date(Date.now() - 90000000).toLocaleString() },
+        { status: 'Delivered', location: 'Chennai', timestamp: new Date(Date.now() - 86400000).toLocaleString() }
       ]
-    },
-    {
-       id: 'SF112233445',
-       sender: { name: 'John Doe', phone: '9988776655', city: 'Kolkata' },
-       receiver: { name: 'Jane Smith', phone: '1122334455', city: 'Hyderabad' },
-       status: 'Pending',
-       type: 'Standard',
-       weight: '5.0',
-       cost: '600',
-       date: '2025-01-31',
-       history: [
-           { status: 'Booked', location: 'Kolkata', timestamp: '2025-01-31 08:30 AM' }
-       ]
     }
-  ]);
+  ];
 
-  const [currentUser, setCurrentUser] = useState(null);
-
-  const [users, setUsers] = useState([]); 
-  const [branches, setBranches] = useState([
+  const defaultBranches = [
     { id: 1, name: 'Mumbai Central Hub', type: 'Hub', state: 'Maharashtra', status: 'Active', capacity: '85%' },
     { id: 2, name: 'Delhi North Gate', type: 'Branch', state: 'Delhi', status: 'Active', capacity: '60%' },
     { id: 3, name: 'Bangalore Tech Park', type: 'Hub', state: 'Karnataka', status: 'Active', capacity: '92%' },
     { id: 4, name: 'Chennai Port', type: 'Hub', state: 'Tamil Nadu', status: 'Maintenance', capacity: '45%' },
     { id: 5, name: 'Kolkata East', type: 'Branch', state: 'West Bengal', status: 'Active', capacity: '78%' },
-  ]);
-  const [vehicles, setVehicles] = useState([
-      { id: 'MH-01-AB-1234', type: 'Van', driver: 'Rajesh Kumar', status: 'In Transit', location: 'Mumbai' },
-      { id: 'MH-02-CD-5678', type: 'Truck', driver: 'N/A', status: 'Available', location: 'Pune' },
-      { id: 'DL-01-EF-9012', type: 'Scooter', driver: 'Amit Singh', status: 'Delivering', location: 'Delhi' },
-      { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore' },
-  ]);
-  const [staff, setStaff] = useState([
-      { 
-        id: 1, 
-        name: 'Arun Singh', 
-        role: 'Manager', 
-        branch: 'Mumbai Central Hub', 
-        status: 'Active', 
-        phone: '9876543210',
-        email: 'arun.singh@shipfast.com',
-        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_arun.pdf', licenseFile: 'license_arun.pdf' },
-        personalDetails: { dob: '1985-05-12', joiningDate: '2020-01-15', address: '123, Mumbai Main Rd, MH', bloodGroup: 'O+' },
-        performance: { deliveries: 0, rating: 4.8, shift: 'Day' }
-      },
-      { 
-        id: 2, 
-        name: 'Vijay Kumar', 
-        role: 'Driver', 
-        branch: 'Delhi North Gate', 
-        status: 'Active', 
-        phone: '9123456789',
-        email: 'vijay.kumar@shipfast.com',
-        documents: { aadhar: true, license: true, pan: false, aadharFile: 'aadhar_vijay.jpg', licenseFile: 'license_vijay.jpg' },
-        personalDetails: { dob: '1990-08-22', joiningDate: '2021-06-10', address: '45, Delhi Lane, DL', bloodGroup: 'A+' },
-        performance: { deliveries: 1250, rating: 4.5, shift: 'Night' }
-      },
-      { 
-        id: 3, 
-        name: 'Sita Verma', 
-        role: 'Agent', 
-        branch: 'Bangalore Tech Park', 
-        status: 'Active', 
-        phone: '9988776655',
-        email: 'sita.verma@shipfast.com',
-        documents: { aadhar: true, license: false, pan: true, aadharFile: 'aadhar_sita.pdf', licenseFile: null },
-        personalDetails: { dob: '1992-11-30', joiningDate: '2022-03-01', address: '78, Tech Park Ave, KA', bloodGroup: 'B+' },
-        performance: { deliveries: 3400, rating: 4.9, shift: 'Day' }
-      },
-      { 
-        id: 4, 
-        name: 'Rohan Gupta', 
-        role: 'Sorter', 
-        branch: 'Chennai Port', 
-        status: 'Leave', 
-        phone: '8877665544',
-        email: 'rohan.gupta@shipfast.com',
-        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_rohan.png', licenseFile: 'license_rohan.png' },
-        personalDetails: { dob: '1995-02-14', joiningDate: '2023-01-20', address: '12, Port Road, TN', bloodGroup: 'O-' },
-        performance: { deliveries: 0, rating: 4.2, shift: 'Night' }
-      },
-      { 
-        id: 5, 
-        name: 'Kavita Mishra', 
-        role: 'Manager', 
-        branch: 'Kolkata East', 
-        status: 'Active', 
-        phone: '7766554433',
-        email: 'kavita.mishra@shipfast.com',
-        documents: { aadhar: true, license: true, pan: true, aadharFile: 'aadhar_kavita.pdf', licenseFile: 'license_kavita.pdf' },
-        personalDetails: { dob: '1988-07-19', joiningDate: '2019-11-05', address: '89, Kolkata Street, WB', bloodGroup: 'AB+' },
-        performance: { deliveries: 0, rating: 4.7, shift: 'Day' }
-      },
-  ]);
-  const [notifications, setNotifications] = useState([]);
+  ];
+
+  const defaultVehicles = [
+    { id: 'MH-01-AB-1234', type: 'Van', driver: 'Rajesh Kumar', status: 'In Transit', location: 'Mumbai' },
+    { id: 'MH-02-CD-5678', type: 'Truck', driver: 'N/A', status: 'Available', location: 'Pune' },
+    { id: 'DL-01-EF-9012', type: 'Scooter', driver: 'Amit Singh', status: 'Delivering', location: 'Delhi' },
+    { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore' },
+  ];
+
+  const defaultStaff = [
+      { id: 1, name: 'Arun Singh', role: 'Manager', branch: 'Mumbai Central Hub', status: 'Active', phone: '9876543210', email: 'arun.singh@shipfast.com', performance: { deliveries: 0, rating: 4.8, shift: 'Day' } },
+      { id: 2, name: 'Vijay Kumar', role: 'Driver', branch: 'Delhi North Gate', status: 'Active', phone: '9123456789', email: 'vijay.kumar@shipfast.com', performance: { deliveries: 1250, rating: 4.5, shift: 'Night' } },
+      { id: 3, name: 'Sita Verma', role: 'Agent', branch: 'Bangalore Tech Park', status: 'Active', phone: '9988776655', email: 'sita.verma@shipfast.com', performance: { deliveries: 3400, rating: 4.9, shift: 'Day' } },
+  ];
+
+  const [shipments, setShipments] = useState(() => loadState('shipfast_shipments', defaultShipments));
+  const [currentUser, setCurrentUser] = useState(() => loadState('shipfast_currentUser', null));
+  const [users, setUsers] = useState(() => loadState('shipfast_users', []));
+  const [branches, setBranches] = useState(() => loadState('shipfast_branches', defaultBranches));
+  const [vehicles, setVehicles] = useState(() => loadState('shipfast_vehicles', defaultVehicles));
+  const [staff, setStaff] = useState(() => loadState('shipfast_staff', defaultStaff));
+  const [notifications, setNotifications] = useState(() => loadState('shipfast_notifications', []));
+
+  // Persist effects
+  useEffect(() => saveState('shipfast_shipments', shipments), [shipments]);
+  useEffect(() => saveState('shipfast_currentUser', currentUser), [currentUser]);
+  useEffect(() => saveState('shipfast_users', users), [users]);
+  useEffect(() => saveState('shipfast_branches', branches), [branches]);
+  useEffect(() => saveState('shipfast_vehicles', vehicles), [vehicles]);
+  useEffect(() => saveState('shipfast_staff', staff), [staff]);
+  useEffect(() => saveState('shipfast_notifications', notifications), [notifications]);
+
 
   const deriveUsername = (email) => {
       if (!email) return 'Guest';
@@ -147,20 +115,25 @@ export function ShipmentProvider({ children }) {
       role = 'agent';
     }
 
-    const user = { 
-        id: Math.random().toString(36).substr(2, 9),
-        name: derivedName, 
-        email, 
-        role, 
-        profilePic: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' 
-    };
+    // Try to find existing user first
+    let user = users.find(u => u.email === email);
     
-    setCurrentUser(user);
-    if (!users.find(u => u.email === email)) {
+    if (!user) {
+        user = { 
+            id: Math.random().toString(36).substr(2, 9),
+            name: derivedName, 
+            email, 
+            role, 
+            profilePic: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' 
+        };
         setUsers(prev => [...prev, user]);
+    } else {
+        // Ensure role is correct if logic changed (optional)
+        user = { ...user, role }; 
     }
     
-    addNotification(`Welcome back, ${derivedName}!`, role);
+    setCurrentUser(user);
+    addNotification(`Welcome back, ${user.name}!`, role);
     return user;
   };
 
@@ -212,6 +185,12 @@ export function ShipmentProvider({ children }) {
       setCurrentUser(null);
   };
 
+  const calculateRate = (weight, serviceType) => {
+      const w = parseFloat(weight) || 1;
+      const baseRate = serviceType === 'Express' ? 100 : 50;
+      return (w * 50) + baseRate;
+  };
+
   const addShipment = (shipment) => {
       const newShipment = {
         ...shipment,
@@ -229,8 +208,12 @@ export function ShipmentProvider({ children }) {
       return newShipment;
   };
 
-  const updateShipmentStatus = (id, status) => {
-      setShipments(prev => prev.map(s => s.id === id ? { ...s, status, history: [...s.history, { status, location: 'Updated', timestamp: new Date().toLocaleString() }] } : s));
+  const updateShipmentStatus = (id, status, location = 'Hub') => {
+      setShipments(prev => prev.map(s => s.id === id ? { 
+          ...s, 
+          status, 
+          history: [...s.history, { status, location, timestamp: new Date().toLocaleString() }] 
+      } : s));
   };
 
   const cancelShipment = (id) => {
@@ -247,6 +230,17 @@ export function ShipmentProvider({ children }) {
 
   const getRoleNotifications = (role) => {
       return notifications.filter(n => n.role === role || n.role === 'all');
+  };
+
+  const clearAllData = () => {
+    // Development helper to reset
+    localStorage.clear();
+    setShipments(defaultShipments);
+    setUsers([]);
+    setBranches(defaultBranches);
+    setVehicles(defaultVehicles);
+    setStaff(defaultStaff);
+    setNotifications([]);
   };
 
   return (
@@ -267,12 +261,13 @@ export function ShipmentProvider({ children }) {
       getShipment,
       addBranch,
       addVehicle,
-      addVehicle,
       updateBranch,
       updateVehicle,
       updateStaff,
       updateProfile,
-      getRoleNotifications
+      getRoleNotifications,
+      calculateRate,
+      clearAllData
     }}>
       {children}
     </ShipmentContext.Provider>
