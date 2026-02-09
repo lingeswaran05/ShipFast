@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { Package, Truck, Search, CreditCard, ChevronRight, PlusCircle, Calculator, X, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useShipment } from '../../context/ShipmentContext';
 
 export function CustomerDashboard() {
   const navigate = useNavigate();
+  const { shipments } = useShipment();
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcData, setCalcData] = useState({ weight: '', source: '', destination: '', type: 'Standard' });
   const [calculatedRate, setCalculatedRate] = useState(null);
+  const [trackingInput, setTrackingInput] = useState('');
 
   const handleCalculate = (e) => {
     e.preventDefault();
@@ -17,6 +20,12 @@ export function CustomerDashboard() {
     
     setCalculatedRate(baseRate + weightRate + typeRate);
   };
+
+  const handleTrack = () => {
+    navigate(`/track${trackingInput.trim() ? `?id=${trackingInput.trim()}` : ''}`);
+  };
+
+  const recentShipments = shipments.slice(0, 3);
 
   return (
     <div className="space-y-6 animate-fade-in-up relative">
@@ -127,7 +136,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Active Shipments</div>
-              <div className="text-2xl font-bold text-slate-900">12</div>
+              <div className="text-2xl font-bold text-slate-900">
+                {shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length}
+              </div>
             </div>
           </div>
         </div>
@@ -139,7 +150,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Delivered</div>
-              <div className="text-2xl font-bold text-slate-900">148</div>
+              <div className="text-2xl font-bold text-slate-900">
+                {shipments.filter(s => s.status === 'Delivered').length}
+              </div>
             </div>
           </div>
         </div>
@@ -151,7 +164,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Total Spent</div>
-              <div className="text-2xl font-bold text-slate-900">₹12,450</div>
+              <div className="text-2xl font-bold text-slate-900">
+                ₹{shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0).toLocaleString()}
+              </div>
             </div>
           </div>
         </div>
@@ -200,9 +215,15 @@ export function CustomerDashboard() {
               type="text" 
               placeholder="Enter Tracking ID (e.g. SF123456789)"
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all font-medium placeholder:text-slate-400"
+              value={trackingInput}
+              onChange={(e) => setTrackingInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
             />
           </div>
-          <button className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20 active:scale-95">
+          <button 
+             onClick={handleTrack}
+             className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20 active:scale-95"
+          >
             Track Now
           </button>
         </div>
@@ -214,23 +235,41 @@ export function CustomerDashboard() {
           <button onClick={() => navigate('/dashboard/shipments')} className="text-purple-600 font-medium hover:text-purple-700 text-sm">View All</button>
         </div>
         <div className="divide-y divide-slate-100">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 group-hover:bg-purple-100 group-hover:text-purple-600 transition-colors">
-                  <Package className="w-5 h-5" />
+          {recentShipments.length > 0 ? (
+            recentShipments.map((shipment) => (
+              <div 
+                 key={shipment.id} 
+                 onClick={() => navigate(`/track?id=${shipment.id}`)}
+                 className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                      shipment.status === 'Delivered' ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-900">{shipment.id}</div>
+                    <div className="text-sm text-slate-500">
+                       {shipment.sender?.city || 'Origin'} → {shipment.receiver?.city || 'Dest'}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-slate-900">SF12345678{i}</div>
-                  <div className="text-sm text-slate-500">Mum → Del • In Transit</div>
+                <div className="flex items-center gap-4">
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                      shipment.status === 'Delivered' 
+                        ? 'bg-green-50 text-green-700 border-green-200' 
+                        : 'bg-purple-50 text-purple-700 border-purple-200'
+                  }`}>
+                    {shipment.status}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">In Transit</span>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <div className="p-8 text-center text-slate-500">No shipments found.</div>
+          )}
         </div>
       </div>
     </div>

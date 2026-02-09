@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap, AlertCircle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { Logo } from '../ui/Logo';
@@ -9,24 +9,28 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
   const { login } = useShipment();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
     
-    // Simulate network delay
-    setTimeout(() => {
-      const user = login(email, password);
-      setIsLoading(false);
+    try {
+      const user = await login(email, password);
       
       if (user) {
          if (user.role === 'admin') navigate('/admin');
          else if (user.role === 'agent') navigate('/agent');
          else navigate('/dashboard');
       }
-    }, 1500);
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -106,6 +110,13 @@ export function LoginPage() {
                <h3 className="text-3xl font-bold text-slate-900 mb-2">Sign In to Your Account</h3>
                <p className="text-slate-500 text-sm">Your credentials will automatically determine your access level</p>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex items-start gap-3 animate-fade-in-up mb-6">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-red-800 font-medium">{error}</p>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">

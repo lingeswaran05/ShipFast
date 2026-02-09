@@ -46,19 +46,40 @@ export function AgentDashboard({ view }) {
   // Dynamic Shipment List based on Tab & Filters
   const shipmentList = useMemo(() => {
     let list = [];
+    const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
+    
     if (activeTab === 'deliveries') {
-        list = shipments.filter(s => ['In Transit', 'Out for Delivery', 'Received at Hub', 'Booked'].includes(s.status));
+        list = shipments.filter(s => {
+            const status = normalize(s.status);
+            return ['IN TRANSIT', 'OUT FOR DELIVERY', 'RECEIVED AT HUB', 'BOOKED'].includes(status);
+        });
     } else if (activeTab === 'history') {
-        list = shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status));
+        list = shipments.filter(s => {
+            const status = normalize(s.status);
+            return ['DELIVERED', 'CANCELLED', 'FAILED'].includes(status);
+        });
     } else if (activeTab === 'pickups') {
-         list = shipments.filter(s => s.status === 'Booked');
+         list = shipments.filter(s => normalize(s.status) === 'BOOKED');
     }
 
     if (filterStatus !== 'All') {
-        list = list.filter(s => s.status === filterStatus);
+        list = list.filter(s => normalize(s.status) === normalize(filterStatus));
     }
+    
     if (filterCity) {
-        list = list.filter(s => s.receiver.city.toLowerCase().includes(filterCity.toLowerCase()) || s.sender.city.toLowerCase().includes(filterCity.toLowerCase()));
+        const term = filterCity.toLowerCase();
+        list = list.filter(s => {
+            // Context-aware filtering
+            if (activeTab === 'pickups') {
+                return s.sender?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
+            } else if (activeTab === 'deliveries') {
+                return s.receiver?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
+            } else {
+                // For history, check both
+                return (s.sender?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) || 
+                       (s.receiver?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
+            }
+        });
     }
     return list;
   }, [shipments, activeTab, filterStatus, filterCity]);
@@ -75,14 +96,27 @@ export function AgentDashboard({ view }) {
     // Check if shipment exists
     const shipment = shipments.find(s => s.id === scanId);
     if (shipment) {
-        updateShipmentStatus(scanId, scanStatusMode);
-        setScanResult({
-            id: scanId,
-            status: scanStatusMode,
-            timestamp: new Date().toLocaleString(),
-            success: true
-        });
-        toast.success(`Scanned: ${scanId} marked as ${scanStatusMode}`);
+        if (shipment.status === scanStatusMode) {
+            setScanResult({
+                id: scanId,
+                status: `Already ${scanStatusMode}`,
+                timestamp: new Date().toLocaleString(),
+                success: false // Or true, but visually distinct? Requirement asks to prevent duplicates.
+                // Let's treat it as a non-op or info. But maybe the user just wants to see success if it's already done?
+                // Requirement: "Prevent duplicate updates". 
+                // Let's show a toast info and not update.
+            });
+            toast.info(`Shipment is already ${scanStatusMode}`);
+        } else {
+            updateShipmentStatus(scanId, scanStatusMode);
+            setScanResult({
+                id: scanId,
+                status: scanStatusMode,
+                timestamp: new Date().toLocaleString(),
+                success: true
+            });
+            toast.success("Status Updated Successfully");
+        }
     } else {
         setScanResult({
             id: scanId,
@@ -428,6 +462,7 @@ function QuickBookingForm() {
 
 function RunSheetView({ todaysDeliveries }) {
     const [selectedIds, setSelectedIds] = useState([]);
+    const [generatedSheet, setGeneratedSheet] = useState(null);
 
     const toggleSelection = (id) => {
         setSelectedIds(prev => 
@@ -437,12 +472,19 @@ function RunSheetView({ todaysDeliveries }) {
 
     const handleAssign = () => {
         if (selectedIds.length === 0) return toast.error("Select shipments to assign");
-        toast.success(`${selectedIds.length} shipments assigned to current run sheet`);
-        // Actual logic would involve API call to update 'assignedTo' field
+        
+        const sheet = {
+            id: `RS-${Date.now()}`,
+            date: new Date().toLocaleDateString(),
+            items: todaysDeliveries.filter(s => selectedIds.includes(s.id)),
+            agent: 'Current Agent' // In real app, get from context
+        };
+        setGeneratedSheet(sheet);
+        toast.success(`Run Sheet ${sheet.id} Generated`);
     };
     
     // Filtering for logic demo
-    const eligibleForRunSheet = todaysDeliveries.filter(s => ['Received at Hub', 'Booked'].includes(s.status));
+    const eligibleForRunSheet = todaysDeliveries.filter(s => ['Received at Hub', 'Booked', 'Out for Delivery'].includes(s.status));
 
     return (
          <div className="space-y-6">
@@ -452,37 +494,61 @@ function RunSheetView({ todaysDeliveries }) {
                 <p className="text-slate-600">Assign pending deliveries to drivers</p>
               </div>
               <div className="flex gap-2">
-                  <SectionDownloader 
-                    title={<span className="flex items-center gap-2"><Download className="w-4 h-4" /> Download Sheet</span>} 
-                    className="px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-medium text-sm"
-                  >
-                       <div className="p-8">
-                           <h1 className="text-2xl font-bold mb-4">Run Sheet Report</h1>
-                           <table className="w-full text-left text-sm border">
-                               <thead>
-                                   <tr className="bg-slate-100">
-                                       <th className="p-2 border">ID</th>
-                                       <th className="p-2 border">Address</th>
-                                       <th className="p-2 border">COD</th>
-                                   </tr>
-                               </thead>
-                               <tbody>
-                                   {eligibleForRunSheet.filter(s => selectedIds.includes(s.id)).map(s => (
-                                       <tr key={s.id}>
-                                           <td className="p-2 border">{s.id}</td>
-                                           <td className="p-2 border">{s.receiver.city}, {s.receiver.phone}</td>
-                                           <td className="p-2 border">{s.cost}</td>
+                  {generatedSheet && (
+                      <SectionDownloader 
+                        title="Download Sheet"
+                        className="inline-block"
+                      >
+                           <div className="p-8 bg-white" id="run-sheet-content">
+                               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                   <div>
+                                       <h1 className="text-2xl font-bold text-slate-900">Delivery Run Sheet</h1>
+                                       <p className="text-slate-500">ID: {generatedSheet.id}</p>
+                                   </div>
+                                   <div className="text-right">
+                                       <p className="font-bold">{generatedSheet.date}</p>
+                                       <p className="text-sm text-slate-500">Items: {generatedSheet.items.length}</p>
+                                   </div>
+                               </div>
+                               <table className="w-full text-left text-sm border-collapse">
+                                   <thead>
+                                       <tr className="bg-slate-100">
+                                           <th className="p-3 border text-slate-700">Tracking ID</th>
+                                           <th className="p-3 border text-slate-700">Receiver / Address</th>
+                                           <th className="p-3 border text-slate-700">Type</th>
+                                           <th className="p-3 border text-slate-700 text-right">COD Amount</th>
+                                           <th className="p-3 border text-slate-700">Signature</th>
                                        </tr>
-                                   ))}
-                               </tbody>
-                           </table>
-                           {selectedIds.length === 0 && <p className="mt-4 text-slate-500">No shipments selected.</p>}
-                       </div>
-                  </SectionDownloader>
+                                   </thead>
+                                   <tbody>
+                                       {generatedSheet.items.map(s => (
+                                           <tr key={s.id}>
+                                               <td className="p-3 border font-mono">{s.id}</td>
+                                               <td className="p-3 border">
+                                                   <div className="font-bold">{s.receiver.name}</div>
+                                                   <div className="text-slate-500">{s.receiver.address}, {s.receiver.city}</div>
+                                                   <div className="text-xs text-slate-400">Ph: {s.receiver.phone}</div>
+                                               </td>
+                                               <td className="p-3 border">{s.type}</td>
+                                               <td className="p-3 border text-right font-mono">
+                                                   {s.paymentMode === 'Cash' ? `₹${s.cost}` : '-'}
+                                               </td>
+                                               <td className="p-3 border"></td>
+                                           </tr>
+                                       ))}
+                                   </tbody>
+                               </table>
+                               <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
+                                   <div>Generated by System</div>
+                                   <div>Authorized Signature _________________</div>
+                               </div>
+                           </div>
+                      </SectionDownloader>
+                  )}
 
                   <button 
                     onClick={handleAssign}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 h-10"
                   >
                     <FileText className="w-4 h-4" />
                     Generate Sheet ({selectedIds.length})
@@ -498,12 +564,14 @@ function RunSheetView({ todaysDeliveries }) {
                <div className="divide-y divide-slate-100">
                   {eligibleForRunSheet.length > 0 ? eligibleForRunSheet.map(s => (
                      <div key={s.id} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
-                        <input 
-                            type="checkbox" 
-                            className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
-                            checked={selectedIds.includes(s.id)}
-                            onChange={() => {}}
-                        />
+                        <div className="relative flex items-center justify-center p-2">
+                            <input 
+                                type="checkbox" 
+                                className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" 
+                                checked={selectedIds.includes(s.id)}
+                                onChange={() => {}} 
+                            />
+                        </div>
                         <div className="flex-1">
                            <div className="font-medium text-slate-900">{s.id}</div>
                            <div className="text-sm text-slate-500">{s.receiver.city} • <span className="text-indigo-600">{s.type}</span></div>
@@ -523,6 +591,10 @@ function RunSheetView({ todaysDeliveries }) {
 }
 
 function CashCollectionView({ shipments }) {
+    const [historyInfo, setHistoryInfo] = useState(false);
+    const [submittedTransactions, setSubmittedTransactions] = useState([]);
+    const [verifyAmount, setVerifyAmount] = useState('');
+    
     // Categorization Logic
     const breakdown = shipments
         .filter(s => s.status === 'Delivered')
@@ -533,6 +605,36 @@ function CashCollectionView({ shipments }) {
         }, {});
 
     const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
+
+    const handleDeposit = () => {
+        toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
+        // Mock deposit logic - ideally would clear the stats or mark as 'Deposited'
+        // For now, we simulate adding to history
+        const newTxn = {
+            id: `DEP-${Date.now()}`,
+            date: new Date().toLocaleString(),
+            amount: totalCollected,
+            type: 'Deposit',
+            status: 'Processing'
+        };
+        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+    };
+
+    const handleSubmitCash = () => {
+        if (!verifyAmount || parseFloat(verifyAmount) <= 0) return toast.error("Enter valid amount");
+        
+        const amount = parseFloat(verifyAmount);
+        toast.success(`Cash verification submitted for ₹${amount}`);
+        const newTxn = {
+             id: `CSH-${Date.now()}`,
+             date: new Date().toLocaleString(),
+             amount: amount,
+             type: 'Cash Submission',
+             status: 'Verified'
+        };
+        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setVerifyAmount('');
+    };
 
     return (
          <div className="max-w-4xl mx-auto animate-fade-in-up">
@@ -545,19 +647,41 @@ function CashCollectionView({ shipments }) {
                      <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
-                            onClick={() => toast.success("Deposit initiated for ₹" + totalCollected)}
+                            onClick={handleDeposit}
                             className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                         >
                             <CreditCard className="w-4 h-4" /> Deposit All
                         </button>
                         <button 
-                            onClick={() => toast.info("Showing transaction history...")}
+                            onClick={() => setHistoryInfo(!historyInfo)}
                             className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                         >
-                            <History className="w-4 h-4" /> View History
+                            <History className="w-4 h-4" /> {historyInfo ? 'Hide History' : 'View History'}
                         </button>
                      </div>
                   </div>
+                  
+                  {historyInfo && (
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm animate-fade-in">
+                          <h3 className="font-bold text-slate-900 mb-2 text-sm">Recent Transactions</h3>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {submittedTransactions.length > 0 ? submittedTransactions.map(txn => (
+                                  <div key={txn.id} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded">
+                                      <div>
+                                          <div className="font-medium text-slate-800">{txn.type}</div>
+                                          <div className="text-xs text-slate-500">{txn.date}</div>
+                                      </div>
+                                      <div className="text-right">
+                                          <div className="font-bold text-indigo-600">₹{txn.amount}</div>
+                                          <div className="text-xs text-green-600">{txn.status}</div>
+                                      </div>
+                                  </div>
+                              )) : (
+                                  <p className="text-slate-400 text-xs italic">No recent deposits.</p>
+                              )}
+                          </div>
+                      </div>
+                  )}
                   
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                      <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Breakdown by Method</h3>
@@ -587,10 +711,19 @@ function CashCollectionView({ shipments }) {
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount (Cash Only)</label>
                         <div className="relative">
                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
-                           <input type="number"  className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" placeholder="Enter amount" />
+                           <input 
+                                type="number" 
+                                className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" 
+                                placeholder="Enter amount"
+                                value={verifyAmount}
+                                onChange={(e) => setVerifyAmount(e.target.value)}
+                           />
                         </div>
                      </div>
-                     <button className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20">
+                     <button 
+                        onClick={handleSubmitCash}
+                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20"
+                     >
                         Verify & Submit
                      </button>
                   </div>

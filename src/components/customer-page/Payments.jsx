@@ -1,49 +1,99 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreditCard, DollarSign, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
+import { useShipment } from '../../context/ShipmentContext';
+import { mockService } from '../../mock/mockService';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 export function Payments() {
-  // Removed unused filter state
+  const { currentUser } = useShipment();
+  const navigate = useNavigate();
+  const [transactions, setTransactions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const transactions = [
-    {
-      id: 'TRX-987654321',
-      date: 'Dec 20, 2025',
-      description: 'Shipment #SF123456789',
-      amount: '₹191.16',
-      status: 'Completed',
-      method: 'Credit Card •••• 4242'
-    },
-    {
-      id: 'TRX-123456789',
-      date: 'Dec 18, 2025',
-      description: 'Shipment #SF987654321',
-      amount: '₹318.60',
-      status: 'Completed',
-      method: 'UPI'
-    },
-    {
-      id: 'TRX-456789123',
-      date: 'Dec 15, 2025',
-      description: 'Wallet Top-up',
-      amount: '₹1,000.00',
-      status: 'Completed',
-      method: 'Net Banking'
-    },
-    {
-      id: 'TRX-789123456',
-      date: 'Dec 10, 2025',
-      description: 'Shipment #SF789123456',
-      amount: '₹120.00',
-      status: 'Failed',
-      method: 'Credit Card •••• 4242'
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mockService.getTransactions(currentUser?.id);
+        setTransactions(data);
+      } catch (error) {
+        console.error('Failed to fetch transactions', error);
+        toast.error('Failed to load transactions');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (currentUser) {
+      fetchTransactions();
     }
-  ];
+  }, [currentUser]);
+
+  const handleDownloadStatement = () => {
+    toast.success('Preparing statement...');
+    
+    // Generate CSV content
+    const headers = ['Transaction ID', 'Date', 'Description', 'Method', 'Status', 'Amount'];
+    const rows = transactions.map(t => [
+        t.id,
+        t.date,
+        `"${t.description}"`, // Quote description to handle commas
+        t.method || 'Credit Card',
+        t.status,
+        t.amount
+    ]);
+    
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(r => r.join(','))
+    ].join('\n');
+    
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `statement_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Statement downloaded successfully');
+  };
+
+  const handleDownloadInvoice = (id) => {
+    navigate(`/dashboard/invoice/${id}`);
+  };
+
+  const filteredTransactions = transactions.filter(t => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      
+      // Strict ID search if term allows (e.g. starts with TXN or TRK or just contains numbers/letters)
+      // Requirement: Searching by Transaction ID must return ONLY matching transaction
+      // and No extra records should appear.
+      // We will check if the ID includes the search term. 
+      // If the user types a partial ID, it should filter by ID.
+      // If the user types text, it might match description.
+      
+      return t.id.toLowerCase().includes(term) ||
+             t.description.toLowerCase().includes(term);
+  });
+
+  const totalSpent = transactions
+    .filter(t => t.status === 'Completed')
+    .reduce((acc, t) => acc + parseFloat(t.amount.toString().replace(/[^0-9.-]+/g,"")), 0);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-900">Payments & Invoices</h2>
-        <button className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-lg hover:from-purple-700 hover:to-pink-600 transition-all flex items-center gap-2 font-medium shadow-md shadow-purple-500/20">
+        <button 
+          onClick={handleDownloadStatement}
+          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-lg hover:from-purple-700 hover:to-pink-600 transition-all flex items-center gap-2 font-medium shadow-md shadow-purple-500/20"
+        >
           <Download className="w-4 h-4" />
           Download Statement
         </button>
@@ -59,7 +109,9 @@ export function Payments() {
             </div>
             <span className="text-sm font-medium text-slate-500">Total Spent</span>
           </div>
-          <div className="text-3xl font-bold text-slate-900 relative z-10">₹12,450.00</div>
+          <div className="text-3xl font-bold text-slate-900 relative z-10">
+            ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
           <div className="text-sm text-green-600 mt-2 flex items-center gap-1 relative z-10">
             <ArrowUpRight className="w-4 h-4" />
             +12.5% from last month
@@ -99,9 +151,11 @@ export function Payments() {
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
-                    type="text" 
-                    placeholder="Search transactions..." 
-                    className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
+                      type="text" 
+                      placeholder="Search transactions..." 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
                     />
                 </div>
             </div>
@@ -120,29 +174,45 @@ export function Payments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactions.map((trx) => (
-                <tr key={trx.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-900 text-sm">{trx.id}</td>
-                  <td className="px-6 py-4 text-slate-600 text-sm">{trx.date}</td>
-                  <td className="px-6 py-4 text-slate-900 text-sm">{trx.description}</td>
-                  <td className="px-6 py-4 text-slate-600 text-sm flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-slate-400" />
-                    {trx.method}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                      trx.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
-                      trx.status === 'Failed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}>
-                      {trx.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right font-medium text-slate-900">{trx.amount}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="text-purple-600 hover:text-purple-800 text-sm font-medium">Download</button>
-                  </td>
-                </tr>
-              ))}
+              {isLoading ? (
+                  <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-slate-500">Loading transactions...</td>
+                  </tr>
+              ) : filteredTransactions.length > 0 ? (
+                filteredTransactions.map((trx) => (
+                  <tr key={trx.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-900 text-sm">{trx.id}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">{trx.date}</td>
+                    <td className="px-6 py-4 text-slate-900 text-sm">{trx.description}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-slate-400" />
+                      {/* Mock method if missing */}
+                      {trx.method || 'Credit Card'} 
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        trx.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                        trx.status === 'Failed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                      }`}>
+                        {trx.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-900">₹{trx.amount}</td>
+                    <td className="px-6 py-4 text-right">
+                      <button 
+                        onClick={() => handleDownloadInvoice(trx.id)}
+                        className="text-purple-600 hover:text-purple-800 text-sm font-medium hover:underline"
+                      >
+                        View Invoice
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                  <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-slate-500">No transactions found.</td>
+                  </tr>
+              )}
             </tbody>
           </table>
         </div>

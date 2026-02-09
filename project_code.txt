@@ -183,11 +183,13 @@ export default {
 --- FILE: src\App.jsx ---
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ShipmentProvider, useShipment } from './context/ShipmentContext';
+import { ContactPage } from './components/customer-page/ContactPage';
 import { Homepage } from './components/other/Homepage';
 import { LoginPage } from './components/other/LoginPage';
 import { RegistrationPage } from './components/other/RegistrationPage';
 import { ForgotPasswordPage } from './components/other/ForgotPasswordPage';
 import { TrackingPortal } from './components/other/TrackingPortal';
+import { PlaceholderPage } from './components/shared/PlaceholderPage';
 
 import { DashboardLayout } from './components/layout/DashboardLayout';
 
@@ -271,6 +273,11 @@ function AppRoutes() {
       <Route path="/register" element={<RegistrationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/track" element={<TrackingPortal />} />
+      
+      {/* Placeholder Routes */}
+      <Route path="/privacy" element={<PlaceholderPage />} />
+      <Route path="/terms" element={<PlaceholderPage />} />
+      <Route path="/contact" element={<ContactPage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute allowedRole="customer">
@@ -332,7 +339,8 @@ export default App;
 
 
 --- FILE: src\components\admin-page\AdminDashboard.jsx ---
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { useShipment } from '../../context/ShipmentContext';
@@ -341,8 +349,10 @@ import { ConfirmationModal } from '../shared/ConfirmationModal';
 import { toast } from 'sonner';
 
 export function AdminDashboard({ view }) {
-  
+  const navigate = useNavigate();
+  const location = useLocation();
   const { shipments, branches: contextBranches, vehicles: contextVehicles, staff: contextStaff, addBranch, addVehicle, updateBranch, updateVehicle, updateStaff, removeBranch, removeStaff, addStaff } = useShipment();
+  
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -355,6 +365,17 @@ export function AdminDashboard({ view }) {
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
   const [isEditing, setIsEditing] = useState(false);
   const vehicleFileInputRef = useRef(null);
+  // Handle auto-opening of branch modal from navigation state
+  useEffect(() => {
+    if (view === 'branches' && location.state?.openBranchId && contextBranches.length > 0) {
+        const branchToOpen = contextBranches.find(b => b.id === location.state.openBranchId);
+        if (branchToOpen) {
+            openBranchModal(branchToOpen);
+            // Clear the state to prevent reopening on subsequent renders
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }
+  }, [view, location.state, contextBranches, navigate, location.pathname]);
 
   const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
   const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
@@ -542,7 +563,20 @@ export function AdminDashboard({ view }) {
                                className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors overflow-hidden relative"
                              >
                                 {newVehicle.photo ? (
-                                    <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                    <div className="relative w-full h-full group">
+                                        <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setNewVehicle(prev => ({...prev, photo: null}));
+                                            }}
+                                            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-sm"
+                                            title="Remove Photo"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 ) : (
                                     <>
                                         <Camera className="w-8 h-8 text-slate-400 mb-2" />
@@ -563,7 +597,16 @@ export function AdminDashboard({ view }) {
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
-                             <input className="w-full p-3 border rounded-lg" placeholder="Driver Name" value={newVehicle.driver} onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})} />
+                             <select 
+                                className="w-full p-3 border rounded-lg" 
+                                value={newVehicle.driver} 
+                                onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})}
+                             >
+                                <option value="N/A">Select Driver</option>
+                                {contextStaff?.filter(s => s.role === 'Driver').map(s => (
+                                    <option key={s.id} value={s.name}>{s.name}</option>
+                                ))}
+                             </select>
                              <input className="w-full p-3 border rounded-lg" type="number" placeholder="Seats" value={newVehicle.seats} onChange={e => setNewVehicle({...newVehicle, seats: e.target.value})} />
                         </div>
                         
@@ -628,36 +671,85 @@ export function AdminDashboard({ view }) {
                                         <option>Inactive</option>
                                     </select>
                                 </div>
-                                <input className="w-full p-3 border rounded-lg" placeholder="Branch" value={newStaff.branch} onChange={e => setNewStaff({...newStaff, branch: e.target.value})} required />
+                                <select 
+                                    className="w-full p-3 border rounded-lg" 
+                                    value={newStaff.branch} 
+                                    onChange={e => setNewStaff({...newStaff, branch: e.target.value})}
+                                    required
+                                >
+                                    <option value="">Select Branch</option>
+                                    {contextBranches?.map(b => (
+                                        <option key={b.id} value={b.name}>{b.name}</option>
+                                    ))}
+                                </select>
 
                                 <div className="pt-4 border-t border-slate-100">
                                     <h4 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
                                         <FileText className="w-4 h-4" /> Documents
                                     </h4>
                                     <div className="space-y-3">
-                                        {['Aadhar Card', 'Driving License', 'PAN Card'].map((doc) => {
-                                            const docKey = doc.toLowerCase().split(' ')[0]; // aadhar, license, pan
-                                            const isUploaded = newStaff.documents?.[docKey];
-                                            const fileName = newStaff.documents?.[`${docKey}File`];
+                                        {[
+                                            { label: 'Aadhaar Card', key: 'aadhaar' },
+                                            { label: 'Driving License', key: 'license' },
+                                            { label: 'PAN Card', key: 'pan' }
+                                        ].map((doc) => {
+                                            const isUploaded = newStaff.documents?.[doc.key] === 'submitted' || newStaff.documents?.[doc.key] === true;
+                                            const fileName = newStaff.documents?.[`${doc.key}File`];
 
                                             return (
-                                                <div key={doc} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                                <div key={doc.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                                                     <div className="flex items-center gap-3">
                                                         <div className={`p-2 rounded-full ${isUploaded ? 'bg-green-100 text-green-600' : 'bg-slate-200 text-slate-500'}`}>
                                                             <FileText className="w-4 h-4" />
                                                         </div>
                                                         <div>
-                                                            <div className="text-sm font-medium text-slate-900">{doc}</div>
-                                                            <div className="text-xs text-slate-500">{isUploaded ? fileName || 'Uploaded' : 'Pending'}</div>
+                                                            <div className="text-sm font-medium text-slate-900">{doc.label}</div>
+                                                            <div className="text-xs text-slate-500">{isUploaded ? fileName || 'Verified' : 'Pending Upload'}</div>
                                                         </div>
                                                     </div>
                                                     <div className="flex gap-2">
+                                                        <input 
+                                                            type="file" 
+                                                            id={`file-${doc.key}`} 
+                                                            className="hidden" 
+                                                            accept=".pdf,.jpg,.jpeg,.png"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files[0];
+                                                                if (file) {
+                                                                    setNewStaff(prev => ({
+                                                                        ...prev,
+                                                                        documents: {
+                                                                            ...prev.documents,
+                                                                            [doc.key]: 'submitted',
+                                                                            [`${doc.key}File`]: file.name
+                                                                        }
+                                                                    }));
+                                                                }
+                                                            }}
+                                                        />
                                                         {isUploaded ? (
-                                                            <button type="button" className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-indigo-600 transition-all" title="View">
-                                                                <Eye className="w-4 h-4" />
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => {
+                                                                    setNewStaff(prev => {
+                                                                        const newDocs = { ...prev.documents };
+                                                                        delete newDocs[doc.key];
+                                                                        delete newDocs[`${doc.key}File`];
+                                                                        return { ...prev, documents: newDocs };
+                                                                    });
+                                                                }}
+                                                                className="p-2 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 text-green-600 hover:text-red-600 transition-all" 
+                                                                title="Remove/Re-upload"
+                                                            >
+                                                                <XCircle className="w-4 h-4" />
                                                             </button>
                                                         ) : (
-                                                            <button type="button" className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-slate-600 transition-all" title="Upload">
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => document.getElementById(`file-${doc.key}`).click()}
+                                                                className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-slate-600 transition-all" 
+                                                                title="Upload"
+                                                            >
                                                                 <Upload className="w-4 h-4" />
                                                             </button>
                                                         )}
@@ -826,24 +918,24 @@ export function AdminDashboard({ view }) {
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 mb-4">Top Performing Branches</h2>
               <div className="space-y-3">
-                {[
-                  { name: 'Mumbai Central', shipments: 2456, revenue: '₹2.4L', growth: '+12%' },
-                  { name: 'Delhi Hub', shipments: 2134, revenue: '₹2.1L', growth: '+8%' },
-                  { name: 'Bangalore Tech Park', shipments: 1876, revenue: '₹1.9L', growth: '+15%' },
-                ].map((branch, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
+                {contextBranches.sort((a,b) => b.revenue - a.revenue).slice(0, 3).map((branch, index) => (
+                  <div 
+                    key={index} 
+                    onClick={() => navigate('/admin/branches', { state: { openBranchId: branch.id } })}
+                    className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
                         <Building2 className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-900">{branch.name}</div>
+                        <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{branch.name}</div>
                         <div className="text-sm text-slate-500">{branch.shipments} shipments</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-slate-900">{branch.revenue}</div>
-                      <div className="text-sm text-green-600 font-medium">{branch.growth}</div>
+                      <div className="font-bold text-slate-900">₹{branch.revenue.toLocaleString()}</div>
+                      <div className="text-sm text-green-600 font-medium">+{branch.performance}%</div>
                     </div>
                   </div>
                 ))}
@@ -883,9 +975,9 @@ export function AdminDashboard({ view }) {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {contextBranches && contextBranches.map(branch => (
-                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors">
+                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openBranchModal(branch)}>
                                     <td className="px-6 py-4 font-medium text-slate-900">
-                                        <div>{branch.name}</div>
+                                        <div className="hover:text-indigo-600 transition-colors">{branch.name}</div>
                                         <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -1058,7 +1150,12 @@ export function AdminDashboard({ view }) {
                                            <span className="text-slate-900">{vehicle.driver}</span>
                                         </div>
                                      ) : (
-                                        <button className="text-xs text-indigo-600 font-medium hover:underline">Assign Driver</button>
+                                        <button 
+                                            onClick={() => openVehicleModal(vehicle)}
+                                            className="text-xs text-indigo-600 font-medium hover:underline"
+                                        >
+                                            Assign Driver
+                                        </button>
                                      )}
                                   </td>
                                   <td className="px-6 py-4">
@@ -1279,19 +1376,40 @@ export function AgentDashboard({ view }) {
   // Dynamic Shipment List based on Tab & Filters
   const shipmentList = useMemo(() => {
     let list = [];
+    const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
+    
     if (activeTab === 'deliveries') {
-        list = shipments.filter(s => ['In Transit', 'Out for Delivery', 'Received at Hub', 'Booked'].includes(s.status));
+        list = shipments.filter(s => {
+            const status = normalize(s.status);
+            return ['IN TRANSIT', 'OUT FOR DELIVERY', 'RECEIVED AT HUB', 'BOOKED'].includes(status);
+        });
     } else if (activeTab === 'history') {
-        list = shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status));
+        list = shipments.filter(s => {
+            const status = normalize(s.status);
+            return ['DELIVERED', 'CANCELLED', 'FAILED'].includes(status);
+        });
     } else if (activeTab === 'pickups') {
-         list = shipments.filter(s => s.status === 'Booked');
+         list = shipments.filter(s => normalize(s.status) === 'BOOKED');
     }
 
     if (filterStatus !== 'All') {
-        list = list.filter(s => s.status === filterStatus);
+        list = list.filter(s => normalize(s.status) === normalize(filterStatus));
     }
+    
     if (filterCity) {
-        list = list.filter(s => s.receiver.city.toLowerCase().includes(filterCity.toLowerCase()) || s.sender.city.toLowerCase().includes(filterCity.toLowerCase()));
+        const term = filterCity.toLowerCase();
+        list = list.filter(s => {
+            // Context-aware filtering
+            if (activeTab === 'pickups') {
+                return s.sender?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
+            } else if (activeTab === 'deliveries') {
+                return s.receiver?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
+            } else {
+                // For history, check both
+                return (s.sender?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) || 
+                       (s.receiver?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
+            }
+        });
     }
     return list;
   }, [shipments, activeTab, filterStatus, filterCity]);
@@ -1308,14 +1426,27 @@ export function AgentDashboard({ view }) {
     // Check if shipment exists
     const shipment = shipments.find(s => s.id === scanId);
     if (shipment) {
-        updateShipmentStatus(scanId, scanStatusMode);
-        setScanResult({
-            id: scanId,
-            status: scanStatusMode,
-            timestamp: new Date().toLocaleString(),
-            success: true
-        });
-        toast.success(`Scanned: ${scanId} marked as ${scanStatusMode}`);
+        if (shipment.status === scanStatusMode) {
+            setScanResult({
+                id: scanId,
+                status: `Already ${scanStatusMode}`,
+                timestamp: new Date().toLocaleString(),
+                success: false // Or true, but visually distinct? Requirement asks to prevent duplicates.
+                // Let's treat it as a non-op or info. But maybe the user just wants to see success if it's already done?
+                // Requirement: "Prevent duplicate updates". 
+                // Let's show a toast info and not update.
+            });
+            toast.info(`Shipment is already ${scanStatusMode}`);
+        } else {
+            updateShipmentStatus(scanId, scanStatusMode);
+            setScanResult({
+                id: scanId,
+                status: scanStatusMode,
+                timestamp: new Date().toLocaleString(),
+                success: true
+            });
+            toast.success("Status Updated Successfully");
+        }
     } else {
         setScanResult({
             id: scanId,
@@ -1661,6 +1792,7 @@ function QuickBookingForm() {
 
 function RunSheetView({ todaysDeliveries }) {
     const [selectedIds, setSelectedIds] = useState([]);
+    const [generatedSheet, setGeneratedSheet] = useState(null);
 
     const toggleSelection = (id) => {
         setSelectedIds(prev => 
@@ -1670,12 +1802,19 @@ function RunSheetView({ todaysDeliveries }) {
 
     const handleAssign = () => {
         if (selectedIds.length === 0) return toast.error("Select shipments to assign");
-        toast.success(`${selectedIds.length} shipments assigned to current run sheet`);
-        // Actual logic would involve API call to update 'assignedTo' field
+        
+        const sheet = {
+            id: `RS-${Date.now()}`,
+            date: new Date().toLocaleDateString(),
+            items: todaysDeliveries.filter(s => selectedIds.includes(s.id)),
+            agent: 'Current Agent' // In real app, get from context
+        };
+        setGeneratedSheet(sheet);
+        toast.success(`Run Sheet ${sheet.id} Generated`);
     };
     
     // Filtering for logic demo
-    const eligibleForRunSheet = todaysDeliveries.filter(s => ['Received at Hub', 'Booked'].includes(s.status));
+    const eligibleForRunSheet = todaysDeliveries.filter(s => ['Received at Hub', 'Booked', 'Out for Delivery'].includes(s.status));
 
     return (
          <div className="space-y-6">
@@ -1685,37 +1824,61 @@ function RunSheetView({ todaysDeliveries }) {
                 <p className="text-slate-600">Assign pending deliveries to drivers</p>
               </div>
               <div className="flex gap-2">
-                  <SectionDownloader 
-                    title={<span className="flex items-center gap-2"><Download className="w-4 h-4" /> Download Sheet</span>} 
-                    className="px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-medium text-sm"
-                  >
-                       <div className="p-8">
-                           <h1 className="text-2xl font-bold mb-4">Run Sheet Report</h1>
-                           <table className="w-full text-left text-sm border">
-                               <thead>
-                                   <tr className="bg-slate-100">
-                                       <th className="p-2 border">ID</th>
-                                       <th className="p-2 border">Address</th>
-                                       <th className="p-2 border">COD</th>
-                                   </tr>
-                               </thead>
-                               <tbody>
-                                   {eligibleForRunSheet.filter(s => selectedIds.includes(s.id)).map(s => (
-                                       <tr key={s.id}>
-                                           <td className="p-2 border">{s.id}</td>
-                                           <td className="p-2 border">{s.receiver.city}, {s.receiver.phone}</td>
-                                           <td className="p-2 border">{s.cost}</td>
+                  {generatedSheet && (
+                      <SectionDownloader 
+                        title="Download Sheet"
+                        className="inline-block"
+                      >
+                           <div className="p-8 bg-white" id="run-sheet-content">
+                               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                   <div>
+                                       <h1 className="text-2xl font-bold text-slate-900">Delivery Run Sheet</h1>
+                                       <p className="text-slate-500">ID: {generatedSheet.id}</p>
+                                   </div>
+                                   <div className="text-right">
+                                       <p className="font-bold">{generatedSheet.date}</p>
+                                       <p className="text-sm text-slate-500">Items: {generatedSheet.items.length}</p>
+                                   </div>
+                               </div>
+                               <table className="w-full text-left text-sm border-collapse">
+                                   <thead>
+                                       <tr className="bg-slate-100">
+                                           <th className="p-3 border text-slate-700">Tracking ID</th>
+                                           <th className="p-3 border text-slate-700">Receiver / Address</th>
+                                           <th className="p-3 border text-slate-700">Type</th>
+                                           <th className="p-3 border text-slate-700 text-right">COD Amount</th>
+                                           <th className="p-3 border text-slate-700">Signature</th>
                                        </tr>
-                                   ))}
-                               </tbody>
-                           </table>
-                           {selectedIds.length === 0 && <p className="mt-4 text-slate-500">No shipments selected.</p>}
-                       </div>
-                  </SectionDownloader>
+                                   </thead>
+                                   <tbody>
+                                       {generatedSheet.items.map(s => (
+                                           <tr key={s.id}>
+                                               <td className="p-3 border font-mono">{s.id}</td>
+                                               <td className="p-3 border">
+                                                   <div className="font-bold">{s.receiver.name}</div>
+                                                   <div className="text-slate-500">{s.receiver.address}, {s.receiver.city}</div>
+                                                   <div className="text-xs text-slate-400">Ph: {s.receiver.phone}</div>
+                                               </td>
+                                               <td className="p-3 border">{s.type}</td>
+                                               <td className="p-3 border text-right font-mono">
+                                                   {s.paymentMode === 'Cash' ? `₹${s.cost}` : '-'}
+                                               </td>
+                                               <td className="p-3 border"></td>
+                                           </tr>
+                                       ))}
+                                   </tbody>
+                               </table>
+                               <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
+                                   <div>Generated by System</div>
+                                   <div>Authorized Signature _________________</div>
+                               </div>
+                           </div>
+                      </SectionDownloader>
+                  )}
 
                   <button 
                     onClick={handleAssign}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 h-10"
                   >
                     <FileText className="w-4 h-4" />
                     Generate Sheet ({selectedIds.length})
@@ -1731,12 +1894,14 @@ function RunSheetView({ todaysDeliveries }) {
                <div className="divide-y divide-slate-100">
                   {eligibleForRunSheet.length > 0 ? eligibleForRunSheet.map(s => (
                      <div key={s.id} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
-                        <input 
-                            type="checkbox" 
-                            className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
-                            checked={selectedIds.includes(s.id)}
-                            onChange={() => {}}
-                        />
+                        <div className="relative flex items-center justify-center p-2">
+                            <input 
+                                type="checkbox" 
+                                className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" 
+                                checked={selectedIds.includes(s.id)}
+                                onChange={() => {}} 
+                            />
+                        </div>
                         <div className="flex-1">
                            <div className="font-medium text-slate-900">{s.id}</div>
                            <div className="text-sm text-slate-500">{s.receiver.city} • <span className="text-indigo-600">{s.type}</span></div>
@@ -1756,6 +1921,10 @@ function RunSheetView({ todaysDeliveries }) {
 }
 
 function CashCollectionView({ shipments }) {
+    const [historyInfo, setHistoryInfo] = useState(false);
+    const [submittedTransactions, setSubmittedTransactions] = useState([]);
+    const [verifyAmount, setVerifyAmount] = useState('');
+    
     // Categorization Logic
     const breakdown = shipments
         .filter(s => s.status === 'Delivered')
@@ -1766,6 +1935,36 @@ function CashCollectionView({ shipments }) {
         }, {});
 
     const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
+
+    const handleDeposit = () => {
+        toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
+        // Mock deposit logic - ideally would clear the stats or mark as 'Deposited'
+        // For now, we simulate adding to history
+        const newTxn = {
+            id: `DEP-${Date.now()}`,
+            date: new Date().toLocaleString(),
+            amount: totalCollected,
+            type: 'Deposit',
+            status: 'Processing'
+        };
+        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+    };
+
+    const handleSubmitCash = () => {
+        if (!verifyAmount || parseFloat(verifyAmount) <= 0) return toast.error("Enter valid amount");
+        
+        const amount = parseFloat(verifyAmount);
+        toast.success(`Cash verification submitted for ₹${amount}`);
+        const newTxn = {
+             id: `CSH-${Date.now()}`,
+             date: new Date().toLocaleString(),
+             amount: amount,
+             type: 'Cash Submission',
+             status: 'Verified'
+        };
+        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setVerifyAmount('');
+    };
 
     return (
          <div className="max-w-4xl mx-auto animate-fade-in-up">
@@ -1778,19 +1977,41 @@ function CashCollectionView({ shipments }) {
                      <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
-                            onClick={() => toast.success("Deposit initiated for ₹" + totalCollected)}
+                            onClick={handleDeposit}
                             className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                         >
                             <CreditCard className="w-4 h-4" /> Deposit All
                         </button>
                         <button 
-                            onClick={() => toast.info("Showing transaction history...")}
+                            onClick={() => setHistoryInfo(!historyInfo)}
                             className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                         >
-                            <History className="w-4 h-4" /> View History
+                            <History className="w-4 h-4" /> {historyInfo ? 'Hide History' : 'View History'}
                         </button>
                      </div>
                   </div>
+                  
+                  {historyInfo && (
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm animate-fade-in">
+                          <h3 className="font-bold text-slate-900 mb-2 text-sm">Recent Transactions</h3>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {submittedTransactions.length > 0 ? submittedTransactions.map(txn => (
+                                  <div key={txn.id} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded">
+                                      <div>
+                                          <div className="font-medium text-slate-800">{txn.type}</div>
+                                          <div className="text-xs text-slate-500">{txn.date}</div>
+                                      </div>
+                                      <div className="text-right">
+                                          <div className="font-bold text-indigo-600">₹{txn.amount}</div>
+                                          <div className="text-xs text-green-600">{txn.status}</div>
+                                      </div>
+                                  </div>
+                              )) : (
+                                  <p className="text-slate-400 text-xs italic">No recent deposits.</p>
+                              )}
+                          </div>
+                      </div>
+                  )}
                   
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                      <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Breakdown by Method</h3>
@@ -1820,10 +2041,19 @@ function CashCollectionView({ shipments }) {
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount (Cash Only)</label>
                         <div className="relative">
                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
-                           <input type="number"  className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" placeholder="Enter amount" />
+                           <input 
+                                type="number" 
+                                className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" 
+                                placeholder="Enter amount"
+                                value={verifyAmount}
+                                onChange={(e) => setVerifyAmount(e.target.value)}
+                           />
                         </div>
                      </div>
-                     <button className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20">
+                     <button 
+                        onClick={handleSubmitCash}
+                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20"
+                     >
                         Verify & Submit
                      </button>
                   </div>
@@ -1942,11 +2172,11 @@ function AgentProfileView({ currentUser }) {
 
 
 --- FILE: src\components\customer-page\BookingForm.jsx ---
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Package, Truck, Calendar, MapPin, CreditCard, ChevronRight, CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Wallet, Banknote, Printer } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
-
 import { BarcodeGenerator } from '../shared/BarcodeGenerator';
+import { toast } from 'sonner';
 
 export function BookingForm({ onViewInvoice }) {
   const { addShipment, calculateRate } = useShipment();
@@ -1955,7 +2185,7 @@ export function BookingForm({ onViewInvoice }) {
     sender: { name: '', phone: '', address: '', pincode: '', city: 'Mumbai' },
     receiver: { name: '', phone: '', address: '', pincode: '', city: 'Delhi' },
     package: { weight: '', length: '', width: '', height: '', type: 'Standard', declaredValue: '' },
-    service: '',
+    service: 'standard', // Default to standard
     paymentMode: ''
   });
   
@@ -1974,8 +2204,34 @@ export function BookingForm({ onViewInvoice }) {
     }
   };
 
-  const getDynamicRate = (serviceType = 'standard') => {
-     return calculateRate(formData.package.weight, serviceType === 'express' ? 'Express' : 'Standard');
+  const getServiceTypeLabel = (id) => {
+      switch(id) {
+          case 'express': return 'Express';
+          case 'sameday': return 'Same Day';
+          default: return 'Standard';
+      }
+  };
+
+  const getCalculatedPrice = (serviceId) => {
+      // Base logic matching context's calculateRate, but handled here for display consistency or usage of context directly
+      // If Same Day, add premium.
+      // Context calculateRate: (weight * 50) + base (100 | 50)
+      
+      const typeLabel = getServiceTypeLabel(serviceId);
+      let price = calculateRate(formData.package.weight, typeLabel);
+      
+      if (serviceId === 'sameday') {
+          price += 500; // Same Day Premium
+      }
+      return price;
+  };
+
+  const getTotalPrice = () => {
+      let price = getCalculatedPrice(formData.service);
+      if (formData.paymentMode === 'cash') {
+          price += 50; // Cash Handling Fee
+      }
+      return price;
   };
 
   const handleNext = () => {
@@ -1987,44 +2243,61 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const handleSubmit = async () => {
+    if (!formData.paymentMode) {
+        toast.error('Please select a payment method');
+        return;
+    }
+
     setIsProcessing(true);
     
-    setTimeout(() => {
-      const newShipment = addShipment({
+    try {
+      const newShipment = await addShipment({
          sender: formData.sender,
          receiver: formData.receiver,
          weight: formData.package.weight,
-         cost: getDynamicRate(formData.service),
-         type: formData.service === 'express' ? 'Express' : 'Standard',
-         paymentMode: formData.paymentMode
+         cost: getTotalPrice(),
+         type: getServiceTypeLabel(formData.service),
+         paymentMode: formData.paymentMode,
+         status: 'Booked',
+         service: getServiceTypeLabel(formData.service) // Ensure service name is passed
       });
 
-      setIsProcessing(false);
       setTrackingId(newShipment.id);
       setBookingSuccess(true);
-    }, 2000);
+      toast.success('Shipment booked successfully!');
+    } catch (error) {
+        toast.error('Failed to book shipment. Please try again.');
+        console.error(error);
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handlePrint = () => {
+      window.print();
   };
 
   const services = [
-    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getDynamicRate('standard')}`, icon: Truck },
-    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getDynamicRate('express')}`, icon: Package },
-    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getDynamicRate('express') + 500}`, icon: Calendar },
+    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getCalculatedPrice('standard')}`, icon: Truck },
+    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getCalculatedPrice('express')}`, icon: Package },
+    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getCalculatedPrice('sameday')}`, icon: Calendar },
   ];
 
   if (bookingSuccess) {
     return (
-      <div className="max-w-2xl mx-auto text-center space-y-8 animate-fade-in-up py-10">
-        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+      <div className="max-w-2xl mx-auto text-center space-y-8 animate-fade-in-up py-10 print:py-0">
+        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 print:hidden">
           <CheckCircle className="w-12 h-12 text-green-600 animate-bounce-subtle" />
         </div>
         
-        <div>
+        <div className="print:hidden">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">Booking Confirmed!</h2>
           <p className="text-slate-500 text-lg">Your shipment has been successfully scheduled.</p>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-600"></div>
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-600 print:hidden"></div>
+          <div className="hidden print:block text-2xl font-bold mb-4 text-center border-b pb-4">SHIPFAST LOGISTICS</div>
           <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Tracking ID</p>
           <div className="text-4xl font-mono font-bold text-slate-900 tracking-widest mb-4 selection:bg-purple-100">{trackingId}</div>
           
@@ -2032,7 +2305,7 @@ export function BookingForm({ onViewInvoice }) {
              <BarcodeGenerator value={trackingId} />
           </div>
 
-          <p className="text-xs text-slate-400">Save this ID regarding your shipment</p>
+          <p className="text-xs text-slate-400 mb-4 print:hidden">Save this ID regarding your shipment</p>
           
           <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
              <div className="text-left">
@@ -2042,22 +2315,46 @@ export function BookingForm({ onViewInvoice }) {
                 </p>
              </div>
              <div className="text-right">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Amount Paid</p>
-                <p className="font-bold text-slate-800">₹{getDynamicRate(formData.service)}</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">Amount {formData.paymentMode === 'cash' ? 'To Pay' : 'Paid'}</p>
+                <p className="font-bold text-slate-800">₹{getTotalPrice()}</p>
+                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee)</span>}
+             </div>
+          </div>
+          <div className="hidden print:block mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
+             <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <span className="font-bold block mb-1">From:</span>
+                    <p>{formData.sender.name}</p>
+                    <p>{formData.sender.phone}</p>
+                    <p>{formData.sender.address || 'N/A'}</p>
+                    <p>{formData.sender.city} - {formData.sender.pincode}</p>
+                </div>
+                <div>
+                    <span className="font-bold block mb-1">To:</span>
+                    <p>{formData.receiver.name}</p>
+                    <p>{formData.receiver.phone}</p>
+                    <p>{formData.receiver.address || 'N/A'}</p>
+                    <p>{formData.receiver.city} - {formData.receiver.pincode}</p>
+                </div>
+             </div>
+             <div className="mt-4 pt-4 border-t">
+                 <p><span className="font-bold">Service:</span> {getServiceTypeLabel(formData.service)}</p>
+                 <p><span className="font-bold">Weight:</span> {formData.package.weight} kg</p>
+                 <p><span className="font-bold">Content:</span> {formData.package.type}</p>
              </div>
           </div>
         </div>
 
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-4 print:hidden">
           <button 
-             onClick={() => window.print()}
+             onClick={handlePrint}
              className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow flex items-center gap-2"
           >
             <Printer className="w-5 h-5" />
             Print Label
           </button>
           <button 
-             onClick={() => { setBookingSuccess(false); setStep(1); }} 
+             onClick={() => { setBookingSuccess(false); setStep(1); setFormData({...formData, paymentMode: ''}); }} 
              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white font-bold rounded-xl hover:from-purple-700 hover:to-pink-600 hover:shadow-lg hover:shadow-purple-500/30 transition-all transform hover:-translate-y-0.5"
           >
             Book Another
@@ -2096,8 +2393,8 @@ export function BookingForm({ onViewInvoice }) {
         {isProcessing && (
            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade-in">
               <div className="w-16 h-16 border-4 border-purple-100 border-t-purple-600 rounded-full animate-spin mb-4"></div>
-              <h3 className="text-xl font-bold text-slate-800">Processing Payment...</h3>
-              <p className="text-slate-500">Please do not close this window</p>
+              <h3 className="text-xl font-bold text-slate-800">Processing...</h3>
+              <p className="text-slate-500">Please wait while we confirm your booking</p>
            </div>
         )}
 
@@ -2369,7 +2666,7 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Service</span>
-                            <span className="font-semibold text-slate-900">Standard Delivery</span>
+                            <span className="font-semibold text-slate-900">{services.find(s=>s.id === formData.service)?.name || 'Standard'}</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Weight</span>
@@ -2389,15 +2686,21 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Base Rate</span>
-                            <span className="font-medium text-slate-900">₹{getDynamicRate(formData.service) - 50}.00</span>
+                            <span className="font-medium text-slate-900">₹{getCalculatedPrice(formData.service)}.00</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Tax & Fees</span>
-                            <span className="font-medium text-slate-900">₹50.00</span>
+                            <span className="font-medium text-slate-900">Included</span>
                          </div>
+                         {formData.paymentMode === 'cash' && (
+                           <div className="flex justify-between">
+                              <span className="text-slate-500">Cash Handling Fee</span>
+                              <span className="font-medium text-slate-900">₹50.00</span>
+                           </div>
+                         )}
                          <div className="border-t border-slate-100 pt-3 flex justify-between text-lg font-bold">
                             <span className="text-slate-900">Total</span>
-                            <span className="text-purple-600">₹{getDynamicRate(formData.service)}.00</span>
+                            <span className="text-purple-600">₹{getTotalPrice()}.00</span>
                          </div>
                       </div>
                    </div>
@@ -2451,7 +2754,12 @@ export function BookingForm({ onViewInvoice }) {
             className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-bold shadow-lg shadow-purple-500/30 transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
           >
             {step === 4 ? (
-               <>Confirm & Pay <CreditCard className="w-5 h-5" /></>
+               // Logic to show "Confirm & Pay" vs "Confirm Shipment" based on Payment Mode
+               formData.paymentMode === 'cash' ? (
+                   <>Confirm Shipment <CheckCircle className="w-5 h-5" /></>
+               ) : (
+                   <>Confirm & Pay <CreditCard className="w-5 h-5" /></>
+               )
             ) : (
                <>Continue <ArrowRight className="w-5 h-5" /></>
             )}
@@ -2540,16 +2848,118 @@ export function CancelShipmentModal({ isOpen, onClose, shipmentId, onConfirm }) 
 }
 
 
+--- FILE: src\components\customer-page\ContactPage.jsx ---
+import React from 'react';
+import { Mail, Phone, MapPin, Clock } from 'lucide-react';
+
+export default function ContactPage() {
+  return (
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-12">
+          <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Contact Us</h1>
+          <p className="mt-4 text-lg text-slate-600">
+            Have questions? We're here to help. Reach out to our support team.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Contact Info Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
+            <h2 className="text-xl font-bold text-slate-900 mb-6">Get in Touch</h2>
+            
+            <div className="space-y-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-purple-50 rounded-lg text-purple-600">
+                  <MapPin className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Our Office</h3>
+                  <p className="text-slate-600 mt-1">
+                    123 Logistics Avenue<br />
+                    Tech Park, Suite 400<br />
+                    New York, NY 10001
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-blue-50 rounded-lg text-blue-600">
+                  <Phone className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Phone</h3>
+                  <p className="text-slate-600 mt-1">
+                    +1 (555) 123-4567<br />
+                    +1 (555) 987-6543
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1">Mon-Fri 9am-6pm EST</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-pink-50 rounded-lg text-pink-600">
+                  <Mail className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Email</h3>
+                  <p className="text-slate-600 mt-1">
+                    support@shipfast.com<br />
+                    business@shipfast.com
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-orange-50 rounded-lg text-orange-600">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Working Hours</h3>
+                  <p className="text-slate-600 mt-1">
+                    Monday - Friday: 9:00 AM - 6:00 PM<br />
+                    Saturday: 10:00 AM - 2:00 PM<br />
+                    Sunday: Closed
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Map / Additional Info */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col justify-center items-center text-center">
+             <div className="w-full h-64 bg-slate-100 rounded-xl mb-6 flex items-center justify-center text-slate-400">
+                {/* Placeholder for map integration */}
+                <span>Interactive Map Component</span>
+             </div>
+             <h3 className="text-lg font-semibold text-slate-900">Visit our Headquarters</h3>
+             <p className="text-slate-600 mt-2">
+               We are located in the heart of the city, easily accessible by public transport.
+             </p>
+             <button className="mt-6 px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:opacity-90 transition-opacity font-medium">
+               Get Directions
+             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 --- FILE: src\components\customer-page\CustomerDashboard.jsx ---
 import { useState } from 'react';
 import { Package, Truck, Search, CreditCard, ChevronRight, PlusCircle, Calculator, X, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useShipment } from '../../context/ShipmentContext';
 
 export function CustomerDashboard() {
   const navigate = useNavigate();
+  const { shipments } = useShipment();
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcData, setCalcData] = useState({ weight: '', source: '', destination: '', type: 'Standard' });
   const [calculatedRate, setCalculatedRate] = useState(null);
+  const [trackingInput, setTrackingInput] = useState('');
 
   const handleCalculate = (e) => {
     e.preventDefault();
@@ -2560,6 +2970,12 @@ export function CustomerDashboard() {
     
     setCalculatedRate(baseRate + weightRate + typeRate);
   };
+
+  const handleTrack = () => {
+    navigate(`/track${trackingInput.trim() ? `?id=${trackingInput.trim()}` : ''}`);
+  };
+
+  const recentShipments = shipments.slice(0, 3);
 
   return (
     <div className="space-y-6 animate-fade-in-up relative">
@@ -2670,7 +3086,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Active Shipments</div>
-              <div className="text-2xl font-bold text-slate-900">12</div>
+              <div className="text-2xl font-bold text-slate-900">
+                {shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length}
+              </div>
             </div>
           </div>
         </div>
@@ -2682,7 +3100,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Delivered</div>
-              <div className="text-2xl font-bold text-slate-900">148</div>
+              <div className="text-2xl font-bold text-slate-900">
+                {shipments.filter(s => s.status === 'Delivered').length}
+              </div>
             </div>
           </div>
         </div>
@@ -2694,7 +3114,9 @@ export function CustomerDashboard() {
             </div>
             <div>
               <div className="text-sm text-slate-500">Total Spent</div>
-              <div className="text-2xl font-bold text-slate-900">₹12,450</div>
+              <div className="text-2xl font-bold text-slate-900">
+                ₹{shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0).toLocaleString()}
+              </div>
             </div>
           </div>
         </div>
@@ -2743,9 +3165,15 @@ export function CustomerDashboard() {
               type="text" 
               placeholder="Enter Tracking ID (e.g. SF123456789)"
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all font-medium placeholder:text-slate-400"
+              value={trackingInput}
+              onChange={(e) => setTrackingInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
             />
           </div>
-          <button className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20 active:scale-95">
+          <button 
+             onClick={handleTrack}
+             className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20 active:scale-95"
+          >
             Track Now
           </button>
         </div>
@@ -2757,23 +3185,41 @@ export function CustomerDashboard() {
           <button onClick={() => navigate('/dashboard/shipments')} className="text-purple-600 font-medium hover:text-purple-700 text-sm">View All</button>
         </div>
         <div className="divide-y divide-slate-100">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 group-hover:bg-purple-100 group-hover:text-purple-600 transition-colors">
-                  <Package className="w-5 h-5" />
+          {recentShipments.length > 0 ? (
+            recentShipments.map((shipment) => (
+              <div 
+                 key={shipment.id} 
+                 onClick={() => navigate(`/track?id=${shipment.id}`)}
+                 className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                      shipment.status === 'Delivered' ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-900">{shipment.id}</div>
+                    <div className="text-sm text-slate-500">
+                       {shipment.sender?.city || 'Origin'} → {shipment.receiver?.city || 'Dest'}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-slate-900">SF12345678{i}</div>
-                  <div className="text-sm text-slate-500">Mum → Del • In Transit</div>
+                <div className="flex items-center gap-4">
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                      shipment.status === 'Delivered' 
+                        ? 'bg-green-50 text-green-700 border-green-200' 
+                        : 'bg-purple-50 text-purple-700 border-purple-200'
+                  }`}>
+                    {shipment.status}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">In Transit</span>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <div className="p-8 text-center text-slate-500">No shipments found.</div>
+          )}
         </div>
       </div>
     </div>
@@ -2980,7 +3426,10 @@ export function InvoicePage() {
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+          <button 
+            onClick={() => { alert("Please select 'Save as PDF' in the print dialog."); window.print(); }} 
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
             <Download className="w-4 h-4" />
             Download PDF
           </button>
@@ -3091,7 +3540,7 @@ export function InvoicePage() {
 
 --- FILE: src\components\customer-page\MyShipments.jsx ---
 import React, { useState } from 'react';
-import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2 } from 'lucide-react';
+import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2, X, Download, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { RateShipmentModal } from './RateShipmentModal';
@@ -3104,13 +3553,24 @@ export function MyShipments() {
   const [activeModal, setActiveModal] = useState(null);
   const [selectedShipment, setSelectedShipment] = useState(null);
   const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Helper to format status for display and comparison
+  const formatStatus = (status) => {
+      if (!status) return '';
+      return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    const formatted = formatStatus(status);
+    switch (formatted) {
       case 'In Transit': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'Delivered': return 'bg-green-50 text-green-700 border-green-200';
-      case 'Pending': return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'Pending': 
+      case 'Booked': return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'Cancelled': return 'bg-red-50 text-red-700 border-red-200';
+      case 'Out For Delivery': return 'bg-blue-50 text-blue-700 border-blue-200';
       default: return 'bg-slate-50 text-slate-700 border-slate-200';
     }
   };
@@ -3147,15 +3607,20 @@ export function MyShipments() {
     navigate(`/track?id=${id}`);
   };
 
-  const filteredShipments = shipments.filter(s => 
-      (s.id && s.id.toLowerCase().includes(filter.toLowerCase())) || 
-      (s.receiver?.city && s.receiver.city.toLowerCase().includes(filter.toLowerCase())) ||
-      (s.sender?.city && s.sender.city.toLowerCase().includes(filter.toLowerCase()))
-  );
+  const filteredShipments = shipments.filter(s => {
+      const matchesSearch = (s.id && s.id.toLowerCase().includes(filter.toLowerCase())) || 
+                            (s.receiver?.city && s.receiver.city.toLowerCase().includes(filter.toLowerCase())) ||
+                            (s.sender?.city && s.sender.city.toLowerCase().includes(filter.toLowerCase()));
+      
+      const normalizedStatus = formatStatus(s.status);
+      const matchesStatus = statusFilter === 'All' || normalizedStatus === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-xl font-bold text-slate-900">Shipment History</h2>
         <div className="flex gap-4">
           <div className="relative">
@@ -3165,13 +3630,51 @@ export function MyShipments() {
               placeholder="Search shipments..." 
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
+              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-full md:w-64"
             />
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-medium">
-            <Filter className="w-4 h-4" />
-            Filter
-          </button>
+          <div className="relative">
+            <button 
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                showFilters || statusFilter !== 'All' 
+                  ? 'bg-purple-50 border-purple-200 text-purple-700' 
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Filter
+              {statusFilter !== 'All' && <span className="ml-1 px-1.5 py-0.5 bg-purple-200 text-purple-800 rounded-full text-xs">{statusFilter}</span>}
+            </button>
+            
+            {showFilters && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowFilters(false)}></div>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 p-2 z-20 animate-scale-in origin-top-right">
+                  <div className="text-xs font-semibold text-slate-400 px-3 py-2 uppercase tracking-wider">Status</div>
+                  {['All', 'Booked', 'In Transit', 'Out For Delivery', 'Delivered', 'Cancelled'].map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => { setStatusFilter(status); setShowFilters(false); }}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        statusFilter === status ? 'bg-purple-50 text-purple-700 font-medium' : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                  {statusFilter !== 'All' && (
+                     <button 
+                       onClick={() => { setStatusFilter('All'); setShowFilters(false); }}
+                       className="w-full text-center mt-2 py-2 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors border-t border-slate-100"
+                     >
+                       Clear Filter
+                     </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -3205,7 +3708,7 @@ export function MyShipments() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(shipment.status)}`}>
-                      {shipment.status}
+                      {formatStatus(shipment.status)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -3239,7 +3742,7 @@ export function MyShipments() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                       {shipment.status === 'Delivered' && (
+                       {formatStatus(shipment.status) === 'Delivered' && (
                          <>
                            <button 
                               onClick={() => handleAction('rate', shipment)}
@@ -3257,7 +3760,7 @@ export function MyShipments() {
                            </button>
                          </>
                        )}
-                       {(shipment.status === 'Pending' || shipment.status === 'Booked') && (
+                       {(formatStatus(shipment.status) === 'Pending' || formatStatus(shipment.status) === 'Booked') && (
                           <button 
                             onClick={() => handleAction('cancel', shipment)}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -3267,7 +3770,7 @@ export function MyShipments() {
                           </button>
                        )}
                        
-                       {(shipment.status === 'Cancelled' || shipment.status === 'Delivered') && (
+                       {(formatStatus(shipment.status) === 'Cancelled' || formatStatus(shipment.status) === 'Delivered') && (
                            <button 
                               onClick={() => handleDelete(shipment)}
                               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -3283,7 +3786,7 @@ export function MyShipments() {
               {filteredShipments.length === 0 && (
                   <tr>
                       <td colSpan="7" className="px-6 py-12 text-center text-slate-500">
-                          No shipments found matching your search.
+                          {shipments.length === 0 ? "You haven't made any shipments yet." : "No shipments found matching your search."}
                       </td>
                   </tr>
               )}
@@ -3311,52 +3814,102 @@ export function MyShipments() {
 
 
 --- FILE: src\components\customer-page\Payments.jsx ---
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreditCard, DollarSign, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
+import { useShipment } from '../../context/ShipmentContext';
+import { mockService } from '../../mock/mockService';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 export function Payments() {
-  // Removed unused filter state
+  const { currentUser } = useShipment();
+  const navigate = useNavigate();
+  const [transactions, setTransactions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const transactions = [
-    {
-      id: 'TRX-987654321',
-      date: 'Dec 20, 2025',
-      description: 'Shipment #SF123456789',
-      amount: '₹191.16',
-      status: 'Completed',
-      method: 'Credit Card •••• 4242'
-    },
-    {
-      id: 'TRX-123456789',
-      date: 'Dec 18, 2025',
-      description: 'Shipment #SF987654321',
-      amount: '₹318.60',
-      status: 'Completed',
-      method: 'UPI'
-    },
-    {
-      id: 'TRX-456789123',
-      date: 'Dec 15, 2025',
-      description: 'Wallet Top-up',
-      amount: '₹1,000.00',
-      status: 'Completed',
-      method: 'Net Banking'
-    },
-    {
-      id: 'TRX-789123456',
-      date: 'Dec 10, 2025',
-      description: 'Shipment #SF789123456',
-      amount: '₹120.00',
-      status: 'Failed',
-      method: 'Credit Card •••• 4242'
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mockService.getTransactions(currentUser?.id);
+        setTransactions(data);
+      } catch (error) {
+        console.error('Failed to fetch transactions', error);
+        toast.error('Failed to load transactions');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (currentUser) {
+      fetchTransactions();
     }
-  ];
+  }, [currentUser]);
+
+  const handleDownloadStatement = () => {
+    toast.success('Preparing statement...');
+    
+    // Generate CSV content
+    const headers = ['Transaction ID', 'Date', 'Description', 'Method', 'Status', 'Amount'];
+    const rows = transactions.map(t => [
+        t.id,
+        t.date,
+        `"${t.description}"`, // Quote description to handle commas
+        t.method || 'Credit Card',
+        t.status,
+        t.amount
+    ]);
+    
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(r => r.join(','))
+    ].join('\n');
+    
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `statement_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Statement downloaded successfully');
+  };
+
+  const handleDownloadInvoice = (id) => {
+    navigate(`/dashboard/invoice/${id}`);
+  };
+
+  const filteredTransactions = transactions.filter(t => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      
+      // Strict ID search if term allows (e.g. starts with TXN or TRK or just contains numbers/letters)
+      // Requirement: Searching by Transaction ID must return ONLY matching transaction
+      // and No extra records should appear.
+      // We will check if the ID includes the search term. 
+      // If the user types a partial ID, it should filter by ID.
+      // If the user types text, it might match description.
+      
+      return t.id.toLowerCase().includes(term) ||
+             t.description.toLowerCase().includes(term);
+  });
+
+  const totalSpent = transactions
+    .filter(t => t.status === 'Completed')
+    .reduce((acc, t) => acc + parseFloat(t.amount.toString().replace(/[^0-9.-]+/g,"")), 0);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-900">Payments & Invoices</h2>
-        <button className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-lg hover:from-purple-700 hover:to-pink-600 transition-all flex items-center gap-2 font-medium shadow-md shadow-purple-500/20">
+        <button 
+          onClick={handleDownloadStatement}
+          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-lg hover:from-purple-700 hover:to-pink-600 transition-all flex items-center gap-2 font-medium shadow-md shadow-purple-500/20"
+        >
           <Download className="w-4 h-4" />
           Download Statement
         </button>
@@ -3372,7 +3925,9 @@ export function Payments() {
             </div>
             <span className="text-sm font-medium text-slate-500">Total Spent</span>
           </div>
-          <div className="text-3xl font-bold text-slate-900 relative z-10">₹12,450.00</div>
+          <div className="text-3xl font-bold text-slate-900 relative z-10">
+            ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
           <div className="text-sm text-green-600 mt-2 flex items-center gap-1 relative z-10">
             <ArrowUpRight className="w-4 h-4" />
             +12.5% from last month
@@ -3412,9 +3967,11 @@ export function Payments() {
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
-                    type="text" 
-                    placeholder="Search transactions..." 
-                    className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
+                      type="text" 
+                      placeholder="Search transactions..." 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
                     />
                 </div>
             </div>
@@ -3433,29 +3990,45 @@ export function Payments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactions.map((trx) => (
-                <tr key={trx.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-900 text-sm">{trx.id}</td>
-                  <td className="px-6 py-4 text-slate-600 text-sm">{trx.date}</td>
-                  <td className="px-6 py-4 text-slate-900 text-sm">{trx.description}</td>
-                  <td className="px-6 py-4 text-slate-600 text-sm flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-slate-400" />
-                    {trx.method}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                      trx.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
-                      trx.status === 'Failed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}>
-                      {trx.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right font-medium text-slate-900">{trx.amount}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="text-purple-600 hover:text-purple-800 text-sm font-medium">Download</button>
-                  </td>
-                </tr>
-              ))}
+              {isLoading ? (
+                  <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-slate-500">Loading transactions...</td>
+                  </tr>
+              ) : filteredTransactions.length > 0 ? (
+                filteredTransactions.map((trx) => (
+                  <tr key={trx.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-900 text-sm">{trx.id}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">{trx.date}</td>
+                    <td className="px-6 py-4 text-slate-900 text-sm">{trx.description}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-slate-400" />
+                      {/* Mock method if missing */}
+                      {trx.method || 'Credit Card'} 
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        trx.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                        trx.status === 'Failed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                      }`}>
+                        {trx.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-900">₹{trx.amount}</td>
+                    <td className="px-6 py-4 text-right">
+                      <button 
+                        onClick={() => handleDownloadInvoice(trx.id)}
+                        className="text-purple-600 hover:text-purple-800 text-sm font-medium hover:underline"
+                      >
+                        View Invoice
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                  <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-slate-500">No transactions found.</td>
+                  </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -3545,37 +4118,18 @@ export function RateShipmentModal({ isOpen, onClose, shipmentId, onSubmit }) {
 
 
 --- FILE: src\components\customer-page\SupportPage.jsx ---
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Plus, Send, Clock, CheckCircle2, AlertCircle, Search, Filter } from 'lucide-react';
+import { useShipment } from '../../context/ShipmentContext';
+import { mockService } from '../../mock/mockService';
+import { toast } from 'sonner';
 
 export function SupportPage() {
+  const { currentUser } = useShipment();
   const [activeTab, setActiveTab] = useState('list'); // 'list' or 'new'
-  const [tickets, setTickets] = useState([
-    {
-      id: 'TKT-2025-001',
-      subject: 'Delay in Shipment #SF123456',
-      status: 'Open',
-      priority: 'High',
-      date: 'Dec 20, 2025',
-      lastUpdate: '2 hours ago'
-    },
-    {
-      id: 'TKT-2025-002',
-      subject: 'Invoice Discrepancy',
-      status: 'Resolved',
-      priority: 'Medium',
-      date: 'Dec 15, 2025',
-      lastUpdate: 'Dec 16, 2025'
-    },
-    {
-      id: 'TKT-2025-003',
-      subject: 'Change Delivery Address',
-      status: 'Closed',
-      priority: 'Low',
-      date: 'Dec 10, 2025',
-      lastUpdate: 'Dec 11, 2025'
-    }
-  ]);
+  const [tickets, setTickets] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [newTicket, setNewTicket] = useState({
     subject: '',
@@ -3584,19 +4138,44 @@ export function SupportPage() {
     priority: 'Medium'
   });
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const ticket = {
-      id: `TKT-2026-${Math.floor(Math.random() * 1000)}`,
-      subject: newTicket.subject,
-      status: 'Open',
-      priority: newTicket.priority,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      lastUpdate: 'Just now'
+  useEffect(() => {
+    const fetchTickets = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mockService.getTickets(currentUser?.id);
+        setTickets(data);
+      } catch (error) {
+        console.error('Failed to fetch tickets', error);
+        toast.error('Failed to load tickets');
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setTickets([ticket, ...tickets]);
-    setActiveTab('list');
-    setNewTicket({ subject: '', category: 'Shipment Issue', message: '', priority: 'Medium' });
+
+    if (currentUser) {
+      fetchTickets();
+    }
+  }, [currentUser]);
+
+  const [priorityFilter, setPriorityFilter] = useState('All');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const ticket = await mockService.createTicket({
+        ...newTicket,
+        userId: currentUser?.id,
+        status: 'Open',
+        lastUpdate: 'Just now'
+      });
+      setTickets([ticket, ...tickets]);
+      setActiveTab('list');
+      setNewTicket({ subject: '', category: 'Shipment Issue', message: '', priority: 'Medium' });
+      toast.success('Ticket Raised');
+    } catch (error) {
+      console.error('Failed to create ticket', error);
+      toast.error('Failed to create ticket');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -3616,6 +4195,12 @@ export function SupportPage() {
       default: return 'text-slate-600 bg-slate-50';
     }
   };
+
+  const filteredTickets = tickets.filter(t => {
+      const matchesSearch = t.subject.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesPriority = priorityFilter === 'All' || t.priority === priorityFilter;
+      return matchesSearch && matchesPriority;
+  });
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -3647,47 +4232,63 @@ export function SupportPage() {
                    <div className="flex gap-2">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input type="text" placeholder="Search..." className="pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-48" />
+                        <input 
+                          type="text" 
+                          placeholder="Search subject..." 
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-48" 
+                        />
                       </div>
-                      <button className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
-                        <Filter className="w-4 h-4" />
-                      </button>
+                      <select
+                        value={priorityFilter}
+                        onChange={(e) => setPriorityFilter(e.target.value)}
+                        className="pl-3 pr-8 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white cursor-pointer appearance-none"
+                      >
+                        <option value="All">All Priorities</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
                    </div>
                </div>
                <div className="divide-y divide-slate-100">
-                 {tickets.map((ticket) => (
-                   <div key={ticket.id} className="p-4 hover:bg-slate-50 transition-colors group cursor-pointer">
-                     <div className="flex items-start justify-between mb-2">
-                       <div className="flex items-center gap-3">
-                         <span className="font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">{ticket.subject}</span>
-                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(ticket.priority)}`}>
-                            {ticket.priority}
-                         </span>
-                       </div>
-                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(ticket.status)}`}>
-                          {ticket.status}
-                       </span>
-                     </div>
-                     <div className="flex items-center gap-4 text-xs text-slate-500">
-                       <span className="font-mono">{ticket.id}</span>
-                       <span>•</span>
-                       <span className="flex items-center gap-1">
-                         <Clock className="w-3 h-3" />
-                         Updated {ticket.lastUpdate}
-                       </span>
-                     </div>
+                 {isLoading ? (
+                    <div className="p-8 text-center text-slate-500">Loading tickets...</div>
+                 ) : filteredTickets.length > 0 ? (
+                    filteredTickets.map((ticket) => (
+                      <div key={ticket.id} className="p-4 hover:bg-slate-50 transition-colors group cursor-pointer">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">{ticket.subject}</span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(ticket.priority)}`}>
+                               {ticket.priority}
+                            </span>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(ticket.status)}`}>
+                             {ticket.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span className="font-mono">{ticket.id}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Updated {ticket.lastUpdate || 'Recently'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                 ) : (
+                   <div className="p-12 text-center text-slate-500">
+                     <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                     <p>No tickets found</p>
                    </div>
-                 ))}
+                 )}
                </div>
-               {tickets.length === 0 && (
-                 <div className="p-12 text-center text-slate-500">
-                   <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                   <p>No tickets found</p>
-                 </div>
-               )}
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
                <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
                   <h3 className="font-bold text-slate-900">Create New Ticket</h3>
                   <button onClick={() => setActiveTab('list')} className="text-sm text-slate-500 hover:text-slate-900">Cancel</button>
@@ -3831,17 +4432,21 @@ export function DashboardLayout({ user, onLogout, sidebarItems }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      <Sidebar 
-        isSidebarOpen={isSidebarOpen} 
-        setIsSidebarOpen={setIsSidebarOpen} 
-        sidebarItems={sidebarItems} 
-        onLogout={onLogout} 
-      />
+      <div className="print:hidden">
+        <Sidebar 
+          isSidebarOpen={isSidebarOpen} 
+          setIsSidebarOpen={setIsSidebarOpen} 
+          sidebarItems={sidebarItems} 
+          onLogout={onLogout} 
+        />
+      </div>
 
-      <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        <TopNavbar user={user} />
+      <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64 print:ml-0' : 'ml-20 print:ml-0'}`}>
+        <div className="print:hidden">
+          <TopNavbar user={user} />
+        </div>
 
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">
           <Outlet />
         </div>
       </main>
@@ -3881,9 +4486,6 @@ export function Sidebar({ isSidebarOpen, setIsSidebarOpen, sidebarItems, onLogou
           className="flex items-center gap-3 overflow-hidden transition-all hover:opacity-80"
         >
           <img src={logoImage} alt="ShipFast" className="h-8 w-auto flex-shrink-0" />
-          <span className={`text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent truncate transition-all duration-300 ${isSidebarOpen ? 'opacity-100 w-auto' : 'opacity-0 w-0'}`}>
-            ShipFast
-          </span>
         </button>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg">
           {isSidebarOpen ? <X className="w-5 h-5 text-slate-500" /> : <Menu className="w-5 h-5 text-slate-500" />}
@@ -4030,6 +4632,7 @@ import { useState } from 'react';
 import { Mail, ArrowLeft, CheckCircle, Lock, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
+import { AlertModal } from '../shared/AlertModal';
 
 export function ForgotPasswordPage() {
   const navigate = useNavigate();
@@ -4039,6 +4642,7 @@ export function ForgotPasswordPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [showResendModal, setShowResendModal] = useState(false);
 
   const handleBackToLogin = () => {
     navigate('/login');
@@ -4095,6 +4699,10 @@ export function ForgotPasswordPage() {
     setCurrentStep('success');
   };
 
+  const handleResendCode = () => {
+      setShowResendModal(true);
+  };
+
   const getPasswordStrength = (password) => {
     if (password.length === 0) return { strength: 0, label: '' };
     if (password.length < 6) return { strength: 25, label: 'Weak', color: 'bg-red-500' };
@@ -4114,6 +4722,14 @@ export function ForgotPasswordPage() {
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
         }} />
       </div>
+
+      <AlertModal 
+        isOpen={showResendModal}
+        onClose={() => setShowResendModal(false)}
+        title="Code Resent"
+        message={`A new verification code has been sent to ${email}.`}
+        type="success"
+      />
 
       {/* Main Card */}
       <div className="w-full max-w-md relative z-10">
@@ -4224,7 +4840,11 @@ export function ForgotPasswordPage() {
               </form>
 
               <div className="text-center">
-                <button className="text-blue-600 hover:underline font-semibold">
+                <button 
+                  type="button"
+                  onClick={handleResendCode}
+                  className="text-blue-600 hover:underline font-semibold"
+                >
                   Resend Code
                 </button>
               </div>
@@ -4334,12 +4954,9 @@ import { Package, MapPin, Clock, Shield, TrendingUp, Users, Zap, Award, Truck, G
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 
-
 export function Homepage() {
   const navigate = useNavigate();
   const { currentUser } = useShipment();
-
-
 
   const handleGetStarted = () => {
     navigate('/login');
@@ -4613,9 +5230,9 @@ export function Homepage() {
               <div className="flex flex-col md:flex-row items-center gap-6">
                 <p className="text-slate-600 font-medium">© 2025 ShipFast. All rights reserved.</p>
                 <div className="flex gap-6 text-sm text-slate-600">
-                  <button className="hover:text-blue-600 transition-colors">Privacy Policy</button>
-                  <button className="hover:text-blue-600 transition-colors">Terms of Service</button>
-                  <button className="hover:text-blue-600 transition-colors">Contact Us</button>
+                  <button onClick={() => navigate('/privacy')} className="hover:text-blue-600 transition-colors">Privacy Policy</button>
+                  <button onClick={() => navigate('/terms')} className="hover:text-blue-600 transition-colors">Terms of Service</button>
+                  <button onClick={() => navigate('/contact')} className="hover:text-blue-600 transition-colors">Contact Us</button>
                 </div>
               </div>
             </div>
@@ -4629,7 +5246,7 @@ export function Homepage() {
 
 --- FILE: src\components\other\LoginPage.jsx ---
 import { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap, AlertCircle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { Logo } from '../ui/Logo';
@@ -4639,24 +5256,28 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
   const { login } = useShipment();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
     
-    // Simulate network delay
-    setTimeout(() => {
-      const user = login(email, password);
-      setIsLoading(false);
+    try {
+      const user = await login(email, password);
       
       if (user) {
          if (user.role === 'admin') navigate('/admin');
          else if (user.role === 'agent') navigate('/agent');
          else navigate('/dashboard');
       }
-    }, 1500);
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -4736,6 +5357,13 @@ export function LoginPage() {
                <h3 className="text-3xl font-bold text-slate-900 mb-2">Sign In to Your Account</h3>
                <p className="text-slate-500 text-sm">Your credentials will automatically determine your access level</p>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex items-start gap-3 animate-fade-in-up mb-6">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-red-800 font-medium">{error}</p>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
@@ -5208,42 +5836,53 @@ export function RegistrationPage() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
+      setIsLoading(false);
       return;
     }
 
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters long');
+      setIsLoading(false);
       return;
     }
 
     if (!formData.name || !formData.email || !formData.phone) {
       setError('Please fill all required fields');
+      setIsLoading(false);
       return;
     }
 
-    // Register user via context
-    register({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      address: formData.address,
-      city: formData.city,
-      state: formData.state,
-      pincode: formData.pincode
-    });
+    try {
+      // Register user via context
+      await register({
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        pincode: formData.pincode
+      });
 
-    setSuccess(true);
-    setTimeout(() => {
-      navigate('/dashboard');
-    }, 1500);
+      setSuccess(true);
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1500);
+    } catch (err) {
+      setError(err.message || 'Registration failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -5257,7 +5896,15 @@ export function RegistrationPage() {
     navigate('/login');
   };
 
+  const handleTermsClick = () => {
+      // Placeholder for terms of service
+      navigate('/terms');
+  };
 
+  const handlePrivacyClick = () => {
+      // Placeholder for privacy policy
+      navigate('/privacy');
+  };
 
   if (success) {
     return (
@@ -5487,16 +6134,21 @@ export function RegistrationPage() {
               <div className="flex items-start gap-2">
                 <input type="checkbox" required className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                 <label className="text-sm text-slate-600">
-                  I agree to the <span className="text-blue-600 font-semibold hover:underline cursor-pointer">Terms of Service</span> and <span className="text-blue-600 font-semibold hover:underline cursor-pointer">Privacy Policy</span>
+                  I agree to the <span onClick={handleTermsClick} className="text-blue-600 font-semibold hover:underline cursor-pointer">Terms of Service</span> and <span onClick={handlePrivacyClick} className="text-blue-600 font-semibold hover:underline cursor-pointer">Privacy Policy</span>
                 </label>
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-4 rounded-xl transition-all font-bold text-lg shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/60 transform hover:-translate-y-0.5"
+                disabled={isLoading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-4 rounded-xl transition-all font-bold text-lg shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/60 transform hover:-translate-y-0.5 disabled:opacity-70 disabled:hover:transform-none"
               >
-                Create Account
-                <ArrowRight className="inline-block w-5 h-5 ml-2" />
+                {isLoading ? 'Creating Account...' : (
+                  <>
+                  Create Account
+                  <ArrowRight className="inline-block w-5 h-5 ml-2" />
+                  </>
+                )}
               </button>
 
               <div className="text-center">
@@ -5519,69 +6171,106 @@ export function RegistrationPage() {
 
 --- FILE: src\components\other\TrackingPortal.jsx ---
 import { useState, useEffect } from 'react';
-import { Search, Package, MapPin, Clock, CheckCircle, Truck, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { Search, Package, MapPin, Clock, CheckCircle, Truck, ArrowLeft, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
+import { mockService } from '../../mock/mockService';
+import { toast } from 'sonner';
 
 export function TrackingPortal() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [trackingNumber, setTrackingNumber] = useState('');
-  const [trackingResult, setTrackingResult] = useState(false);
+  const [shipmentData, setShipmentData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const id = searchParams.get('id');
     if (id) {
       setTrackingNumber(id);
-      setTrackingResult(true);
+      fetchShipment(id);
     }
   }, [searchParams]);
+
+  const fetchShipment = async (id) => {
+    if (!id) return;
+    setIsLoading(true);
+    setError(null);
+    setShipmentData(null);
+    try {
+      const data = await mockService.getShipmentById(id);
+      setShipmentData(data);
+    } catch (err) {
+      console.error(err);
+      setError('Shipment not found. Please check the tracking ID.');
+      setShipmentData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleTrack = (e) => {
     e.preventDefault();
     if (trackingNumber.trim()) {
-      setTrackingResult(true);
+      fetchShipment(trackingNumber.trim());
+      // Update URL without reloading
+      const newUrl = `${window.location.pathname}?id=${trackingNumber.trim()}`;
+      window.history.pushState({ path: newUrl }, '', newUrl);
     }
   };
-
-
 
   const handleBack = () => {
     navigate(-1);
   };
 
-  const mockTrackingData = [
-    {
-      status: 'Delivered',
-      location: 'Mumbai, Maharashtra',
-      timestamp: '2025-12-15 10:30 AM',
-      description: 'Package delivered successfully. Signed by receiver.',
-    },
-    {
-      status: 'Out for Delivery',
-      location: 'Mumbai Hub',
-      timestamp: '2025-12-15 08:00 AM',
-      description: 'Package is out for delivery. Expected delivery by end of day.',
-    },
-    {
-      status: 'In Transit',
-      location: 'Delhi Hub',
-      timestamp: '2025-12-14 06:00 PM',
-      description: 'Package departed from Delhi hub.',
-    },
-    {
-      status: 'In Transit',
-      location: 'Delhi Hub',
-      timestamp: '2025-12-14 02:00 PM',
-      description: 'Package arrived at Delhi hub.',
-    },
-    {
+  // Helper to generate timeline based on status
+  const getTimeline = (status, date, deliveryDate) => {
+    const events = [];
+    const dateObj = new Date(date);
+    
+    // Booked is always first
+    events.push({
       status: 'Booked',
-      location: 'Bangalore Branch',
-      timestamp: '2025-12-14 10:00 AM',
-      description: 'Shipment booking confirmed. Package received at origin.',
-    },
-  ];
+      location: 'Origin Branch',
+      timestamp: dateObj.toLocaleDateString(),
+      description: 'Shipment booking confirmed.',
+      completed: true
+    });
+
+    if (status === 'IN_TRANSIT' || status === 'OUT_FOR_DELIVERY' || status === 'DELIVERED') {
+      events.push({
+        status: 'In Transit',
+        location: 'Hub',
+        timestamp: new Date(dateObj.getTime() + 86400000).toLocaleDateString(), // +1 day
+        description: 'Package in transit to destination.',
+        completed: true
+      });
+    }
+
+    if (status === 'OUT_FOR_DELIVERY' || status === 'DELIVERED') {
+       events.push({
+        status: 'Out for Delivery',
+        location: 'Destination Hub',
+        timestamp: new Date(dateObj.getTime() + 172800000).toLocaleDateString(), // +2 days
+        description: 'Package is out for delivery.',
+        completed: true
+      });
+    }
+
+    if (status === 'DELIVERED') {
+       events.push({
+        status: 'Delivered',
+        location: 'Receiver Address',
+        timestamp: deliveryDate || new Date(dateObj.getTime() + 172800000).toLocaleDateString(),
+        description: 'Package delivered successfully.',
+        completed: true
+      });
+    }
+
+    // Sort descending for history list
+    return events.reverse();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-50 transition-colors duration-500">
@@ -5623,53 +6312,65 @@ export function TrackingPortal() {
             </div>
             <button
               type="submit"
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl hover:from-purple-700 hover:to-pink-600 transition-all font-semibold shadow-lg shadow-purple-500/30"
+              disabled={isLoading}
+              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl hover:from-purple-700 hover:to-pink-600 transition-all font-semibold shadow-lg shadow-purple-500/30 disabled:opacity-70"
             >
-              Track
+              {isLoading ? 'Tracking...' : 'Track'}
             </button>
           </form>
         </div>
 
-        {trackingResult && (
+        {error && (
+            <div className="bg-red-50 text-red-600 p-4 rounded-xl text-center mb-8 border border-red-100 flex items-center justify-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                {error}
+            </div>
+        )}
+
+        {shipmentData && (
           <div className="space-y-6 animate-fade-in-up">
             <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
               <div className="flex items-start justify-between mb-6">
                 <div>
                   <div className="text-slate-600 mb-1">Tracking Number</div>
-                  <div className="text-slate-800 font-bold text-xl">{trackingNumber || 'SF123456789'}</div>
+                  <div className="text-slate-800 font-bold text-xl">{shipmentData.id}</div>
                 </div>
-                <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg font-semibold">
-                  Delivered
+                <div className={`px-4 py-2 rounded-lg font-semibold ${
+                    shipmentData.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 
+                    shipmentData.status === 'CANCELLED' ? 'bg-red-100 text-red-700' :
+                    'bg-purple-100 text-purple-700'
+                }`}>
+                  {shipmentData.status}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <div>
                   <div className="text-slate-600 mb-1">Origin</div>
-                  <div className="text-slate-800 font-semibold">Bangalore, Karnataka</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.origin || shipmentData.sender?.address || 'N/A'}</div>
                 </div>
                 <div>
                   <div className="text-slate-600 mb-1">Destination</div>
-                  <div className="text-slate-800 font-semibold">Mumbai, Maharashtra</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.destination || shipmentData.receiver?.address || 'N/A'}</div>
                 </div>
                 <div>
                   <div className="text-slate-600 mb-1">Service Type</div>
-                  <div className="text-slate-800 font-semibold">Express Delivery</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.service || 'Standard'}</div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <div className="text-slate-600 mb-1">Booking Date</div>
-                  <div className="text-slate-800 font-semibold">Dec 14, 2025</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.date}</div>
                 </div>
                 <div>
                   <div className="text-slate-600 mb-1">Delivery Date</div>
-                  <div className="text-slate-800 font-semibold">Dec 15, 2025</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.deliveryDate || 'Pending'}</div>
                 </div>
                 <div>
                   <div className="text-slate-600 mb-1">Weight</div>
-                  <div className="text-slate-800 font-semibold">2.5 kg</div>
+                  <div className="text-slate-800 font-semibold">{shipmentData.weight || 'N/A'}</div>
                 </div>
               </div>
             </div>
@@ -5677,36 +6378,33 @@ export function TrackingPortal() {
             <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
               <h2 className="text-slate-800 mb-6 font-bold text-xl">Shipment Journey</h2>
               <div className="flex items-center justify-between">
+                {/* Visual Timeline - simplified for mock data */}
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
                     <Package className="w-6 h-6 text-green-600" />
                   </div>
                   <div className="text-slate-800 font-semibold">Booked</div>
-                  <div className="text-slate-500">Dec 14</div>
                 </div>
-                <div className="flex-1 h-1 bg-green-200 mx-2"></div>
+                <div className={`flex-1 h-1 mx-2 ${['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'bg-green-200' : 'bg-slate-200'}`}></div>
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <Truck className="w-6 h-6 text-green-600" />
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'bg-green-100' : 'bg-slate-100'}`}>
+                    <Truck className={`w-6 h-6 ${['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'text-green-600' : 'text-slate-400'}`} />
                   </div>
                   <div className="text-slate-800 font-semibold">In Transit</div>
-                  <div className="text-slate-500">Dec 14</div>
                 </div>
-                <div className="flex-1 h-1 bg-green-200 mx-2"></div>
+                <div className={`flex-1 h-1 mx-2 ${['OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'bg-green-200' : 'bg-slate-200'}`}></div>
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <MapPin className="w-6 h-6 text-green-600" />
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${['OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'bg-green-100' : 'bg-slate-100'}`}>
+                    <MapPin className={`w-6 h-6 ${['OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipmentData.status) ? 'text-green-600' : 'text-slate-400'}`} />
                   </div>
                   <div className="text-slate-800 font-semibold">Out for Delivery</div>
-                  <div className="text-slate-500">Dec 15</div>
                 </div>
-                <div className="flex-1 h-1 bg-green-200 mx-2"></div>
+                <div className={`flex-1 h-1 mx-2 ${shipmentData.status === 'DELIVERED' ? 'bg-green-200' : 'bg-slate-200'}`}></div>
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6 text-green-600" />
+                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${shipmentData.status === 'DELIVERED' ? 'bg-green-100' : 'bg-slate-100'}`}>
+                    <CheckCircle className={`w-6 h-6 ${shipmentData.status === 'DELIVERED' ? 'text-green-600' : 'text-slate-400'}`} />
                   </div>
                   <div className="text-slate-800 font-semibold">Delivered</div>
-                  <div className="text-slate-500">Dec 15</div>
                 </div>
               </div>
             </div>
@@ -5714,7 +6412,7 @@ export function TrackingPortal() {
             <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
               <h2 className="text-slate-800 mb-6 font-bold text-xl">Tracking History</h2>
               <div className="space-y-6">
-                {mockTrackingData.map((event, index) => (
+                {getTimeline(shipmentData.status, shipmentData.date, shipmentData.deliveryDate).map((event, index) => (
                   <div key={index} className="flex gap-4">
                     <div className="flex flex-col items-center">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -5726,7 +6424,7 @@ export function TrackingPortal() {
                           <Clock className="w-5 h-5 text-blue-600" />
                         )}
                       </div>
-                      {index < mockTrackingData.length - 1 && (
+                      {index < 3 && ( 
                         <div className="w-0.5 h-full bg-slate-200 my-1"></div>
                       )}
                     </div>
@@ -5743,39 +6441,71 @@ export function TrackingPortal() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
-              <h2 className="text-slate-800 mb-6 font-bold text-xl">Proof of Delivery</h2>
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <div className="text-slate-600 mb-2">Received By</div>
-                  <div className="text-slate-800 font-semibold">Jane Smith</div>
+            {shipmentData.status === 'DELIVERED' && (
+                <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
+                <h2 className="text-slate-800 mb-6 font-bold text-xl">Proof of Delivery</h2>
+                <div className="grid grid-cols-2 gap-6">
+                    <div>
+                    <div className="text-slate-600 mb-2">Received By</div>
+                    <div className="text-slate-800 font-semibold">{shipmentData.receiver?.name || 'Receiver'}</div>
+                    </div>
+                    <div>
+                    <div className="text-slate-600 mb-2">Signature</div>
+                    <div className="text-slate-800 font-semibold">Digital Signature Captured</div>
+                    </div>
+                    <div className="col-span-2">
+                    <div className="text-slate-600 mb-3">Delivery Photo</div>
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:bg-slate-50 transition-colors">
+                        <ImageIcon className="w-12 h-12 text-slate-400 mx-auto mb-2" />
+                        <div className="text-slate-600">Delivery photo available</div>
+                        <button className="mt-3 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-semibold">
+                        View Photo
+                        </button>
+                    </div>
+                    </div>
                 </div>
-                <div>
-                  <div className="text-slate-600 mb-2">Signature</div>
-                  <div className="text-slate-800 font-semibold">Digital Signature Captured</div>
                 </div>
-                <div className="col-span-2">
-                  <div className="text-slate-600 mb-3">Delivery Photo</div>
-                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:bg-slate-50 transition-colors">
-                    <ImageIcon className="w-12 h-12 text-slate-400 mx-auto mb-2" />
-                    <div className="text-slate-600">Delivery photo available</div>
-                    <button className="mt-3 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-semibold">
-                      View Photo
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
-        {!trackingResult && (
+        {!shipmentData && !isLoading && !error && (
           <div className="text-center text-slate-500 mt-12 animate-fade-in-up">
             <Package className="w-16 h-16 mx-auto mb-4 text-slate-300" />
             <p>Enter a tracking number to view shipment details</p>
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+
+--- FILE: src\components\shared\AlertModal.jsx ---
+
+import { CheckCircle, AlertCircle, X } from 'lucide-react';
+
+export function AlertModal({ isOpen, onClose, title, message, type = 'success' }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-scale-in">
+        <div className="p-6 text-center">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+            {type === 'success' ? <CheckCircle className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-2">{title}</h3>
+          <p className="text-slate-500 mb-6">{message}</p>
+          
+          <button 
+            onClick={onClose}
+            className={`w-full py-2.5 rounded-lg font-semibold text-white shadow-lg transition-colors ${type === 'success' ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20' : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'}`}
+          >
+            Okay
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5834,6 +6564,45 @@ export function ConfirmationModal({ isOpen, onClose, onConfirm, title, message, 
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+--- FILE: src\components\shared\PlaceholderPage.jsx ---
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ArrowLeft, Construction } from 'lucide-react';
+import { Button } from '../../components/ui/button';
+
+export function PlaceholderPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  const getPageTitle = () => {
+    switch(location.pathname) {
+      case '/privacy': return 'Privacy Policy';
+      case '/terms': return 'Terms of Service';
+      case '/contact': return 'Contact Us';
+      default: return 'Page Under Construction';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+      <div className="text-center max-w-md">
+        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Construction className="w-10 h-10 text-blue-600" />
+        </div>
+        <h1 className="text-3xl font-bold text-slate-900 mb-4">{getPageTitle()}</h1>
+        <p className="text-slate-600 mb-8">
+          This page is currently under development. Please check back later for updates.
+        </p>
+        <Button onClick={() => navigate(-1)} className="flex items-center gap-2 mx-auto">
+          <ArrowLeft className="w-4 h-4" />
+          Go Back
+        </Button>
       </div>
     </div>
   );
@@ -6285,6 +7054,7 @@ export function Logo({ className = "", imageSize = "h-14", textSize = "text-3xl"
 
 --- FILE: src\context\ShipmentContext.jsx ---
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { mockService } from '../mock/mockService';
 
 const ShipmentContext = createContext();
 
@@ -6293,262 +7063,106 @@ export function useShipment() {
 }
 
 export function ShipmentProvider({ children }) {
-  // Helper to load from localStorage or use default
-  const loadState = (key, defaultValue) => {
-    try {
-      const saved = localStorage.getItem(key);
-      return saved ? JSON.parse(saved) : defaultValue;
-    } catch (e) {
-      console.error(`Error loading ${key} from localStorage`, e);
-      return defaultValue;
-    }
-  };
+  const [shipments, setShipments] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Helper to save to localStorage
-  const saveState = (key, value) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-      console.error(`Error saving ${key} to localStorage`, e);
-    }
-  };
+  // Initial Data Fetch & Auth Persistence
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        // data.json persistence
+        const storedUser = localStorage.getItem('currentUser');
+        if (storedUser) {
+            const user = JSON.parse(storedUser);
+            setCurrentUser(user);
+            // Load shipments for this user
+            const userShipments = await mockService.getShipments(user.id);
+            setShipments(userShipments);
+        }
 
-  const defaultShipments = [
-    {
-      id: 'SF123456789',
-      sender: { name: 'Rahul Sharma', phone: '9876543210', city: 'Mumbai', pincode: '400001' },
-      receiver: { name: 'Priya Singh', phone: '9123456780', city: 'Delhi', pincode: '110001' },
-      status: 'In Transit',
-      type: 'Standard',
-      weight: '2.5',
-      cost: '250',
-      date: new Date().toISOString().split('T')[0],
-      paymentMode: 'UPI',
-      history: [
-        { status: 'Booked', location: 'Mumbai', timestamp: new Date(Date.now() - 7200000).toLocaleString() },
-        { status: 'Received at Hub', location: 'Mumbai Central', timestamp: new Date(Date.now() - 3600000).toLocaleString() },
-        { status: 'In Transit', location: 'Mumbai - Delhi Highway', timestamp: new Date().toLocaleString() }
-      ]
-    },
-    {
-      id: 'SF987654321',
-      sender: { name: 'Amit Kumar', phone: '8877665544', city: 'Bangalore', pincode: '560001' },
-      receiver: { name: 'Sneha Gupta', phone: '7766554433', city: 'Chennai', pincode: '600001' },
-      status: 'Delivered',
-      type: 'Express',
-      weight: '1.2',
-      cost: '450',
-      date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-      paymentMode: 'Card',
-      history: [
-        { status: 'Booked', location: 'Bangalore', timestamp: new Date(Date.now() - 90000000).toLocaleString() },
-        { status: 'Delivered', location: 'Chennai', timestamp: new Date(Date.now() - 86400000).toLocaleString() }
-      ]
-    }
-  ];
-
-  const defaultBranches = [
-    { id: 1, name: 'Mumbai Central Hub', type: 'Hub', state: 'Maharashtra', status: 'Active', capacity: '85%', manager: 'Arun Singh', contact: '022-12345678', staffCount: 15, location: 'Mumbai Central', description: 'Main hub for western region logistics.' },
-    { id: 2, name: 'Delhi North Gate', type: 'Branch', state: 'Delhi', status: 'Active', capacity: '60%', manager: 'Vikram Malhotra', contact: '011-87654321', staffCount: 8, location: 'North Delhi', description: 'Handling northern distributions.' },
-    { id: 3, name: 'Bangalore Tech Park', type: 'Hub', state: 'Karnataka', status: 'Active', capacity: '92%', manager: 'Sneha Reddy', contact: '080-11223344', staffCount: 20, location: 'Electronic City', description: 'Tech corridor logistics center.' },
-    { id: 4, name: 'Chennai Port', type: 'Hub', state: 'Tamil Nadu', status: 'Maintenance', capacity: '45%', manager: 'Karthik Raja', contact: '044-55667788', staffCount: 12, location: 'Chennai Port Trust', description: 'Sea freight handling unit.' },
-    { id: 5, name: 'Kolkata East', type: 'Branch', state: 'West Bengal', status: 'Active', capacity: '78%', manager: 'Anjali Das', contact: '033-99887766', staffCount: 6, location: 'Salt Lake', description: 'Eastern zone branch.' },
-  ];
-
-  const defaultVehicles = [
-    { id: 'MH-01-AB-1234', type: 'Van', driver: 'Rajesh Kumar', status: 'In Transit', location: 'Mumbai', seats: 2, rcBook: 'RC123456', photo: null },
-    { id: 'MH-02-CD-5678', type: 'Truck', driver: 'N/A', status: 'Available', location: 'Pune', seats: 3, rcBook: 'RC789012', photo: null },
-    { id: 'DL-01-EF-9012', type: 'Scooter', driver: 'Amit Singh', status: 'Delivering', location: 'Delhi', seats: 1, rcBook: 'RC345678', photo: null },
-    { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore', seats: 2, rcBook: 'RC901234', photo: null },
-  ];
-
-  const defaultStaff = [
-      { id: 1, name: 'Arun Singh', role: 'Manager', branch: 'Mumbai Central Hub', status: 'Active', phone: '9876543210', email: 'arun.singh@shipfast.com', performance: { deliveries: 0, rating: 4.8, shift: 'Day' } },
-      { id: 2, name: 'Vijay Kumar', role: 'Driver', branch: 'Delhi North Gate', status: 'Active', phone: '9123456789', email: 'vijay.kumar@shipfast.com', performance: { deliveries: 1250, rating: 4.5, shift: 'Night' } },
-      { id: 3, name: 'Sita Verma', role: 'Agent', branch: 'Bangalore Tech Park', status: 'Active', phone: '9988776655', email: 'sita.verma@shipfast.com', performance: { deliveries: 3400, rating: 4.9, shift: 'Day' } },
-  ];
-
-  const [shipments, setShipments] = useState(() => loadState('shipfast_shipments', defaultShipments));
-  const [currentUser, setCurrentUser] = useState(() => loadState('shipfast_currentUser', null));
-  const [users, setUsers] = useState(() => loadState('shipfast_users', []));
-  const [branches, setBranches] = useState(() => loadState('shipfast_branches', defaultBranches));
-  const [vehicles, setVehicles] = useState(() => loadState('shipfast_vehicles', defaultVehicles));
-  const [staff, setStaff] = useState(() => loadState('shipfast_staff', defaultStaff));
-  const [notifications, setNotifications] = useState(() => loadState('shipfast_notifications', []));
-
-  // Persist effects
-  useEffect(() => saveState('shipfast_shipments', shipments), [shipments]);
-  useEffect(() => saveState('shipfast_currentUser', currentUser), [currentUser]);
-  useEffect(() => saveState('shipfast_users', users), [users]);
-  useEffect(() => saveState('shipfast_branches', branches), [branches]);
-  useEffect(() => saveState('shipfast_vehicles', vehicles), [vehicles]);
-  useEffect(() => saveState('shipfast_staff', staff), [staff]);
-  useEffect(() => saveState('shipfast_notifications', notifications), [notifications]);
-
-
-  const deriveUsername = (email) => {
-      if (!email) return 'Guest';
-      return email.split('@')[0];
-  };
-
-  const login = (email, password) => {
-    const derivedName = deriveUsername(email);
-    let role = 'customer';
-    
-    if (email.includes('admin') || email === '717823s132@kce.ac.in') {
-      role = 'admin';
-    } else if (email.includes('agent')) {
-      role = 'agent';
-    }
-
-    // Try to find existing user first
-    let user = users.find(u => u.email === email);
-    
-    if (!user) {
-        user = { 
-            id: Math.random().toString(36).substr(2, 9),
-            name: derivedName, 
-            email, 
-            role, 
-            profilePic: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' 
-        };
-        setUsers(prev => [...prev, user]);
-    } else {
-        // Ensure role is correct if logic changed (optional)
-        user = { ...user, role }; 
-    }
-    
-    setCurrentUser(user);
-    addNotification(`Welcome back, ${user.name}!`, role);
-    return user;
-  };
-
-  const register = (userData) => {
-    // Check if user already exists
-    const existingUser = users.find(u => u.email === userData.email);
-    if (existingUser) {
-        throw new Error('User already exists');
-    }
-
-    const newUser = {
-      ...userData,
-      id: Math.random().toString(36).substr(2, 9),
-      role: 'customer',
-      profilePic: null // Will trigger fallback
+        const [branchesData, fleetData, staffData] = await Promise.all([
+             mockService.getBranches(),
+             mockService.getFleet(),
+             mockService.getStaff()
+        ]);
+        
+        setBranches(branchesData);
+        setVehicles(fleetData);
+        setStaff(staffData);
+      } catch (error) {
+        console.error("Failed to load initial data", error);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setCurrentUser(newUser);
-    setUsers(prev => [...prev, newUser]);
-    addNotification(`Welcome to NewShipFast, ${newUser.name}!`, 'customer');
-    return newUser;
-  };
+    fetchData();
+  }, []);
 
-  const addBranch = (branchData) => {
-      setBranches(prev => [...prev, { id: Date.now(), ...branchData, status: 'Active', capacity: '0%' }]);
-      addNotification(`New Branch "${branchData.name}" added successfully.`, 'admin');
-  };
-  
-  const removeBranch = (branchId) => {
-      setBranches(prev => prev.filter(b => b.id !== branchId));
-      addNotification('Branch removed successfully.', 'admin');
-  };
-
-  const addVehicle = (vehicleData) => {
-      setVehicles(prev => [...prev, { id: vehicleData.number, ...vehicleData, status: 'Available' }]);
-      addNotification(`Vehicle ${vehicleData.number} added to fleet.`, 'admin');
-  };
-
-  const updateBranch = (updatedBranch) => {
-      setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
-      addNotification(`Branch "${updatedBranch.name}" updated successfully.`, 'admin');
-  };
-
-  const updateVehicle = (updatedVehicle) => {
-      setVehicles(prev => prev.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
-      addNotification(`Vehicle ${updatedVehicle.number || updatedVehicle.id} updated successfully.`, 'admin');
-  };
-
-  const addStaff = (staffData) => {
-      const newStaff = { ...staffData, id: Date.now(), status: 'Active', performance: { deliveries: 0, rating: 5.0, shift: 'Day' } };
-      setStaff(prev => [...prev, newStaff]);
+  const login = async (email, password) => {
+    try {
+      const user = await mockService.login(email, password);
+      setCurrentUser(user);
+      localStorage.setItem('currentUser', JSON.stringify(user));
       
-      // Also add to users list so they can login
-      const newUser = {
-          id: newStaff.id,
-          name: newStaff.name,
-          email: newStaff.email,
-          role: staffData.role.toLowerCase() === 'manager' ? 'admin' : (staffData.role.toLowerCase() === 'agent' ? 'agent' : 'driver'),
-          profilePic: null
-      };
+      const userShipments = await mockService.getShipments(user.id);
+      setShipments(userShipments);
       
-      // Check if user exists first to avoid duplicates (by email)
-      if (!users.find(u => u.email === newUser.email)) {
-          setUsers(prev => [...prev, newUser]);
+      addNotification(`Welcome back, ${user.name}!`, user.role);
+      return user;
+    } catch (error) {
+      console.error("Login failed", error);
+      throw error;
+    }
+  };
+
+  const register = async (userData) => {
+      try {
+          const user = await mockService.register(userData);
+          setCurrentUser(user);
+          localStorage.setItem('currentUser', JSON.stringify(user));
+          addNotification(`Welcome to ShipFast, ${user.name}!`, 'customer');
+          return user;
+      } catch (error) {
+          console.error("Registration failed", error);
+          throw error;
       }
-      
-      addNotification(`Staff member "${staffData.name}" added successfully.`, 'admin');
-  };
-
-  const removeStaff = (staffId) => {
-      const staffMember = staff.find(s => s.id === staffId);
-      if (staffMember) {
-           setStaff(prev => prev.filter(s => s.id !== staffId));
-           // Optionally remove from users or disable them
-           // setUsers(prev => prev.filter(u => u.email !== staffMember.email)); 
-           addNotification(`Staff member "${staffMember.name}" removed.`, 'admin');
-      }
-  };
-
-  const updateStaff = (updatedStaff) => {
-      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
-      addNotification(`Staff member "${updatedStaff.name}" updated successfully.`, 'admin');
-  };
-  
-  const updateProfile = (updatedData) => {
-      // Immediate state update for responsiveness
-      setCurrentUser(prev => {
-          const newUser = { ...prev, ...updatedData };
-          // Also update in the users array immediately
-          setUsers(currentUsers => currentUsers.map(u => u.id === prev.id ? newUser : u));
-          return newUser;
-      });
-      addNotification('Profile updated successfully.', 'all');
   };
 
   const logout = () => {
       setCurrentUser(null);
+      localStorage.removeItem('currentUser');
+      setShipments([]);
   };
 
-  const calculateRate = (weight, serviceType) => {
-      const w = parseFloat(weight) || 1;
-      const baseRate = serviceType === 'Express' ? 100 : 50;
-      return (w * 50) + baseRate;
+  const addShipment = async (shipmentData) => {
+      try {
+        const newShipment = await mockService.createShipment(shipmentData);
+        setShipments(prev => [newShipment, ...prev]);
+        return newShipment;
+      } catch (error) {
+          console.error("Create shipment failed", error);
+          throw error;
+      }
   };
 
-  const addShipment = (shipment) => {
-      const newShipment = {
-        ...shipment,
-        id: 'SF' + Math.floor(100000000 + Math.random() * 900000000).toString(),
-        date: new Date().toISOString().split('T')[0],
-        status: 'Booked',
-        paymentStatus: 'Pending',
-        paymentMode: shipment.paymentMode || 'Cash',
-        assignedTo: null, 
-        history: [
-          { status: 'Booked', location: shipment.sender.city, timestamp: new Date().toLocaleString() }
-        ]
-      };
-      setShipments(prev => [newShipment, ...prev]);
-      return newShipment;
+  const updateShipmentStatus = async (id, status) => {
+      try {
+          const updatedShipment = await mockService.updateShipmentStatus(id, status);
+          setShipments(prev => prev.map(s => s.id === id ? updatedShipment : s));
+          return updatedShipment;
+      } catch (error) {
+          console.error("Update status failed", error);
+          throw error;
+      }
   };
 
-  const updateShipmentStatus = (id, status, location = 'Hub') => {
-      setShipments(prev => prev.map(s => s.id === id ? { 
-          ...s, 
-          status, 
-          history: [...s.history, { status, location, timestamp: new Date().toLocaleString() }] 
-      } : s));
-  };
-  
   const deleteShipment = (id) => {
       setShipments(prev => prev.filter(s => s.id !== id));
       addNotification('Shipment deleted.', 'customer');
@@ -6562,6 +7176,59 @@ export function ShipmentProvider({ children }) {
       return shipments.find(s => s.id === id);
   };
 
+  // Helper for admin/agent actions
+  const addBranch = (branchData) => {
+      const newBranch = { ...branchData, id: Date.now(), status: 'Active', capacity: '0%' };
+      setBranches(prev => [...prev, newBranch]);
+      addNotification(`Branch "${branchData.name}" added successfully.`, 'admin');
+  };
+  
+  const removeBranch = (branchId) => {
+      setBranches(prev => prev.filter(b => b.id !== branchId));
+      addNotification('Branch removed successfully.', 'admin');
+  };
+
+  const updateBranch = (updatedBranch) => {
+      setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
+      addNotification(`Branch "${updatedBranch.name}" updated successfully.`, 'admin');
+  };
+
+  const addVehicle = (vehicleData) => {
+      const newVehicle = { id: vehicleData.number, ...vehicleData, status: 'Available' };
+      setVehicles(prev => [...prev, newVehicle]);
+      addNotification(`Vehicle ${vehicleData.number} added to fleet.`, 'admin');
+  };
+
+  const updateVehicle = (updatedVehicle) => {
+      setVehicles(prev => prev.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+      addNotification(`Vehicle ${updatedVehicle.number || updatedVehicle.id} updated successfully.`, 'admin');
+  };
+
+  const addStaff = (staffData) => {
+      const newStaff = { ...staffData, id: Date.now(), status: 'Active', performance: { deliveries: 0, rating: 5.0, shift: 'Day' } };
+      setStaff(prev => [...prev, newStaff]);
+      addNotification(`Staff member "${staffData.name}" added successfully.`, 'admin');
+  };
+
+  const removeStaff = (staffId) => {
+      setStaff(prev => prev.filter(s => s.id !== staffId));
+      addNotification('Staff member removed.', 'admin');
+  };
+
+  const updateStaff = (updatedStaff) => {
+      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+      addNotification(`Staff member "${updatedStaff.name}" updated successfully.`, 'admin');
+  };
+  
+  const updateProfile = (updatedData) => {
+      setCurrentUser(prev => {
+          const newUser = { ...prev, ...updatedData };
+          setUsers(currentUsers => currentUsers.map(u => u.id === prev.id ? newUser : u));
+          return newUser;
+      });
+      addNotification('Profile updated successfully.', 'all');
+  };
+
   const addNotification = (message, role) => {
       setNotifications(prev => [{ id: Date.now(), message, role, timestamp: new Date().toLocaleTimeString() }, ...prev]);
   };
@@ -6569,15 +7236,19 @@ export function ShipmentProvider({ children }) {
   const getRoleNotifications = (role) => {
       return notifications.filter(n => n.role === role || n.role === 'all');
   };
+  
+  const calculateRate = (weight, serviceType) => {
+      const w = parseFloat(weight) || 1;
+      const baseRate = serviceType === 'Express' ? 100 : 50;
+      return (w * 50) + baseRate;
+  };
 
   const clearAllData = () => {
-    // Development helper to reset
-    localStorage.clear();
-    setShipments(defaultShipments);
+    setShipments([]);
     setUsers([]);
-    setBranches(defaultBranches);
-    setVehicles(defaultVehicles);
-    setStaff(defaultStaff);
+    setBranches([]);
+    setVehicles([]);
+    setStaff([]);
     setNotifications([]);
   };
 
@@ -6590,6 +7261,7 @@ export function ShipmentProvider({ children }) {
       vehicles,
       staff,
       notifications,
+      isLoading,
       login,
       logout,
       register,
@@ -6600,8 +7272,8 @@ export function ShipmentProvider({ children }) {
       getShipment,
       addBranch,
       removeBranch,
-      addVehicle,
       updateBranch,
+      addVehicle,
       updateVehicle,
       addStaff,
       removeStaff,
@@ -6698,6 +7370,441 @@ createRoot(document.getElementById('root')).render(
     <App />
   </StrictMode>,
 )
+
+
+--- FILE: src\mock\data.json ---
+{
+  "currentUser": {
+    "id": "u1",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "customer",
+    "avatar": "https://i.pravatar.cc/150?u=u1"
+  },
+  "users": [
+    {
+      "id": "u1",
+      "name": "John Doe",
+      "email": "customer@shipfast.com",
+      "password": "customer",
+      "role": "customer",
+      "phone": "+1 234 567 8900",
+      "address": "123 Main St, New York, NY"
+    },
+    {
+      "id": "u2",
+      "name": "Admin User",
+      "email": "admin@shipfast.com",
+      "password": "admin",
+      "role": "admin",
+      "avatar": "https://i.pravatar.cc/150?u=u2"
+    },
+    {
+      "id": "u3",
+      "name": "Agent Smith",
+      "email": "agent@shipfast.com",
+      "password": "agent",
+      "role": "agent",
+      "location": "New York",
+      "avatar": "https://i.pravatar.cc/150?u=u3"
+    }
+  ],
+  "shipments": [
+    {
+      "id": "TRK123456789",
+      "trackingId": "TRK123456789",
+      "sender": { "name": "John Doe", "address": "123 Main St, NY", "phone": "555-0100" },
+      "receiver": { "name": "Jane Smith", "address": "456 Market St, CA", "phone": "555-0101" },
+      "status": "IN_TRANSIT",
+      "date": "2023-10-25",
+      "deliveryDate": "2023-10-28",
+      "origin": "New York, NY",
+      "destination": "Los Angeles, CA",
+      "service": "Express Priority",
+      "weight": "2.5 kg",
+      "items": "Electronics",
+      "cost": 150.00,
+      "paymentStatus": "PAID"
+    },
+    {
+      "id": "TRK987654321",
+      "trackingId": "TRK987654321",
+      "sender": { "name": "John Doe", "address": "123 Main St, NY", "phone": "555-0100" },
+      "receiver": { "name": "Bob Brown", "address": "789 Broadway, NY", "phone": "555-0102" },
+      "status": "DELIVERED",
+      "date": "2023-10-20",
+      "deliveryDate": "2023-10-21",
+      "origin": "New York, NY",
+      "destination": "New York, NY",
+      "service": "Same Day Delivery",
+      "weight": "0.5 kg",
+      "items": "Documents",
+      "cost": 85.00,
+      "paymentStatus": "PAID"
+    },
+    {
+      "id": "TRK456123789",
+      "trackingId": "TRK456123789",
+      "sender": { "name": "John Doe", "address": "123 Main St, NY", "phone": "555-0100" },
+      "receiver": { "name": "Alice Green", "address": "321 Oak St, TX", "phone": "555-0103" },
+      "status": "BOOKED",
+      "date": "2023-10-26",
+      "deliveryDate": "2023-10-30",
+      "origin": "New York, NY",
+      "destination": "Austin, TX",
+      "service": "Standard",
+      "weight": "5.0 kg",
+      "items": "Clothing",
+      "cost": 45.00,
+      "paymentStatus": "PENDING"
+    },
+     {
+      "id": "TRK789123456",
+      "trackingId": "TRK789123456",
+      "sender": { "name": "John Doe", "address": "123 Main St, NY", "phone": "555-0100" },
+      "receiver": { "name": "Mike Ross", "address": "Pearson Specter, NY", "phone": "555-0104" },
+      "status": "OUT_FOR_DELIVERY",
+      "date": "2023-10-27",
+      "deliveryDate": "2023-10-27",
+      "origin": "New York, NY",
+      "destination": "New York, NY",
+      "service": "Standard",
+      "weight": "1.0 kg",
+      "items": "Books",
+      "cost": 25.00,
+      "paymentStatus": "PAID"
+    },
+    {
+      "id": "TRK000000001",
+      "trackingId": "TRK000000001",
+      "sender": { "name": "Agent Smith", "address": "HUB NY", "phone": "555-9999" },
+      "receiver": { "name": "Local Shop", "address": "5th Ave, NY", "phone": "555-8888" },
+      "status": "OUT_FOR_DELIVERY",
+      "date": "2023-10-27",
+      "deliveryDate": "2023-10-27",
+      "origin": "New York, NY",
+      "destination": "New York, NY",
+      "service": "Standard",
+      "weight": "10.0 kg",
+      "items": "Supplies",
+      "cost": 50.00,
+      "paymentStatus": "COD",
+      "codAmount": 500.00
+    }
+  ],
+  "transactions": [
+    {
+      "id": "TXN12345",
+      "date": "2023-10-25",
+      "amount": 150.00,
+      "description": "Shipment #TRK123456789",
+      "status": "Completed",
+      "invoiceId": "INV-001"
+    },
+    {
+      "id": "TXN67890",
+      "date": "2023-10-20",
+      "amount": 85.00,
+      "description": "Shipment #TRK987654321",
+      "status": "Completed",
+      "invoiceId": "INV-002"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "TKT-001",
+      "subject": "Delayed Shipment",
+      "message": "My shipment usually takes 2 days but it's been 4.",
+      "status": "Open",
+      "date": "2023-10-26",
+      "priority": "High"
+    },
+    {
+      "id": "TKT-002",
+      "subject": "Billing Issue",
+      "message": "I was charged twice.",
+      "status": "Closed",
+      "date": "2023-10-15",
+      "priority": "Medium"
+    }
+  ],
+  "branches": [
+    {
+      "id": "BR001",
+      "name": "New York Central",
+      "type": "Hub",
+      "location": "Manhattan",
+      "state": "New York, NY",
+      "manager": "Alice Johnson",
+      "contact": "alice@shipfast.com",
+      "staffCount": 45,
+      "description": "Main processing hub for the East Coast region.",
+      "performance": 95,
+      "shipments": 1200,
+      "revenue": 50000,
+      "status": "Active"
+    },
+    {
+      "id": "BR002",
+      "name": "Los Angeles Hub",
+      "type": "Hub",
+      "location": "Downtown",
+      "state": "Los Angeles, CA",
+      "manager": "Bob Williams",
+      "contact": "bob@shipfast.com",
+      "staffCount": 38,
+      "description": "Primary west coast distribution center.",
+      "performance": 88,
+      "shipments": 950,
+      "revenue": 42000,
+      "status": "Active"
+    },
+    {
+      "id": "BR003",
+      "name": "Chicago Distribution",
+      "type": "Branch",
+      "location": "Loop",
+      "state": "Chicago, IL",
+      "manager": "Charlie Davis",
+      "contact": "charlie@shipfast.com",
+      "staffCount": 22,
+      "description": "Regional sorting and delivery center.",
+      "performance": 92,
+      "shipments": 1100,
+      "revenue": 48000,
+      "status": "Active"
+    }
+  ],
+  "fleet": [
+    {
+      "id": "V001",
+      "vehicleNumber": "NY-1234",
+      "type": "Van",
+      "driver": "Mike Driver",
+      "status": "Active",
+      "capacity": "1000kg"
+    },
+    {
+      "id": "V002",
+      "vehicleNumber": "NY-5678",
+      "type": "Truck",
+      "driver": "Steve Hauler",
+      "status": "Maintenance",
+      "capacity": "5000kg"
+    }
+  ],
+  "staff": [
+    {
+      "id": "S001",
+      "name": "Sarah Connor",
+      "role": "Manager",
+      "branch": "New York Central",
+      "status": "Active",
+      "phone": "555-1111",
+      "documents": {
+        "aadhaar": "submitted",
+        "pan": "submitted",
+        "license": "submitted"
+      }
+    },
+    {
+      "id": "S002",
+      "name": "Kyle Reese",
+      "role": "Driver",
+      "branch": "New York Central",
+      "status": "Active",
+      "phone": "555-2222",
+      "documents": {
+        "aadhaar": "submitted",
+        "pan": "pending",
+        "license": "submitted"
+      }
+    }
+  ],
+  "cities": [
+    "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia"
+  ],
+  "runSheets": [
+     {
+      "id": "RS-2023-10-27-01",
+      "date": "2023-10-27",
+      "driver": "Mike Driver",
+      "area": "Downtown NY",
+      "shipments": 15,
+      "status": "In Progress"
+     }
+  ],
+  "cashCollections": [
+      {
+          "id": "CC-001",
+          "date": "2023-10-26",
+          "agent": "Agent Smith",
+          "amount": 2500.00,
+          "status": "VERIFIED"
+      }
+  ]
+}
+
+
+--- FILE: src\mock\mockService.js ---
+
+import data from './data.json';
+
+// Simulate network delay
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const MOCK_DELAY = 600;
+
+export const mockService = {
+  // --- Auth ---
+  login: async (email, password) => {
+    await delay(MOCK_DELAY);
+    const user = data.users.find(u => u.email === email && u.password === password);
+    if (user) {
+        // Return a deep copy to avoid mutations affecting "db" directly immediately (though fine for mock)
+        const { password, ...userWithoutPassword } = user;
+        return userWithoutPassword;
+    }
+    throw new Error('Invalid email or password');
+  },
+
+  register: async (userData) => {
+    await delay(MOCK_DELAY);
+    // Mimic registration
+    return { ...userData, id: `u${Date.now()}` };
+  },
+
+  resetPassword: async (email) => {
+    await delay(MOCK_DELAY);
+    const user = data.users.find(u => u.email === email);
+    if (!user) throw new Error('Email not found');
+    return true;
+  },
+
+  // --- Shipments ---
+  getShipments: async (userId, filters = {}) => {
+      await delay(MOCK_DELAY);
+      // If admin/agent, might return all or filtered. For customer, return theirs.
+      // Assuming userId matches sender/receiver or we filter by it.
+      // For simplicity in this mock, we just filter by what's in data.shipments
+      // In a real app, we'd filter by userId.
+      
+      let results = data.shipments;
+      
+      // If NOT admin, filter by user? (Logic depends on requirements, but for now strict mock data access)
+      // We'll let the caller handle complex filtering or add basic support here:
+      if (filters.status) {
+          results = results.filter(s => s.status === filters.status);
+      }
+      
+      return results;
+  },
+
+  getShipmentById: async (id) => {
+      await delay(MOCK_DELAY);
+      const shipment = data.shipments.find(s => s.id === id || s.trackingId === id);
+      if (!shipment) throw new Error('Shipment not found');
+      return shipment;
+  },
+
+  createShipment: async (shipmentData) => {
+      await delay(MOCK_DELAY);
+      const newShipment = {
+          ...shipmentData,
+          id: `TRK${Date.now()}`,
+          trackingId: `TRK${Date.now()}`,
+          status: 'BOOKED',
+          date: new Date().toISOString().split('T')[0],
+      };
+      // In a real app we would push to data.shipments, but here we can just return it
+      // or actually push it if we want state persistence within the session (module level variable)
+      // For now, let's just return success.
+      return newShipment;
+  },
+
+  updateShipmentStatus: async (id, status) => {
+      await delay(MOCK_DELAY);
+      const shipment = data.shipments.find(s => s.id === id);
+      if (shipment) {
+          shipment.status = status;
+          return shipment;
+      }
+      throw new Error('Shipment not found');
+  },
+
+  // --- Payments ---
+  getTransactions: async (userId) => {
+      await delay(MOCK_DELAY);
+      return data.transactions;
+  },
+  
+  getTransactionById: async (id) => {
+      await delay(MOCK_DELAY);
+      const txn = data.transactions.find(t => t.id === id);
+      if (!txn) throw new Error('Transaction not found');
+      return txn;
+  },
+
+  downloadInvoice: async (transactionId) => {
+      await delay(MOCK_DELAY);
+      return true; // Simulate success
+  },
+
+  // --- Support ---
+  getTickets: async (userId) => {
+      await delay(MOCK_DELAY);
+      return data.tickets;
+  },
+
+  createTicket: async (ticketData) => {
+      await delay(MOCK_DELAY);
+      return { ...ticketData, id: `TKT-${Date.now()}`, date: new Date().toISOString().split('T')[0], status: 'Open' };
+  },
+
+  // --- Admin ---
+  getBranches: async () => {
+      await delay(MOCK_DELAY);
+      return data.branches;
+  },
+  
+  getBranchById: async (id) => {
+      await delay(MOCK_DELAY);
+      const branch = data.branches.find(b => b.id === id);
+      if(!branch) throw new Error('Branch not found');
+      return branch;
+  },
+
+  getFleet: async () => {
+      await delay(MOCK_DELAY);
+      return data.fleet;
+  },
+
+  getStaff: async () => {
+      await delay(MOCK_DELAY);
+      return data.staff;
+  },
+
+  // --- Agent ---
+  getCities: async () => {
+      await delay(MOCK_DELAY);
+      return data.cities;
+  },
+  
+  generateRunSheet: async () => {
+      await delay(MOCK_DELAY);
+      return data.runSheets[0]; // Return a mock run sheet
+  },
+
+  getCashCollections: async () => {
+      await delay(MOCK_DELAY);
+      return data.cashCollections;
+  },
+  
+  submitCashCollection: async (data) => {
+      await delay(MOCK_DELAY);
+      return true;
+  }
+};
 
 
 --- FILE: src\print.css ---

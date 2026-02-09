@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { useShipment } from '../../context/ShipmentContext';
@@ -7,8 +8,10 @@ import { ConfirmationModal } from '../shared/ConfirmationModal';
 import { toast } from 'sonner';
 
 export function AdminDashboard({ view }) {
-  
+  const navigate = useNavigate();
+  const location = useLocation();
   const { shipments, branches: contextBranches, vehicles: contextVehicles, staff: contextStaff, addBranch, addVehicle, updateBranch, updateVehicle, updateStaff, removeBranch, removeStaff, addStaff } = useShipment();
+  
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -21,6 +24,17 @@ export function AdminDashboard({ view }) {
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
   const [isEditing, setIsEditing] = useState(false);
   const vehicleFileInputRef = useRef(null);
+  // Handle auto-opening of branch modal from navigation state
+  useEffect(() => {
+    if (view === 'branches' && location.state?.openBranchId && contextBranches.length > 0) {
+        const branchToOpen = contextBranches.find(b => b.id === location.state.openBranchId);
+        if (branchToOpen) {
+            openBranchModal(branchToOpen);
+            // Clear the state to prevent reopening on subsequent renders
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }
+  }, [view, location.state, contextBranches, navigate, location.pathname]);
 
   const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
   const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
@@ -208,7 +222,20 @@ export function AdminDashboard({ view }) {
                                className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors overflow-hidden relative"
                              >
                                 {newVehicle.photo ? (
-                                    <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                    <div className="relative w-full h-full group">
+                                        <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setNewVehicle(prev => ({...prev, photo: null}));
+                                            }}
+                                            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-sm"
+                                            title="Remove Photo"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 ) : (
                                     <>
                                         <Camera className="w-8 h-8 text-slate-400 mb-2" />
@@ -229,7 +256,16 @@ export function AdminDashboard({ view }) {
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
-                             <input className="w-full p-3 border rounded-lg" placeholder="Driver Name" value={newVehicle.driver} onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})} />
+                             <select 
+                                className="w-full p-3 border rounded-lg" 
+                                value={newVehicle.driver} 
+                                onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})}
+                             >
+                                <option value="N/A">Select Driver</option>
+                                {contextStaff?.filter(s => s.role === 'Driver').map(s => (
+                                    <option key={s.id} value={s.name}>{s.name}</option>
+                                ))}
+                             </select>
                              <input className="w-full p-3 border rounded-lg" type="number" placeholder="Seats" value={newVehicle.seats} onChange={e => setNewVehicle({...newVehicle, seats: e.target.value})} />
                         </div>
                         
@@ -294,36 +330,85 @@ export function AdminDashboard({ view }) {
                                         <option>Inactive</option>
                                     </select>
                                 </div>
-                                <input className="w-full p-3 border rounded-lg" placeholder="Branch" value={newStaff.branch} onChange={e => setNewStaff({...newStaff, branch: e.target.value})} required />
+                                <select 
+                                    className="w-full p-3 border rounded-lg" 
+                                    value={newStaff.branch} 
+                                    onChange={e => setNewStaff({...newStaff, branch: e.target.value})}
+                                    required
+                                >
+                                    <option value="">Select Branch</option>
+                                    {contextBranches?.map(b => (
+                                        <option key={b.id} value={b.name}>{b.name}</option>
+                                    ))}
+                                </select>
 
                                 <div className="pt-4 border-t border-slate-100">
                                     <h4 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
                                         <FileText className="w-4 h-4" /> Documents
                                     </h4>
                                     <div className="space-y-3">
-                                        {['Aadhar Card', 'Driving License', 'PAN Card'].map((doc) => {
-                                            const docKey = doc.toLowerCase().split(' ')[0]; // aadhar, license, pan
-                                            const isUploaded = newStaff.documents?.[docKey];
-                                            const fileName = newStaff.documents?.[`${docKey}File`];
+                                        {[
+                                            { label: 'Aadhaar Card', key: 'aadhaar' },
+                                            { label: 'Driving License', key: 'license' },
+                                            { label: 'PAN Card', key: 'pan' }
+                                        ].map((doc) => {
+                                            const isUploaded = newStaff.documents?.[doc.key] === 'submitted' || newStaff.documents?.[doc.key] === true;
+                                            const fileName = newStaff.documents?.[`${doc.key}File`];
 
                                             return (
-                                                <div key={doc} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                                <div key={doc.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                                                     <div className="flex items-center gap-3">
                                                         <div className={`p-2 rounded-full ${isUploaded ? 'bg-green-100 text-green-600' : 'bg-slate-200 text-slate-500'}`}>
                                                             <FileText className="w-4 h-4" />
                                                         </div>
                                                         <div>
-                                                            <div className="text-sm font-medium text-slate-900">{doc}</div>
-                                                            <div className="text-xs text-slate-500">{isUploaded ? fileName || 'Uploaded' : 'Pending'}</div>
+                                                            <div className="text-sm font-medium text-slate-900">{doc.label}</div>
+                                                            <div className="text-xs text-slate-500">{isUploaded ? fileName || 'Verified' : 'Pending Upload'}</div>
                                                         </div>
                                                     </div>
                                                     <div className="flex gap-2">
+                                                        <input 
+                                                            type="file" 
+                                                            id={`file-${doc.key}`} 
+                                                            className="hidden" 
+                                                            accept=".pdf,.jpg,.jpeg,.png"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files[0];
+                                                                if (file) {
+                                                                    setNewStaff(prev => ({
+                                                                        ...prev,
+                                                                        documents: {
+                                                                            ...prev.documents,
+                                                                            [doc.key]: 'submitted',
+                                                                            [`${doc.key}File`]: file.name
+                                                                        }
+                                                                    }));
+                                                                }
+                                                            }}
+                                                        />
                                                         {isUploaded ? (
-                                                            <button type="button" className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-indigo-600 transition-all" title="View">
-                                                                <Eye className="w-4 h-4" />
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => {
+                                                                    setNewStaff(prev => {
+                                                                        const newDocs = { ...prev.documents };
+                                                                        delete newDocs[doc.key];
+                                                                        delete newDocs[`${doc.key}File`];
+                                                                        return { ...prev, documents: newDocs };
+                                                                    });
+                                                                }}
+                                                                className="p-2 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 text-green-600 hover:text-red-600 transition-all" 
+                                                                title="Remove/Re-upload"
+                                                            >
+                                                                <XCircle className="w-4 h-4" />
                                                             </button>
                                                         ) : (
-                                                            <button type="button" className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-slate-600 transition-all" title="Upload">
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => document.getElementById(`file-${doc.key}`).click()}
+                                                                className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-slate-600 transition-all" 
+                                                                title="Upload"
+                                                            >
                                                                 <Upload className="w-4 h-4" />
                                                             </button>
                                                         )}
@@ -492,24 +577,24 @@ export function AdminDashboard({ view }) {
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 mb-4">Top Performing Branches</h2>
               <div className="space-y-3">
-                {[
-                  { name: 'Mumbai Central', shipments: 2456, revenue: '₹2.4L', growth: '+12%' },
-                  { name: 'Delhi Hub', shipments: 2134, revenue: '₹2.1L', growth: '+8%' },
-                  { name: 'Bangalore Tech Park', shipments: 1876, revenue: '₹1.9L', growth: '+15%' },
-                ].map((branch, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
+                {contextBranches.sort((a,b) => b.revenue - a.revenue).slice(0, 3).map((branch, index) => (
+                  <div 
+                    key={index} 
+                    onClick={() => navigate('/admin/branches', { state: { openBranchId: branch.id } })}
+                    className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
                         <Building2 className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-900">{branch.name}</div>
+                        <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{branch.name}</div>
                         <div className="text-sm text-slate-500">{branch.shipments} shipments</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-slate-900">{branch.revenue}</div>
-                      <div className="text-sm text-green-600 font-medium">{branch.growth}</div>
+                      <div className="font-bold text-slate-900">₹{branch.revenue.toLocaleString()}</div>
+                      <div className="text-sm text-green-600 font-medium">+{branch.performance}%</div>
                     </div>
                   </div>
                 ))}
@@ -549,9 +634,9 @@ export function AdminDashboard({ view }) {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {contextBranches && contextBranches.map(branch => (
-                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors">
+                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openBranchModal(branch)}>
                                     <td className="px-6 py-4 font-medium text-slate-900">
-                                        <div>{branch.name}</div>
+                                        <div className="hover:text-indigo-600 transition-colors">{branch.name}</div>
                                         <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -724,7 +809,12 @@ export function AdminDashboard({ view }) {
                                            <span className="text-slate-900">{vehicle.driver}</span>
                                         </div>
                                      ) : (
-                                        <button className="text-xs text-indigo-600 font-medium hover:underline">Assign Driver</button>
+                                        <button 
+                                            onClick={() => openVehicleModal(vehicle)}
+                                            className="text-xs text-indigo-600 font-medium hover:underline"
+                                        >
+                                            Assign Driver
+                                        </button>
                                      )}
                                   </td>
                                   <td className="px-6 py-4">

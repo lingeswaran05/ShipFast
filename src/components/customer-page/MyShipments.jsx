@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2 } from 'lucide-react';
+import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2, X, Download, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { RateShipmentModal } from './RateShipmentModal';
@@ -12,13 +12,24 @@ export function MyShipments() {
   const [activeModal, setActiveModal] = useState(null);
   const [selectedShipment, setSelectedShipment] = useState(null);
   const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Helper to format status for display and comparison
+  const formatStatus = (status) => {
+      if (!status) return '';
+      return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    const formatted = formatStatus(status);
+    switch (formatted) {
       case 'In Transit': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'Delivered': return 'bg-green-50 text-green-700 border-green-200';
-      case 'Pending': return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'Pending': 
+      case 'Booked': return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'Cancelled': return 'bg-red-50 text-red-700 border-red-200';
+      case 'Out For Delivery': return 'bg-blue-50 text-blue-700 border-blue-200';
       default: return 'bg-slate-50 text-slate-700 border-slate-200';
     }
   };
@@ -55,15 +66,20 @@ export function MyShipments() {
     navigate(`/track?id=${id}`);
   };
 
-  const filteredShipments = shipments.filter(s => 
-      (s.id && s.id.toLowerCase().includes(filter.toLowerCase())) || 
-      (s.receiver?.city && s.receiver.city.toLowerCase().includes(filter.toLowerCase())) ||
-      (s.sender?.city && s.sender.city.toLowerCase().includes(filter.toLowerCase()))
-  );
+  const filteredShipments = shipments.filter(s => {
+      const matchesSearch = (s.id && s.id.toLowerCase().includes(filter.toLowerCase())) || 
+                            (s.receiver?.city && s.receiver.city.toLowerCase().includes(filter.toLowerCase())) ||
+                            (s.sender?.city && s.sender.city.toLowerCase().includes(filter.toLowerCase()));
+      
+      const normalizedStatus = formatStatus(s.status);
+      const matchesStatus = statusFilter === 'All' || normalizedStatus === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-xl font-bold text-slate-900">Shipment History</h2>
         <div className="flex gap-4">
           <div className="relative">
@@ -73,13 +89,51 @@ export function MyShipments() {
               placeholder="Search shipments..." 
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
+              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm w-full md:w-64"
             />
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-medium">
-            <Filter className="w-4 h-4" />
-            Filter
-          </button>
+          <div className="relative">
+            <button 
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                showFilters || statusFilter !== 'All' 
+                  ? 'bg-purple-50 border-purple-200 text-purple-700' 
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Filter
+              {statusFilter !== 'All' && <span className="ml-1 px-1.5 py-0.5 bg-purple-200 text-purple-800 rounded-full text-xs">{statusFilter}</span>}
+            </button>
+            
+            {showFilters && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowFilters(false)}></div>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 p-2 z-20 animate-scale-in origin-top-right">
+                  <div className="text-xs font-semibold text-slate-400 px-3 py-2 uppercase tracking-wider">Status</div>
+                  {['All', 'Booked', 'In Transit', 'Out For Delivery', 'Delivered', 'Cancelled'].map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => { setStatusFilter(status); setShowFilters(false); }}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        statusFilter === status ? 'bg-purple-50 text-purple-700 font-medium' : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                  {statusFilter !== 'All' && (
+                     <button 
+                       onClick={() => { setStatusFilter('All'); setShowFilters(false); }}
+                       className="w-full text-center mt-2 py-2 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors border-t border-slate-100"
+                     >
+                       Clear Filter
+                     </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -113,7 +167,7 @@ export function MyShipments() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(shipment.status)}`}>
-                      {shipment.status}
+                      {formatStatus(shipment.status)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -147,7 +201,7 @@ export function MyShipments() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                       {shipment.status === 'Delivered' && (
+                       {formatStatus(shipment.status) === 'Delivered' && (
                          <>
                            <button 
                               onClick={() => handleAction('rate', shipment)}
@@ -165,7 +219,7 @@ export function MyShipments() {
                            </button>
                          </>
                        )}
-                       {(shipment.status === 'Pending' || shipment.status === 'Booked') && (
+                       {(formatStatus(shipment.status) === 'Pending' || formatStatus(shipment.status) === 'Booked') && (
                           <button 
                             onClick={() => handleAction('cancel', shipment)}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -175,7 +229,7 @@ export function MyShipments() {
                           </button>
                        )}
                        
-                       {(shipment.status === 'Cancelled' || shipment.status === 'Delivered') && (
+                       {(formatStatus(shipment.status) === 'Cancelled' || formatStatus(shipment.status) === 'Delivered') && (
                            <button 
                               onClick={() => handleDelete(shipment)}
                               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -191,7 +245,7 @@ export function MyShipments() {
               {filteredShipments.length === 0 && (
                   <tr>
                       <td colSpan="7" className="px-6 py-12 text-center text-slate-500">
-                          No shipments found matching your search.
+                          {shipments.length === 0 ? "You haven't made any shipments yet." : "No shipments found matching your search."}
                       </td>
                   </tr>
               )}

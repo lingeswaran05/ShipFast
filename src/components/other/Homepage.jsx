@@ -4,12 +4,9 @@ import { Package, MapPin, Clock, Shield, TrendingUp, Users, Zap, Award, Truck, G
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 
-
 export function Homepage() {
   const navigate = useNavigate();
   const { currentUser } = useShipment();
-
-
 
   const handleGetStarted = () => {
     navigate('/login');
@@ -283,9 +280,9 @@ export function Homepage() {
               <div className="flex flex-col md:flex-row items-center gap-6">
                 <p className="text-slate-600 font-medium">© 2025 ShipFast. All rights reserved.</p>
                 <div className="flex gap-6 text-sm text-slate-600">
-                  <button className="hover:text-blue-600 transition-colors">Privacy Policy</button>
-                  <button className="hover:text-blue-600 transition-colors">Terms of Service</button>
-                  <button className="hover:text-blue-600 transition-colors">Contact Us</button>
+                  <button onClick={() => navigate('/privacy')} className="hover:text-blue-600 transition-colors">Privacy Policy</button>
+                  <button onClick={() => navigate('/terms')} className="hover:text-blue-600 transition-colors">Terms of Service</button>
+                  <button onClick={() => navigate('/contact')} className="hover:text-blue-600 transition-colors">Contact Us</button>
                 </div>
               </div>
             </div>

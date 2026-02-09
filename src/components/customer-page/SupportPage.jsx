@@ -1,34 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Plus, Send, Clock, CheckCircle2, AlertCircle, Search, Filter } from 'lucide-react';
+import { useShipment } from '../../context/ShipmentContext';
+import { mockService } from '../../mock/mockService';
+import { toast } from 'sonner';
 
 export function SupportPage() {
+  const { currentUser } = useShipment();
   const [activeTab, setActiveTab] = useState('list'); // 'list' or 'new'
-  const [tickets, setTickets] = useState([
-    {
-      id: 'TKT-2025-001',
-      subject: 'Delay in Shipment #SF123456',
-      status: 'Open',
-      priority: 'High',
-      date: 'Dec 20, 2025',
-      lastUpdate: '2 hours ago'
-    },
-    {
-      id: 'TKT-2025-002',
-      subject: 'Invoice Discrepancy',
-      status: 'Resolved',
-      priority: 'Medium',
-      date: 'Dec 15, 2025',
-      lastUpdate: 'Dec 16, 2025'
-    },
-    {
-      id: 'TKT-2025-003',
-      subject: 'Change Delivery Address',
-      status: 'Closed',
-      priority: 'Low',
-      date: 'Dec 10, 2025',
-      lastUpdate: 'Dec 11, 2025'
-    }
-  ]);
+  const [tickets, setTickets] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [newTicket, setNewTicket] = useState({
     subject: '',
@@ -37,19 +18,44 @@ export function SupportPage() {
     priority: 'Medium'
   });
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const ticket = {
-      id: `TKT-2026-${Math.floor(Math.random() * 1000)}`,
-      subject: newTicket.subject,
-      status: 'Open',
-      priority: newTicket.priority,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      lastUpdate: 'Just now'
+  useEffect(() => {
+    const fetchTickets = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mockService.getTickets(currentUser?.id);
+        setTickets(data);
+      } catch (error) {
+        console.error('Failed to fetch tickets', error);
+        toast.error('Failed to load tickets');
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setTickets([ticket, ...tickets]);
-    setActiveTab('list');
-    setNewTicket({ subject: '', category: 'Shipment Issue', message: '', priority: 'Medium' });
+
+    if (currentUser) {
+      fetchTickets();
+    }
+  }, [currentUser]);
+
+  const [priorityFilter, setPriorityFilter] = useState('All');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const ticket = await mockService.createTicket({
+        ...newTicket,
+        userId: currentUser?.id,
+        status: 'Open',
+        lastUpdate: 'Just now'
+      });
+      setTickets([ticket, ...tickets]);
+      setActiveTab('list');
+      setNewTicket({ subject: '', category: 'Shipment Issue', message: '', priority: 'Medium' });
+      toast.success('Ticket Raised');
+    } catch (error) {
+      console.error('Failed to create ticket', error);
+      toast.error('Failed to create ticket');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -69,6 +75,12 @@ export function SupportPage() {
       default: return 'text-slate-600 bg-slate-50';
     }
   };
+
+  const filteredTickets = tickets.filter(t => {
+      const matchesSearch = t.subject.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesPriority = priorityFilter === 'All' || t.priority === priorityFilter;
+      return matchesSearch && matchesPriority;
+  });
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -100,47 +112,63 @@ export function SupportPage() {
                    <div className="flex gap-2">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input type="text" placeholder="Search..." className="pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-48" />
+                        <input 
+                          type="text" 
+                          placeholder="Search subject..." 
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-48" 
+                        />
                       </div>
-                      <button className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
-                        <Filter className="w-4 h-4" />
-                      </button>
+                      <select
+                        value={priorityFilter}
+                        onChange={(e) => setPriorityFilter(e.target.value)}
+                        className="pl-3 pr-8 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white cursor-pointer appearance-none"
+                      >
+                        <option value="All">All Priorities</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
                    </div>
                </div>
                <div className="divide-y divide-slate-100">
-                 {tickets.map((ticket) => (
-                   <div key={ticket.id} className="p-4 hover:bg-slate-50 transition-colors group cursor-pointer">
-                     <div className="flex items-start justify-between mb-2">
-                       <div className="flex items-center gap-3">
-                         <span className="font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">{ticket.subject}</span>
-                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(ticket.priority)}`}>
-                            {ticket.priority}
-                         </span>
-                       </div>
-                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(ticket.status)}`}>
-                          {ticket.status}
-                       </span>
-                     </div>
-                     <div className="flex items-center gap-4 text-xs text-slate-500">
-                       <span className="font-mono">{ticket.id}</span>
-                       <span>•</span>
-                       <span className="flex items-center gap-1">
-                         <Clock className="w-3 h-3" />
-                         Updated {ticket.lastUpdate}
-                       </span>
-                     </div>
+                 {isLoading ? (
+                    <div className="p-8 text-center text-slate-500">Loading tickets...</div>
+                 ) : filteredTickets.length > 0 ? (
+                    filteredTickets.map((ticket) => (
+                      <div key={ticket.id} className="p-4 hover:bg-slate-50 transition-colors group cursor-pointer">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">{ticket.subject}</span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(ticket.priority)}`}>
+                               {ticket.priority}
+                            </span>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(ticket.status)}`}>
+                             {ticket.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span className="font-mono">{ticket.id}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Updated {ticket.lastUpdate || 'Recently'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                 ) : (
+                   <div className="p-12 text-center text-slate-500">
+                     <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                     <p>No tickets found</p>
                    </div>
-                 ))}
+                 )}
                </div>
-               {tickets.length === 0 && (
-                 <div className="p-12 text-center text-slate-500">
-                   <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                   <p>No tickets found</p>
-                 </div>
-               )}
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
                <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
                   <h3 className="font-bold text-slate-900">Create New Ticket</h3>
                   <button onClick={() => setActiveTab('list')} className="text-sm text-slate-500 hover:text-slate-900">Cancel</button>

@@ -21,42 +21,53 @@ export function RegistrationPage() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
+      setIsLoading(false);
       return;
     }
 
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters long');
+      setIsLoading(false);
       return;
     }
 
     if (!formData.name || !formData.email || !formData.phone) {
       setError('Please fill all required fields');
+      setIsLoading(false);
       return;
     }
 
-    // Register user via context
-    register({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      address: formData.address,
-      city: formData.city,
-      state: formData.state,
-      pincode: formData.pincode
-    });
+    try {
+      // Register user via context
+      await register({
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        pincode: formData.pincode
+      });
 
-    setSuccess(true);
-    setTimeout(() => {
-      navigate('/dashboard');
-    }, 1500);
+      setSuccess(true);
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1500);
+    } catch (err) {
+      setError(err.message || 'Registration failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -70,7 +81,15 @@ export function RegistrationPage() {
     navigate('/login');
   };
 
+  const handleTermsClick = () => {
+      // Placeholder for terms of service
+      navigate('/terms');
+  };
 
+  const handlePrivacyClick = () => {
+      // Placeholder for privacy policy
+      navigate('/privacy');
+  };
 
   if (success) {
     return (
@@ -300,16 +319,21 @@ export function RegistrationPage() {
               <div className="flex items-start gap-2">
                 <input type="checkbox" required className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                 <label className="text-sm text-slate-600">
-                  I agree to the <span className="text-blue-600 font-semibold hover:underline cursor-pointer">Terms of Service</span> and <span className="text-blue-600 font-semibold hover:underline cursor-pointer">Privacy Policy</span>
+                  I agree to the <span onClick={handleTermsClick} className="text-blue-600 font-semibold hover:underline cursor-pointer">Terms of Service</span> and <span onClick={handlePrivacyClick} className="text-blue-600 font-semibold hover:underline cursor-pointer">Privacy Policy</span>
                 </label>
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-4 rounded-xl transition-all font-bold text-lg shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/60 transform hover:-translate-y-0.5"
+                disabled={isLoading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-4 rounded-xl transition-all font-bold text-lg shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/60 transform hover:-translate-y-0.5 disabled:opacity-70 disabled:hover:transform-none"
               >
-                Create Account
-                <ArrowRight className="inline-block w-5 h-5 ml-2" />
+                {isLoading ? 'Creating Account...' : (
+                  <>
+                  Create Account
+                  <ArrowRight className="inline-block w-5 h-5 ml-2" />
+                  </>
+                )}
               </button>
 
               <div className="text-center">

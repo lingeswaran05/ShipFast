@@ -72,7 +72,10 @@ export function InvoicePage() {
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+          <button 
+            onClick={() => { alert("Please select 'Save as PDF' in the print dialog."); window.print(); }} 
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
             <Download className="w-4 h-4" />
             Download PDF
           </button>

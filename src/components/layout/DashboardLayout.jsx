@@ -8,17 +8,21 @@ export function DashboardLayout({ user, onLogout, sidebarItems }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      <Sidebar 
-        isSidebarOpen={isSidebarOpen} 
-        setIsSidebarOpen={setIsSidebarOpen} 
-        sidebarItems={sidebarItems} 
-        onLogout={onLogout} 
-      />
+      <div className="print:hidden">
+        <Sidebar 
+          isSidebarOpen={isSidebarOpen} 
+          setIsSidebarOpen={setIsSidebarOpen} 
+          sidebarItems={sidebarItems} 
+          onLogout={onLogout} 
+        />
+      </div>
 
-      <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        <TopNavbar user={user} />
+      <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64 print:ml-0' : 'ml-20 print:ml-0'}`}>
+        <div className="print:hidden">
+          <TopNavbar user={user} />
+        </div>
 
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">
           <Outlet />
         </div>
       </main>

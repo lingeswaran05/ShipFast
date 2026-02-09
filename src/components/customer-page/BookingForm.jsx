@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Package, Truck, Calendar, MapPin, CreditCard, ChevronRight, CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Wallet, Banknote, Printer } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
-
 import { BarcodeGenerator } from '../shared/BarcodeGenerator';
+import { toast } from 'sonner';
 
 export function BookingForm({ onViewInvoice }) {
   const { addShipment, calculateRate } = useShipment();
@@ -11,7 +11,7 @@ export function BookingForm({ onViewInvoice }) {
     sender: { name: '', phone: '', address: '', pincode: '', city: 'Mumbai' },
     receiver: { name: '', phone: '', address: '', pincode: '', city: 'Delhi' },
     package: { weight: '', length: '', width: '', height: '', type: 'Standard', declaredValue: '' },
-    service: '',
+    service: 'standard', // Default to standard
     paymentMode: ''
   });
   
@@ -30,8 +30,34 @@ export function BookingForm({ onViewInvoice }) {
     }
   };
 
-  const getDynamicRate = (serviceType = 'standard') => {
-     return calculateRate(formData.package.weight, serviceType === 'express' ? 'Express' : 'Standard');
+  const getServiceTypeLabel = (id) => {
+      switch(id) {
+          case 'express': return 'Express';
+          case 'sameday': return 'Same Day';
+          default: return 'Standard';
+      }
+  };
+
+  const getCalculatedPrice = (serviceId) => {
+      // Base logic matching context's calculateRate, but handled here for display consistency or usage of context directly
+      // If Same Day, add premium.
+      // Context calculateRate: (weight * 50) + base (100 | 50)
+      
+      const typeLabel = getServiceTypeLabel(serviceId);
+      let price = calculateRate(formData.package.weight, typeLabel);
+      
+      if (serviceId === 'sameday') {
+          price += 500; // Same Day Premium
+      }
+      return price;
+  };
+
+  const getTotalPrice = () => {
+      let price = getCalculatedPrice(formData.service);
+      if (formData.paymentMode === 'cash') {
+          price += 50; // Cash Handling Fee
+      }
+      return price;
   };
 
   const handleNext = () => {
@@ -43,44 +69,61 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const handleSubmit = async () => {
+    if (!formData.paymentMode) {
+        toast.error('Please select a payment method');
+        return;
+    }
+
     setIsProcessing(true);
     
-    setTimeout(() => {
-      const newShipment = addShipment({
+    try {
+      const newShipment = await addShipment({
          sender: formData.sender,
          receiver: formData.receiver,
          weight: formData.package.weight,
-         cost: getDynamicRate(formData.service),
-         type: formData.service === 'express' ? 'Express' : 'Standard',
-         paymentMode: formData.paymentMode
+         cost: getTotalPrice(),
+         type: getServiceTypeLabel(formData.service),
+         paymentMode: formData.paymentMode,
+         status: 'Booked',
+         service: getServiceTypeLabel(formData.service) // Ensure service name is passed
       });
 
-      setIsProcessing(false);
       setTrackingId(newShipment.id);
       setBookingSuccess(true);
-    }, 2000);
+      toast.success('Shipment booked successfully!');
+    } catch (error) {
+        toast.error('Failed to book shipment. Please try again.');
+        console.error(error);
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handlePrint = () => {
+      window.print();
   };
 
   const services = [
-    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getDynamicRate('standard')}`, icon: Truck },
-    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getDynamicRate('express')}`, icon: Package },
-    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getDynamicRate('express') + 500}`, icon: Calendar },
+    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getCalculatedPrice('standard')}`, icon: Truck },
+    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getCalculatedPrice('express')}`, icon: Package },
+    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getCalculatedPrice('sameday')}`, icon: Calendar },
   ];
 
   if (bookingSuccess) {
     return (
-      <div className="max-w-2xl mx-auto text-center space-y-8 animate-fade-in-up py-10">
-        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+      <div className="max-w-2xl mx-auto text-center space-y-8 animate-fade-in-up py-10 print:py-0">
+        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 print:hidden">
           <CheckCircle className="w-12 h-12 text-green-600 animate-bounce-subtle" />
         </div>
         
-        <div>
+        <div className="print:hidden">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">Booking Confirmed!</h2>
           <p className="text-slate-500 text-lg">Your shipment has been successfully scheduled.</p>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-600"></div>
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-600 print:hidden"></div>
+          <div className="hidden print:block text-2xl font-bold mb-4 text-center border-b pb-4">SHIPFAST LOGISTICS</div>
           <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Tracking ID</p>
           <div className="text-4xl font-mono font-bold text-slate-900 tracking-widest mb-4 selection:bg-purple-100">{trackingId}</div>
           
@@ -88,7 +131,7 @@ export function BookingForm({ onViewInvoice }) {
              <BarcodeGenerator value={trackingId} />
           </div>
 
-          <p className="text-xs text-slate-400">Save this ID regarding your shipment</p>
+          <p className="text-xs text-slate-400 mb-4 print:hidden">Save this ID regarding your shipment</p>
           
           <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
              <div className="text-left">
@@ -98,22 +141,46 @@ export function BookingForm({ onViewInvoice }) {
                 </p>
              </div>
              <div className="text-right">
-                <p className="text-xs text-slate-400 font-semibold uppercase">Amount Paid</p>
-                <p className="font-bold text-slate-800">₹{getDynamicRate(formData.service)}</p>
+                <p className="text-xs text-slate-400 font-semibold uppercase">Amount {formData.paymentMode === 'cash' ? 'To Pay' : 'Paid'}</p>
+                <p className="font-bold text-slate-800">₹{getTotalPrice()}</p>
+                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee)</span>}
+             </div>
+          </div>
+          <div className="hidden print:block mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
+             <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <span className="font-bold block mb-1">From:</span>
+                    <p>{formData.sender.name}</p>
+                    <p>{formData.sender.phone}</p>
+                    <p>{formData.sender.address || 'N/A'}</p>
+                    <p>{formData.sender.city} - {formData.sender.pincode}</p>
+                </div>
+                <div>
+                    <span className="font-bold block mb-1">To:</span>
+                    <p>{formData.receiver.name}</p>
+                    <p>{formData.receiver.phone}</p>
+                    <p>{formData.receiver.address || 'N/A'}</p>
+                    <p>{formData.receiver.city} - {formData.receiver.pincode}</p>
+                </div>
+             </div>
+             <div className="mt-4 pt-4 border-t">
+                 <p><span className="font-bold">Service:</span> {getServiceTypeLabel(formData.service)}</p>
+                 <p><span className="font-bold">Weight:</span> {formData.package.weight} kg</p>
+                 <p><span className="font-bold">Content:</span> {formData.package.type}</p>
              </div>
           </div>
         </div>
 
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-4 print:hidden">
           <button 
-             onClick={() => window.print()}
+             onClick={handlePrint}
              className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow flex items-center gap-2"
           >
             <Printer className="w-5 h-5" />
             Print Label
           </button>
           <button 
-             onClick={() => { setBookingSuccess(false); setStep(1); }} 
+             onClick={() => { setBookingSuccess(false); setStep(1); setFormData({...formData, paymentMode: ''}); }} 
              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white font-bold rounded-xl hover:from-purple-700 hover:to-pink-600 hover:shadow-lg hover:shadow-purple-500/30 transition-all transform hover:-translate-y-0.5"
           >
             Book Another
@@ -152,8 +219,8 @@ export function BookingForm({ onViewInvoice }) {
         {isProcessing && (
            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade-in">
               <div className="w-16 h-16 border-4 border-purple-100 border-t-purple-600 rounded-full animate-spin mb-4"></div>
-              <h3 className="text-xl font-bold text-slate-800">Processing Payment...</h3>
-              <p className="text-slate-500">Please do not close this window</p>
+              <h3 className="text-xl font-bold text-slate-800">Processing...</h3>
+              <p className="text-slate-500">Please wait while we confirm your booking</p>
            </div>
         )}
 
@@ -425,7 +492,7 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Service</span>
-                            <span className="font-semibold text-slate-900">Standard Delivery</span>
+                            <span className="font-semibold text-slate-900">{services.find(s=>s.id === formData.service)?.name || 'Standard'}</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Weight</span>
@@ -445,15 +512,21 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Base Rate</span>
-                            <span className="font-medium text-slate-900">₹{getDynamicRate(formData.service) - 50}.00</span>
+                            <span className="font-medium text-slate-900">₹{getCalculatedPrice(formData.service)}.00</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Tax & Fees</span>
-                            <span className="font-medium text-slate-900">₹50.00</span>
+                            <span className="font-medium text-slate-900">Included</span>
                          </div>
+                         {formData.paymentMode === 'cash' && (
+                           <div className="flex justify-between">
+                              <span className="text-slate-500">Cash Handling Fee</span>
+                              <span className="font-medium text-slate-900">₹50.00</span>
+                           </div>
+                         )}
                          <div className="border-t border-slate-100 pt-3 flex justify-between text-lg font-bold">
                             <span className="text-slate-900">Total</span>
-                            <span className="text-purple-600">₹{getDynamicRate(formData.service)}.00</span>
+                            <span className="text-purple-600">₹{getTotalPrice()}.00</span>
                          </div>
                       </div>
                    </div>
@@ -507,7 +580,12 @@ export function BookingForm({ onViewInvoice }) {
             className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-bold shadow-lg shadow-purple-500/30 transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
           >
             {step === 4 ? (
-               <>Confirm & Pay <CreditCard className="w-5 h-5" /></>
+               // Logic to show "Confirm & Pay" vs "Confirm Shipment" based on Payment Mode
+               formData.paymentMode === 'cash' ? (
+                   <>Confirm Shipment <CheckCircle className="w-5 h-5" /></>
+               ) : (
+                   <>Confirm & Pay <CreditCard className="w-5 h-5" /></>
+               )
             ) : (
                <>Continue <ArrowRight className="w-5 h-5" /></>
             )}

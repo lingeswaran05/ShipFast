@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ShipmentProvider, useShipment } from './context/ShipmentContext';
+import { ContactPage } from './components/customer-page/ContactPage';
 import { Homepage } from './components/other/Homepage';
 import { LoginPage } from './components/other/LoginPage';
 import { RegistrationPage } from './components/other/RegistrationPage';
 import { ForgotPasswordPage } from './components/other/ForgotPasswordPage';
 import { TrackingPortal } from './components/other/TrackingPortal';
+import { PlaceholderPage } from './components/shared/PlaceholderPage';
 
 import { DashboardLayout } from './components/layout/DashboardLayout';
 
@@ -37,8 +39,15 @@ import {
 } from 'lucide-react';
 
 function ProtectedRoute({ children, allowedRole }) {
-  
-  const { currentUser } = useShipment();
+  const { currentUser, isLoading } = useShipment();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      </div>
+    );
+  }
   
   if (!currentUser) {
     return <Navigate to="/login" replace />;
@@ -88,6 +97,11 @@ function AppRoutes() {
       <Route path="/register" element={<RegistrationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/track" element={<TrackingPortal />} />
+      
+      {/* Placeholder Routes */}
+      <Route path="/privacy" element={<PlaceholderPage />} />
+      <Route path="/terms" element={<PlaceholderPage />} />
+      <Route path="/contact" element={<ContactPage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute allowedRole="customer">
