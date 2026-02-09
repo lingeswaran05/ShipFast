@@ -15,7 +15,6 @@ import { AgentDashboard } from './components/agent-page/AgentDashboard';
 import { BookingForm } from './components/customer-page/BookingForm';
 import { MyShipments } from './components/customer-page/MyShipments';
 import { Payments } from './components/customer-page/Payments';
-import { CustomerReports } from './components/customer-page/CustomerReports';
 import { InvoicePage } from './components/customer-page/InvoicePage';
 import { SupportPage } from './components/customer-page/SupportPage';
 import { SettingsPage } from './components/shared/SettingsPage';
@@ -31,7 +30,6 @@ import {
   Package,
   PlusCircle,
   CreditCard,
-  FileBarChart,
   Scan,
   FileText,
   Printer,
@@ -63,7 +61,6 @@ function AppRoutes() {
     { path: '/dashboard/book', label: 'Book Shipment', icon: PlusCircle },
     { path: '/dashboard/shipments', label: 'My Shipments', icon: Package },
     { path: '/dashboard/payments', label: 'Payments', icon: CreditCard },
-    { path: '/dashboard/reports', label: 'Reports', icon: FileBarChart },
     { path: '/dashboard/support', label: 'Support', icon: LifeBuoy },
   ];
 
@@ -101,7 +98,6 @@ function AppRoutes() {
         <Route path="book" element={<BookingForm />} />
         <Route path="shipments" element={<MyShipments />} />
         <Route path="payments" element={<Payments />} />
-        <Route path="reports" element={<CustomerReports />} />
         <Route path="support" element={<SupportPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="invoice/:id" element={<InvoicePage />} />

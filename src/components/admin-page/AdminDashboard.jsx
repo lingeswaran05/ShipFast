@@ -1,24 +1,31 @@
-import { useState, useMemo } from 'react';
-import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { useShipment } from '../../context/ShipmentContext';
 import { SectionDownloader } from '../shared/SectionDownloader';
+import { ConfirmationModal } from '../shared/ConfirmationModal';
+import { toast } from 'sonner';
 
 export function AdminDashboard({ view }) {
   
-  const { shipments, branches: contextBranches, vehicles: contextVehicles, staff: contextStaff, addBranch, addVehicle, updateBranch, updateVehicle, updateStaff } = useShipment();
+  const { shipments, branches: contextBranches, vehicles: contextVehicles, staff: contextStaff, addBranch, addVehicle, updateBranch, updateVehicle, updateStaff, removeBranch, removeStaff, addStaff } = useShipment();
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
+  const [isPricingEditing, setIsPricingEditing] = useState(false);
   
-  const [newBranch, setNewBranch] = useState({ name: '', type: 'Branch', state: '' });
-  const [newVehicle, setNewVehicle] = useState({ number: '', type: 'Van', driver: 'N/A' });
+  const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, type: '', id: null, title: '', message: '' });
+
+  const [newBranch, setNewBranch] = useState({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
+  const [newVehicle, setNewVehicle] = useState({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
   const [isEditing, setIsEditing] = useState(false);
+  const vehicleFileInputRef = useRef(null);
 
   const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
   const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
   
+  // --- Handlers ---
   const handleBranchSubmit = (e) => {
       e.preventDefault();
       if (isEditing) {
@@ -26,9 +33,22 @@ export function AdminDashboard({ view }) {
       } else {
           addBranch(newBranch);
       }
-      setNewBranch({ name: '', type: 'Branch', state: '' });
+      setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
       setIsEditing(false);
       setShowBranchModal(false);
+  };
+
+  const confirmDelete = (type, id, title, message) => {
+      setDeleteConfirmation({ isOpen: true, type, id, title, message });
+  };
+
+  const executeDelete = () => {
+    if (deleteConfirmation.type === 'branch') {
+        removeBranch(deleteConfirmation.id);
+    } else if (deleteConfirmation.type === 'staff') {
+        removeStaff(deleteConfirmation.id);
+    }
+    setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' });
   };
 
   const handleVehicleSubmit = (e) => {
@@ -38,9 +58,20 @@ export function AdminDashboard({ view }) {
       } else {
           addVehicle(newVehicle);
       }
-      setNewVehicle({ number: '', type: 'Van', driver: 'N/A' });
+      setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
       setIsEditing(false);
       setShowVehicleModal(false);
+  };
+
+  const handleVehiclePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setNewVehicle(prev => ({ ...prev, photo: reader.result }));
+        };
+        reader.readAsDataURL(file);
+    }
   };
 
   const openBranchModal = (branch = null) => {
@@ -48,7 +79,7 @@ export function AdminDashboard({ view }) {
           setNewBranch(branch);
           setIsEditing(true);
       } else {
-          setNewBranch({ name: '', type: 'Branch', state: '' });
+          setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
           setIsEditing(false);
       }
       setShowBranchModal(true);
@@ -59,24 +90,20 @@ export function AdminDashboard({ view }) {
           setNewVehicle(vehicle);
           setIsEditing(true);
       } else {
-          setNewVehicle({ number: '', type: 'Van', driver: 'N/A' });
+          setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
           setIsEditing(false);
       }
       setShowVehicleModal(true);
   };
   
-  const handleStaffSubmit = (e) => {
-    e.preventDefault();
-    if (isEditing) {
-        updateStaff(newStaff);
-    } 
-    setIsEditing(false);
-    setShowStaffModal(false);
-  };
-
-  const openStaffModal = (staffMember) => {
-      setNewStaff(staffMember);
-      setIsEditing(true);
+  const openStaffModal = (staffMember = null) => {
+      if (staffMember) {
+        setNewStaff(staffMember);
+        setIsEditing(true);
+      } else {
+        setNewStaff({ name: '', role: 'Agent', branch: '', status: 'Active' });
+        setIsEditing(false);
+      }
       setShowStaffModal(true);
   };
   
@@ -108,43 +135,106 @@ export function AdminDashboard({ view }) {
   }, [shipments]);
 
 
+  const onStaffFormSubmit = (e) => {
+      e.preventDefault();
+      if (isEditing) {
+          updateStaff(newStaff);
+      } else {
+          addStaff(newStaff);
+      }
+      setNewStaff({ name: '', role: 'Agent', branch: '', status: 'Active' });
+      setIsEditing(false);
+      setShowStaffModal(false);
+  };
 
   return (
       <div className="space-y-6 animate-fade-in-up relative">
+        <ConfirmationModal 
+            isOpen={deleteConfirmation.isOpen}
+            onClose={() => setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' })}
+            onConfirm={executeDelete}
+            title={deleteConfirmation.title}
+            message={deleteConfirmation.message}
+        />
+
+        {/* Branch Modal */}
         {showBranchModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scale-in">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowBranchModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-xl font-bold text-slate-900">{isEditing ? 'Edit Branch' : 'Add New Branch'}</h3>
                         <button onClick={() => setShowBranchModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
                     </div>
                     <form onSubmit={handleBranchSubmit} className="space-y-4">
-                        <input className="w-full p-3 border rounded-lg" placeholder="Branch Name" value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
-                        <select className="w-full p-3 border rounded-lg" value={newBranch.type} onChange={e => setNewBranch({...newBranch, type: e.target.value})}>
-                            <option>Branch</option>
-                            <option>Hub</option>
-                        </select>
-                        <input className="w-full p-3 border rounded-lg" placeholder="State/City" value={newBranch.state} onChange={e => setNewBranch({...newBranch, state: e.target.value})} required />
-                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold">{isEditing ? 'Save Changes' : 'Add Branch'}</button>
+                        <div className="grid grid-cols-2 gap-4">
+                            <input className="w-full p-3 border rounded-lg" placeholder="Branch Name" value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
+                            <select className="w-full p-3 border rounded-lg" value={newBranch.type} onChange={e => setNewBranch({...newBranch, type: e.target.value})}>
+                                <option>Branch</option>
+                                <option>Hub</option>
+                            </select>
+                        </div>
+                        <textarea className="w-full p-3 border rounded-lg" rows="2" placeholder="Description" value={newBranch.description} onChange={e => setNewBranch({...newBranch, description: e.target.value})} />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Area/Location" value={newBranch.location} onChange={e => setNewBranch({...newBranch, location: e.target.value})} required />
+                             <input className="w-full p-3 border rounded-lg" placeholder="State/City" value={newBranch.state} onChange={e => setNewBranch({...newBranch, state: e.target.value})} required />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Manager Name" value={newBranch.manager} onChange={e => setNewBranch({...newBranch, manager: e.target.value})} />
+                             <input className="w-full p-3 border rounded-lg" placeholder="Staff Count" type="number" value={newBranch.staffCount} onChange={e => setNewBranch({...newBranch, staffCount: e.target.value})} />
+                        </div>
+                        
+                        <input className="w-full p-3 border rounded-lg" placeholder="Contact Info (Phone/Email)" value={newBranch.contact} onChange={e => setNewBranch({...newBranch, contact: e.target.value})} required />
+
+                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">{isEditing ? 'Save Changes' : 'Add Branch'}</button>
                     </form>
                 </div>
             </div>
         )}
 
+        {/* Vehicle Modal */}
         {showVehicleModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scale-in">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowVehicleModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-xl font-bold text-slate-900">{isEditing ? 'Edit Vehicle' : 'Add New Vehicle'}</h3>
                         <button onClick={() => setShowVehicleModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
                     </div>
                     <form onSubmit={handleVehicleSubmit} className="space-y-4">
-                        <input className="w-full p-3 border rounded-lg" placeholder="Vehicle Number (e.g. MH-04-AB-1234)" value={newVehicle.number} onChange={e => setNewVehicle({...newVehicle, number: e.target.value})} required />
-                        <select className="w-full p-3 border rounded-lg" value={newVehicle.type} onChange={e => setNewVehicle({...newVehicle, type: e.target.value})}>
-                            <option>Van</option>
-                            <option>Truck</option>
-                            <option>Scooter</option>
-                        </select>
+                        <div className="flex justify-center mb-4">
+                             <div 
+                               onClick={() => vehicleFileInputRef.current.click()}
+                               className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors overflow-hidden relative"
+                             >
+                                {newVehicle.photo ? (
+                                    <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                ) : (
+                                    <>
+                                        <Camera className="w-8 h-8 text-slate-400 mb-2" />
+                                        <span className="text-sm text-slate-500">Upload Vehicle Photo</span>
+                                    </>
+                                )}
+                                <input ref={vehicleFileInputRef} type="file" className="hidden" accept="image/*" onChange={handleVehiclePhotoUpload} />
+                             </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Vehicle Number" value={newVehicle.number} onChange={e => setNewVehicle({...newVehicle, number: e.target.value})} required />
+                             <select className="w-full p-3 border rounded-lg" value={newVehicle.type} onChange={e => setNewVehicle({...newVehicle, type: e.target.value})}>
+                                <option>Van</option>
+                                <option>Truck</option>
+                                <option>Scooter</option>
+                            </select>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Driver Name" value={newVehicle.driver} onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})} />
+                             <input className="w-full p-3 border rounded-lg" type="number" placeholder="Seats" value={newVehicle.seats} onChange={e => setNewVehicle({...newVehicle, seats: e.target.value})} />
+                        </div>
+                        
+                        <input className="w-full p-3 border rounded-lg" placeholder="RC Book Details" value={newVehicle.rcBook} onChange={e => setNewVehicle({...newVehicle, rcBook: e.target.value})} />
+
                         {isEditing && (
                             <select className="w-full p-3 border rounded-lg" value={newVehicle.status} onChange={e => setNewVehicle({...newVehicle, status: e.target.value})}>
                                 <option>Available</option>
@@ -152,15 +242,16 @@ export function AdminDashboard({ view }) {
                                 <option>Delivering</option>
                             </select>
                         )}
-                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold">{isEditing ? 'Save Changes' : 'Add Vehicle'}</button>
+                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">{isEditing ? 'Save Changes' : 'Add Vehicle'}</button>
                     </form>
                 </div>
             </div>
         )}
 
+        {/* Staff Modal */}
         {showStaffModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowStaffModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-xl font-bold text-slate-900">
                             {isEditing ? 'Staff Details & Documents' : 'Add New Staff'}
@@ -168,7 +259,7 @@ export function AdminDashboard({ view }) {
                         <button onClick={() => setShowStaffModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
                     </div>
 
-                    <form onSubmit={handleStaffSubmit} className="space-y-6">
+                    <form onSubmit={onStaffFormSubmit} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* Personal Details */}
                             <div className="space-y-4">
@@ -247,7 +338,7 @@ export function AdminDashboard({ view }) {
 
                         <div className="flex gap-3 pt-6 border-t border-slate-100">
                             <button type="button" onClick={() => setShowStaffModal(false)} className="flex-1 py-3 border border-slate-200 rounded-lg font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
-                            <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">Save Staff Details</button>
+                            <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">{isEditing ? 'Save Changes' : 'Add Staff'}</button>
                         </div>
                     </form>
                 </div>
@@ -450,37 +541,38 @@ export function AdminDashboard({ view }) {
                             <tr>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Branch Name</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">State</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Manager</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Capacity</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {contextBranches && contextBranches.map(branch => (
                                 <tr key={branch.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-6 py-4 font-medium text-slate-900">{branch.name}</td>
+                                    <td className="px-6 py-4 font-medium text-slate-900">
+                                        <div>{branch.name}</div>
+                                        <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
+                                    </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2 py-1 rounded text-xs font-semibold ${branch.type === 'Hub' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
                                             {branch.type}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 text-slate-600">{branch.state}</td>
+                                    <td className="px-6 py-4 text-slate-600">{branch.manager || 'N/A'}</td>
+                                    <td className="px-6 py-4 text-slate-600">{branch.contact || 'N/A'}</td>
                                     <td className="px-6 py-4">
                                         <span className={`flex items-center gap-1 text-sm font-medium ${branch.status === 'Active' ? 'text-green-600' : 'text-amber-600'}`}>
                                             <span className={`w-1.5 h-1.5 rounded-full ${branch.status === 'Active' ? 'bg-green-600' : 'bg-amber-600'}`}></span>
                                             {branch.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        <div className="w-24 bg-slate-100 rounded-full h-1.5">
-                                            <div className="bg-indigo-600 h-1.5 rounded-full" style={{width: branch.capacity}}></div>
-                                        </div>
-                                        <span className="text-xs text-slate-500 mt-1 block">{branch.capacity}</span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button onClick={() => openBranchModal(branch)} className="text-indigo-600 hover:text-indigo-900 text-sm font-medium flex items-center gap-1 justify-end">
-                                            <Edit className="w-4 h-4" /> Edit
+                                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                                        <button onClick={() => openBranchModal(branch)} className="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch? This action cannot be undone.')} className="text-red-500 hover:text-red-700 text-sm font-medium">
+                                            <Trash2 className="w-4 h-4" />
                                         </button>
                                     </td>
                                 </tr>
@@ -499,8 +591,24 @@ export function AdminDashboard({ view }) {
                     <h1 className="text-2xl font-bold text-slate-800">Pricing Configuration</h1>
                     <p className="text-slate-600">Base rates and zone adjustments</p>
                   </div>
-                  <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20">
-                    Save Changes
+                  <button 
+                    onClick={() => {
+                        if (isPricingEditing) {
+                            toast.success("Pricing configuration saved successfully!");
+                        }
+                        setIsPricingEditing(!isPricingEditing);
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors shadow-lg flex items-center gap-2 font-bold ${isPricingEditing ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-500/20' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'}`}
+                  >
+                    {isPricingEditing ? (
+                        <>
+                            <Save className="w-4 h-4" /> Save Changes
+                        </>
+                    ) : (
+                        <>
+                            <Edit className="w-4 h-4" /> Edit Configuration
+                        </>
+                    )}
                   </button>
                 </div>
 
@@ -521,24 +629,40 @@ export function AdminDashboard({ view }) {
                             { slab: '500g - 1kg', zoneA: 75, zoneB: 90, zoneC: 110 },
                             { slab: '1kg - 2kg', zoneA: 130, zoneB: 150, zoneC: 180 },
                             { slab: 'Additional 1kg', zoneA: 50, zoneB: 60, zoneC: 80 },
-                          ].map((row, index) => (                           <tr key={index} className="hover:bg-slate-50 transition-colors">
+                          ].map((row, index) => (                           
+                             <tr key={index} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-6 py-4 font-medium text-slate-900">{row.slab}</td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
                                       <span className="text-slate-400">₹</span>
-                                      <input type="number" defaultValue={row.zoneA} className="w-20 px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneA} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
                                    </div>
                                 </td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
                                       <span className="text-slate-400">₹</span>
-                                      <input type="number" defaultValue={row.zoneB} className="w-20 px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneB} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
                                    </div>
                                 </td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
                                       <span className="text-slate-400">₹</span>
-                                      <input type="number" defaultValue={row.zoneC} className="w-20 px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneC} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
                                    </div>
                                 </td>
                              </tr>
@@ -571,7 +695,7 @@ export function AdminDashboard({ view }) {
                        <table className="w-full text-left">
                           <thead className="bg-slate-50 border-b border-slate-200">
                              <tr>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehicle Number</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehicle Details</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Driver</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
@@ -581,7 +705,15 @@ export function AdminDashboard({ view }) {
                           <tbody className="divide-y divide-slate-100">
                              {contextVehicles && contextVehicles.map((vehicle, index) => (
                                <tr key={index} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-6 py-4 font-medium text-slate-900">{vehicle.id}</td>
+                                  <td className="px-6 py-4 font-medium text-slate-900">
+                                      <div className="flex items-center gap-3">
+                                          {vehicle.photo && <img src={vehicle.photo} alt="Car" className="w-10 h-10 rounded object-cover border border-slate-200" />}
+                                          <div>
+                                              <div>{vehicle.id}</div>
+                                              <div className="text-xs text-slate-500 max-w-[100px] truncate">{vehicle.rcBook}</div>
+                                          </div>
+                                      </div>
+                                  </td>
                                   <td className="px-6 py-4 text-slate-600">{vehicle.type}</td>
                                   <td className="px-6 py-4">
                                      {vehicle.driver !== 'N/A' ? (
@@ -623,7 +755,16 @@ export function AdminDashboard({ view }) {
                    <h1 className="text-2xl font-bold text-slate-800">Staff Directory</h1>
                    <p className="text-slate-600">Manage employee access and roles</p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                
+                <button 
+                    onClick={() => openStaffModal()}
+                    className="mb-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 float-right relative -top-16"
+                >
+                    <Plus className="w-4 h-4" />
+                    Add Staff
+                </button>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 clear-both">
                    {contextStaff && contextStaff.map(s => (
                       <div key={s.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
                          <div className="flex gap-4">
@@ -634,9 +775,14 @@ export function AdminDashboard({ view }) {
                                <div className="text-xs text-indigo-600 mt-1">{s.branch}</div>
                             </div>
                          </div>
-                         <button onClick={() => openStaffModal(s)} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-sm font-medium">
-                              <Edit className="w-4 h-4" /> Edit
-                          </button>
+                         <div className="flex flex-col gap-2">
+                            <button onClick={() => openStaffModal(s)} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-sm font-medium">
+                                <Edit className="w-4 h-4" /> Edit
+                            </button>
+                            <button onClick={() => confirmDelete('staff', s.id, 'Delete Staff', 'Are you sure you want to delete this staff member?')} className="text-red-500 hover:text-red-700 flex items-center gap-1 text-sm font-medium">
+                                <Trash2 className="w-4 h-4" /> Delete
+                            </button>
+                         </div>
                       </div>
                    ))}
                 </div>
@@ -667,102 +813,79 @@ export function AdminDashboard({ view }) {
                                      <tr>
                                          <th className="px-3 py-2">Service</th>
                                          <th className="px-3 py-2">Volume</th>
-                                         <th className="px-3 py-2">Revenue</th>
-                                         <th className="px-3 py-2">Avg. Cost</th>
+                                         <th className="px-3 py-2">Revenue Share</th>
                                      </tr>
                                  </thead>
                                  <tbody className="divide-y divide-slate-100">
-                                     {['Standard', 'Express'].map(type => {
-                                         const typeShipments = shipments.filter(s => s.type === type);
-                                         const volume = typeShipments.length;
-                                         const revenue = typeShipments.reduce((sum, s) => sum + (parseFloat(s.cost) || 0), 0);
-                                         return (
-                                             <tr key={type}>
-                                                 <td className="px-3 py-2 font-medium">{type}</td>
-                                                 <td className="px-3 py-2">{volume}</td>
-                                                 <td className="px-3 py-2">₹{revenue.toLocaleString()}</td>
-                                                 <td className="px-3 py-2">₹{volume ? Math.round(revenue / volume) : 0}</td>
-                                             </tr>
-                                         )
-                                     })}
+                                     <tr>
+                                         <td className="px-3 py-2 font-medium">Standard</td>
+                                         <td className="px-3 py-2">65%</td>
+                                         <td className="px-3 py-2 text-slate-600">40%</td>
+                                     </tr>
+                                     <tr>
+                                         <td className="px-3 py-2 font-medium">Express</td>
+                                         <td className="px-3 py-2">25%</td>
+                                         <td className="px-3 py-2 text-slate-600">45%</td>
+                                     </tr>
+                                      <tr>
+                                         <td className="px-3 py-2 font-medium">Perishable</td>
+                                         <td className="px-3 py-2">10%</td>
+                                         <td className="px-3 py-2 text-slate-600">15%</td>
+                                     </tr>
                                  </tbody>
                              </table>
                         </div>
-                         
                         <div>
-                             <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Status Distribution</h4>
+                             <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Regional Distribution</h4>
                              <div className="space-y-3">
-                                 {['Delivered', 'In Transit', 'Pending', 'Booked', 'Cancelled'].map(status => {
-                                      const count = shipments.filter(s => s.status === status).length;
-                                      const percentage = shipments.length ? Math.round((count / shipments.length) * 100) : 0;
-                                      return (
-                                          <div key={status}>
-                                              <div className="flex justify-between text-sm mb-1">
-                                                  <span className="text-slate-600">{status}</span>
-                                                  <span className="font-medium">{count} ({percentage}%)</span>
-                                              </div>
-                                              <div className="w-full bg-slate-100 rounded-full h-2">
-                                                  <div 
-                                                      className={`h-2 rounded-full ${status === 'Delivered' ? 'bg-green-500' : status === 'In Transit' ? 'bg-indigo-500' : 'bg-slate-400'}`} 
-                                                      style={{ width: `${percentage}%` }}
-                                                  ></div>
-                                              </div>
-                                          </div>
-                                      )
-                                 })}
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">North Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500 w-[45%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">45%</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">West Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-emerald-500 w-[30%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">30%</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">South Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-orange-500 w-[25%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">25%</span>
+                                </div>
                              </div>
                         </div>
                     </div>
 
-                    {/* Detailed Master Table */}
-                    <div className="overflow-x-auto">
+                    <div className="p-6">
+                        <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Recent Transactions</h4>
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Shipment ID</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Date</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Customer</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Route</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Input</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Service</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Status</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase text-right">Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {shipments.map(s => (
-                                    <tr key={s.id} className="hover:bg-slate-50">
-                                        <td className="px-6 py-4 font-medium text-indigo-600">{s.id}</td>
-                                        <td className="px-6 py-4 text-slate-600">{s.date}</td>
-                                        <td className="px-6 py-4">
-                                            <div className="font-medium text-slate-900">{s.sender.name}</div>
-                                            <div className="text-xs text-slate-500">{s.sender.phone}</div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-1 text-slate-600">
-                                                <span>{s.sender.city}</span>
-                                                <ChevronRight className="w-3 h-3 text-slate-400" />
-                                                <span>{s.receiver.city}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-600">{s.weight} kg</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${s.type === 'Express' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
-                                                {s.type}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                             <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                s.status === 'Delivered' ? 'bg-green-100 text-green-700' : 
-                                                s.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                                             }`}>
-                                                {s.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-bold text-slate-800">₹{s.cost}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
+                             <thead>
+                                 <tr className="text-slate-500 border-b border-slate-200">
+                                     <th className="pb-3">ID</th>
+                                     <th className="pb-3">Date</th>
+                                     <th className="pb-3">Client</th>
+                                     <th className="pb-3">Amount</th>
+                                     <th className="pb-3">Status</th>
+                                 </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-100">
+                                 {[1,2,3,4,5].map(i => (
+                                     <tr key={i}>
+                                         <td className="py-3 font-mono text-slate-600">TRX-00{i}</td>
+                                         <td className="py-3 text-slate-600">Oct 2{i}, 2025</td>
+                                         <td className="py-3 font-medium text-slate-900">Client {String.fromCharCode(64+i)}</td>
+                                         <td className="py-3 text-slate-900 font-bold">₹{1200 + (i*150)}</td>
+                                         <td className="py-3 text-green-600 font-medium">Completed</td>
+                                     </tr>
+                                 ))}
+                             </tbody>
                         </table>
                     </div>
                  </SectionDownloader>

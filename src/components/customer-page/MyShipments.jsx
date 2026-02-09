@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight } from 'lucide-react';
+import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { RateShipmentModal } from './RateShipmentModal';
 import { CancelShipmentModal } from './CancelShipmentModal';
+import { toast } from 'sonner';
 
 export function MyShipments() {
   const navigate = useNavigate();
-  const { shipments, cancelShipment } = useShipment();
+  const { shipments, cancelShipment, deleteShipment } = useShipment();
   const [activeModal, setActiveModal] = useState(null);
   const [selectedShipment, setSelectedShipment] = useState(null);
   const [filter, setFilter] = useState('');
@@ -34,11 +35,19 @@ export function MyShipments() {
 
   const handleCancel = (reason) => {
       cancelShipment(selectedShipment.id, reason);
+      toast.success('Shipment request cancelled.');
       closeModal();
+  };
+  
+  const handleDelete = (shipment) => {
+      if(confirm('Are you sure you want to delete this shipment from your history?')) {
+          deleteShipment(shipment.id);
+          toast.success('Shipment removed from history.');
+      }
   };
 
   const handleRate = (rating) => {
-      console.log('Rating:', rating);
+      toast.success(`Thank you! You rated shipment ${selectedShipment.id} with ${rating} stars.`);
       closeModal();
   };
 
@@ -165,9 +174,16 @@ export function MyShipments() {
                            <Ban className="w-4 h-4" />
                           </button>
                        )}
-                       <button className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors">
-                          <MoreHorizontal className="w-4 h-4" />
-                       </button>
+                       
+                       {(shipment.status === 'Cancelled' || shipment.status === 'Delivered') && (
+                           <button 
+                              onClick={() => handleDelete(shipment)}
+                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete from History"
+                           >
+                              <Trash2 className="w-4 h-4" />
+                           </button>
+                       )}
                     </div>
                   </td>
                 </tr>

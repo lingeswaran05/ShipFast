@@ -68,11 +68,17 @@ export function TopNavbar({ user }) {
                <div className="text-sm font-bold text-slate-900 leading-tight group-hover:text-purple-600 transition-colors">{user?.name}</div>
                <div className="text-xs text-slate-500 font-medium capitalize">{user?.role}</div>
              </div>
-             <img
-               src={user?.profilePic || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop'}
-               alt={user?.name}
-               className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-md"
-             />
+             {user?.profilePic ? (
+               <img
+                 src={user.profilePic}
+                 alt={user?.name}
+                 className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-md"
+               />
+             ) : (
+               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-sm">
+                 {user?.name?.charAt(0).toUpperCase()}
+               </div>
+             )}
           </div>
        </div>
     </header>

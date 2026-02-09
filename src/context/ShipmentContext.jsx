@@ -62,18 +62,18 @@ export function ShipmentProvider({ children }) {
   ];
 
   const defaultBranches = [
-    { id: 1, name: 'Mumbai Central Hub', type: 'Hub', state: 'Maharashtra', status: 'Active', capacity: '85%' },
-    { id: 2, name: 'Delhi North Gate', type: 'Branch', state: 'Delhi', status: 'Active', capacity: '60%' },
-    { id: 3, name: 'Bangalore Tech Park', type: 'Hub', state: 'Karnataka', status: 'Active', capacity: '92%' },
-    { id: 4, name: 'Chennai Port', type: 'Hub', state: 'Tamil Nadu', status: 'Maintenance', capacity: '45%' },
-    { id: 5, name: 'Kolkata East', type: 'Branch', state: 'West Bengal', status: 'Active', capacity: '78%' },
+    { id: 1, name: 'Mumbai Central Hub', type: 'Hub', state: 'Maharashtra', status: 'Active', capacity: '85%', manager: 'Arun Singh', contact: '022-12345678', staffCount: 15, location: 'Mumbai Central', description: 'Main hub for western region logistics.' },
+    { id: 2, name: 'Delhi North Gate', type: 'Branch', state: 'Delhi', status: 'Active', capacity: '60%', manager: 'Vikram Malhotra', contact: '011-87654321', staffCount: 8, location: 'North Delhi', description: 'Handling northern distributions.' },
+    { id: 3, name: 'Bangalore Tech Park', type: 'Hub', state: 'Karnataka', status: 'Active', capacity: '92%', manager: 'Sneha Reddy', contact: '080-11223344', staffCount: 20, location: 'Electronic City', description: 'Tech corridor logistics center.' },
+    { id: 4, name: 'Chennai Port', type: 'Hub', state: 'Tamil Nadu', status: 'Maintenance', capacity: '45%', manager: 'Karthik Raja', contact: '044-55667788', staffCount: 12, location: 'Chennai Port Trust', description: 'Sea freight handling unit.' },
+    { id: 5, name: 'Kolkata East', type: 'Branch', state: 'West Bengal', status: 'Active', capacity: '78%', manager: 'Anjali Das', contact: '033-99887766', staffCount: 6, location: 'Salt Lake', description: 'Eastern zone branch.' },
   ];
 
   const defaultVehicles = [
-    { id: 'MH-01-AB-1234', type: 'Van', driver: 'Rajesh Kumar', status: 'In Transit', location: 'Mumbai' },
-    { id: 'MH-02-CD-5678', type: 'Truck', driver: 'N/A', status: 'Available', location: 'Pune' },
-    { id: 'DL-01-EF-9012', type: 'Scooter', driver: 'Amit Singh', status: 'Delivering', location: 'Delhi' },
-    { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore' },
+    { id: 'MH-01-AB-1234', type: 'Van', driver: 'Rajesh Kumar', status: 'In Transit', location: 'Mumbai', seats: 2, rcBook: 'RC123456', photo: null },
+    { id: 'MH-02-CD-5678', type: 'Truck', driver: 'N/A', status: 'Available', location: 'Pune', seats: 3, rcBook: 'RC789012', photo: null },
+    { id: 'DL-01-EF-9012', type: 'Scooter', driver: 'Amit Singh', status: 'Delivering', location: 'Delhi', seats: 1, rcBook: 'RC345678', photo: null },
+    { id: 'KA-01-GH-3456', type: 'Van', driver: 'Suresh Patil', status: 'In Transit', location: 'Bangalore', seats: 2, rcBook: 'RC901234', photo: null },
   ];
 
   const defaultStaff = [
@@ -138,11 +138,17 @@ export function ShipmentProvider({ children }) {
   };
 
   const register = (userData) => {
+    // Check if user already exists
+    const existingUser = users.find(u => u.email === userData.email);
+    if (existingUser) {
+        throw new Error('User already exists');
+    }
+
     const newUser = {
       ...userData,
       id: Math.random().toString(36).substr(2, 9),
       role: 'customer',
-      profilePic: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop'
+      profilePic: null // Will trigger fallback
     };
     setCurrentUser(newUser);
     setUsers(prev => [...prev, newUser]);
@@ -153,6 +159,11 @@ export function ShipmentProvider({ children }) {
   const addBranch = (branchData) => {
       setBranches(prev => [...prev, { id: Date.now(), ...branchData, status: 'Active', capacity: '0%' }]);
       addNotification(`New Branch "${branchData.name}" added successfully.`, 'admin');
+  };
+  
+  const removeBranch = (branchId) => {
+      setBranches(prev => prev.filter(b => b.id !== branchId));
+      addNotification('Branch removed successfully.', 'admin');
   };
 
   const addVehicle = (vehicleData) => {
@@ -170,15 +181,51 @@ export function ShipmentProvider({ children }) {
       addNotification(`Vehicle ${updatedVehicle.number || updatedVehicle.id} updated successfully.`, 'admin');
   };
 
+  const addStaff = (staffData) => {
+      const newStaff = { ...staffData, id: Date.now(), status: 'Active', performance: { deliveries: 0, rating: 5.0, shift: 'Day' } };
+      setStaff(prev => [...prev, newStaff]);
+      
+      // Also add to users list so they can login
+      const newUser = {
+          id: newStaff.id,
+          name: newStaff.name,
+          email: newStaff.email,
+          role: staffData.role.toLowerCase() === 'manager' ? 'admin' : (staffData.role.toLowerCase() === 'agent' ? 'agent' : 'driver'),
+          profilePic: null
+      };
+      
+      // Check if user exists first to avoid duplicates (by email)
+      if (!users.find(u => u.email === newUser.email)) {
+          setUsers(prev => [...prev, newUser]);
+      }
+      
+      addNotification(`Staff member "${staffData.name}" added successfully.`, 'admin');
+  };
+
+  const removeStaff = (staffId) => {
+      const staffMember = staff.find(s => s.id === staffId);
+      if (staffMember) {
+           setStaff(prev => prev.filter(s => s.id !== staffId));
+           // Optionally remove from users or disable them
+           // setUsers(prev => prev.filter(u => u.email !== staffMember.email)); 
+           addNotification(`Staff member "${staffMember.name}" removed.`, 'admin');
+      }
+  };
+
   const updateStaff = (updatedStaff) => {
       setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
       addNotification(`Staff member "${updatedStaff.name}" updated successfully.`, 'admin');
   };
   
   const updateProfile = (updatedData) => {
-      setCurrentUser(prev => ({ ...prev, ...updatedData }));
-      setUsers(prev => prev.map(u => u.email === currentUser.email ? { ...u, ...updatedData } : u));
-      addNotification('Profile updated successfully.', currentUser.role);
+      // Immediate state update for responsiveness
+      setCurrentUser(prev => {
+          const newUser = { ...prev, ...updatedData };
+          // Also update in the users array immediately
+          setUsers(currentUsers => currentUsers.map(u => u.id === prev.id ? newUser : u));
+          return newUser;
+      });
+      addNotification('Profile updated successfully.', 'all');
   };
 
   const logout = () => {
@@ -214,6 +261,11 @@ export function ShipmentProvider({ children }) {
           status, 
           history: [...s.history, { status, location, timestamp: new Date().toLocaleString() }] 
       } : s));
+  };
+  
+  const deleteShipment = (id) => {
+      setShipments(prev => prev.filter(s => s.id !== id));
+      addNotification('Shipment deleted.', 'customer');
   };
 
   const cancelShipment = (id) => {
@@ -257,12 +309,16 @@ export function ShipmentProvider({ children }) {
       register,
       addShipment,
       updateShipmentStatus,
+      deleteShipment,
       cancelShipment,
       getShipment,
       addBranch,
+      removeBranch,
       addVehicle,
       updateBranch,
       updateVehicle,
+      addStaff,
+      removeStaff,
       updateStaff,
       updateProfile,
       getRoleNotifications,

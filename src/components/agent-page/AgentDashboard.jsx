@@ -1,14 +1,36 @@
-import { useState, useMemo } from 'react';
-import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User, Printer, Download, History, CreditCard } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
+import { toast } from 'sonner';
+import { SectionDownloader } from '../shared/SectionDownloader';
 
 export function AgentDashboard({ view }) {
   const { shipments, updateShipmentStatus, currentUser } = useShipment();
   const [scanId, setScanId] = useState('');
   const [scanResult, setScanResult] = useState(null);
+  const [scanStatusMode, setScanStatusMode] = useState('Received at Hub'); // Default scan mode
   const [activeTab, setActiveTab] = useState('deliveries'); 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterCity, setFilterCity] = useState('');
+  
+  // Shift Timer Logic
+  const [shiftDuration, setShiftDuration] = useState('00:00');
+  useEffect(() => {
+    // Mock shift start: 4 hours and 30 minutes ago
+    const startTime = new Date();
+    startTime.setHours(startTime.getHours() - 4);
+    startTime.setMinutes(startTime.getMinutes() - 32);
+
+    const timer = setInterval(() => {
+        const now = new Date();
+        const diff = now - startTime;
+        const hours = Math.floor(diff / 3600000);
+        const minutes = Math.floor((diff % 3600000) / 60000);
+        setShiftDuration(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`);
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   // Derived state for stats
   const stats = useMemo(() => {
@@ -42,8 +64,8 @@ export function AgentDashboard({ view }) {
   }, [shipments, activeTab, filterStatus, filterCity]);
 
   const handleQuickStatusUpdate = (id, newStatus) => {
-      // Simulate "Real-time" assignment or update
       updateShipmentStatus(id, newStatus, 'Agent Update');
+      toast.success(`Shipment updated to ${newStatus}`);
   };
   
   const handleScan = (e) => {
@@ -53,13 +75,14 @@ export function AgentDashboard({ view }) {
     // Check if shipment exists
     const shipment = shipments.find(s => s.id === scanId);
     if (shipment) {
-        updateShipmentStatus(scanId, 'Received at Hub');
+        updateShipmentStatus(scanId, scanStatusMode);
         setScanResult({
             id: scanId,
-            status: 'Received at Hub',
+            status: scanStatusMode,
             timestamp: new Date().toLocaleString(),
             success: true
         });
+        toast.success(`Scanned: ${scanId} marked as ${scanStatusMode}`);
     } else {
         setScanResult({
             id: scanId,
@@ -67,6 +90,7 @@ export function AgentDashboard({ view }) {
             timestamp: new Date().toLocaleString(),
             success: false
         });
+        toast.error('Shipment ID not found');
     }
     setScanId('');
     setTimeout(() => setScanResult(null), 3000);
@@ -91,7 +115,7 @@ export function AgentDashboard({ view }) {
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
              <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Shift Timer</div>
              <div className="text-2xl font-bold text-indigo-600 flex items-center gap-2">
-                04:32 <span className="text-xs font-normal text-slate-400">Hrs</span>
+                {shiftDuration} <span className="text-xs font-normal text-slate-400">Hrs</span>
              </div>
          </div>
       </div>
@@ -211,10 +235,10 @@ export function AgentDashboard({ view }) {
                                                 <CheckCircle className="w-4 h-4" /> Delivered
                                             </button>
                                             <button 
-                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Out for Delivery')}
-                                                className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed Attempt')}
+                                                className="py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                             >
-                                                <Truck className="w-4 h-4" /> Out for Delivery
+                                                <AlertTriangle className="w-4 h-4" /> Failed
                                             </button>
                                         </div>
                                     )}
@@ -243,11 +267,27 @@ export function AgentDashboard({ view }) {
             </div>
 
             <form onSubmit={handleScan} className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                <div className="mb-6">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Select Scan Action</label>
+                    <select 
+                        value={scanStatusMode}
+                        onChange={(e) => setScanStatusMode(e.target.value)}
+                        className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium"
+                    >
+                        <option value="Booked">Booked</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Received at Hub">Arrived at Hub</option>
+                        <option value="Out for Delivery">Out for Delivery</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Failed Attempt">Failed Attempt</option>
+                    </select>
+                </div>
+
                 <div className="mb-6 text-center">
                    <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
                       <Scan className="w-10 h-10 text-indigo-600" />
                    </div>
-                   <p className="text-sm font-medium text-indigo-600">Ready to Scan</p>
+                   <p className="text-sm font-medium text-indigo-600">Ready to Scan ({scanStatusMode})</p>
                 </div>
                 
                 <div className="space-y-4">
@@ -259,14 +299,9 @@ export function AgentDashboard({ view }) {
                      className="w-full text-center text-lg font-mono py-4 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                      autoFocus
                    />
-                   <div className="grid grid-cols-2 gap-3">
-                      <button type="submit" className="bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 transform hover:-translate-y-0.5">
-                         Received at Branch
-                      </button>
-                      <button type="button" onClick={() => handleQuickStatusUpdate(scanId, 'Out for Delivery')} className="bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 transform hover:-translate-y-0.5">
-                         Out for Delivery
-                      </button>
-                   </div>
+                   <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 transform hover:-translate-y-0.5">
+                      Process Scan
+                   </button>
                 </div>
             </form>
 
@@ -300,11 +335,11 @@ export function AgentDashboard({ view }) {
       )}
 
       {view === 'runsheets' && (
-         <RunSheetView todaysDeliveries={shipments.filter(s => ['Received at Hub', 'Booked'].includes(s.status))} />
+         <RunSheetView todaysDeliveries={shipments.filter(s => ['Received at Hub', 'Booked', 'Out for Delivery'].includes(s.status))} />
       )}
 
       {view === 'cash' && (
-         <CashCollectionView history={stats.cashCollected} />
+         <CashCollectionView shipments={shipments} />
       )}
     </div>
   );
@@ -392,6 +427,23 @@ function QuickBookingForm() {
 }
 
 function RunSheetView({ todaysDeliveries }) {
+    const [selectedIds, setSelectedIds] = useState([]);
+
+    const toggleSelection = (id) => {
+        setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleAssign = () => {
+        if (selectedIds.length === 0) return toast.error("Select shipments to assign");
+        toast.success(`${selectedIds.length} shipments assigned to current run sheet`);
+        // Actual logic would involve API call to update 'assignedTo' field
+    };
+    
+    // Filtering for logic demo
+    const eligibleForRunSheet = todaysDeliveries.filter(s => ['Received at Hub', 'Booked'].includes(s.status));
+
     return (
          <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -399,21 +451,59 @@ function RunSheetView({ todaysDeliveries }) {
                 <h1 className="text-2xl font-bold text-slate-800">Run Sheet Generation</h1>
                 <p className="text-slate-600">Assign pending deliveries to drivers</p>
               </div>
-              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Generate Sheet
-              </button>
+              <div className="flex gap-2">
+                  <SectionDownloader 
+                    title={<span className="flex items-center gap-2"><Download className="w-4 h-4" /> Download Sheet</span>} 
+                    className="px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-medium text-sm"
+                  >
+                       <div className="p-8">
+                           <h1 className="text-2xl font-bold mb-4">Run Sheet Report</h1>
+                           <table className="w-full text-left text-sm border">
+                               <thead>
+                                   <tr className="bg-slate-100">
+                                       <th className="p-2 border">ID</th>
+                                       <th className="p-2 border">Address</th>
+                                       <th className="p-2 border">COD</th>
+                                   </tr>
+                               </thead>
+                               <tbody>
+                                   {eligibleForRunSheet.filter(s => selectedIds.includes(s.id)).map(s => (
+                                       <tr key={s.id}>
+                                           <td className="p-2 border">{s.id}</td>
+                                           <td className="p-2 border">{s.receiver.city}, {s.receiver.phone}</td>
+                                           <td className="p-2 border">{s.cost}</td>
+                                       </tr>
+                                   ))}
+                               </tbody>
+                           </table>
+                           {selectedIds.length === 0 && <p className="mt-4 text-slate-500">No shipments selected.</p>}
+                       </div>
+                  </SectionDownloader>
+
+                  <button 
+                    onClick={handleAssign}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Generate Sheet ({selectedIds.length})
+                  </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                   <span className="font-semibold text-slate-700">Pending for Delivery (Today)</span>
-                  <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{todaysDeliveries.length} Shipments</span>
+                  <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{eligibleForRunSheet.length} Shipments</span>
                </div>
                <div className="divide-y divide-slate-100">
-                  {todaysDeliveries.length > 0 ? todaysDeliveries.map(s => (
-                     <div key={s.id} className="p-4 hover:bg-slate-50 flex items-center gap-4">
-                        <input type="checkbox" className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                  {eligibleForRunSheet.length > 0 ? eligibleForRunSheet.map(s => (
+                     <div key={s.id} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
+                        <input 
+                            type="checkbox" 
+                            className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                            checked={selectedIds.includes(s.id)}
+                            onChange={() => {}}
+                        />
                         <div className="flex-1">
                            <div className="font-medium text-slate-900">{s.id}</div>
                            <div className="text-sm text-slate-500">{s.receiver.city} • <span className="text-indigo-600">{s.type}</span></div>
@@ -432,16 +522,57 @@ function RunSheetView({ todaysDeliveries }) {
     );
 }
 
-function CashCollectionView({ history }) {
-    const totalCash = history
-        .filter(s => s.status === 'Delivered' && s.paymentMode === 'Cash')
-        .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
+function CashCollectionView({ shipments }) {
+    // Categorization Logic
+    const breakdown = shipments
+        .filter(s => s.status === 'Delivered')
+        .reduce((acc, s) => {
+            const mode = s.paymentMode || 'Cash';
+            acc[mode] = (acc[mode] || 0) + (parseFloat(s.cost) || 0);
+            return acc;
+        }, {});
+
+    const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
 
     return (
          <div className="max-w-4xl mx-auto animate-fade-in-up">
             <h1 className="text-2xl font-bold text-slate-800 mb-6">Cash Collection & Reconciliation</h1>
             
             <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
+                     <div className="text-slate-400 text-sm font-medium mb-1">Total Verified Revenue</div>
+                     <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
+                     <div className="mt-4 flex gap-2">
+                        <button 
+                            onClick={() => toast.success("Deposit initiated for ₹" + totalCollected)}
+                            className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <CreditCard className="w-4 h-4" /> Deposit All
+                        </button>
+                        <button 
+                            onClick={() => toast.info("Showing transaction history...")}
+                            className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <History className="w-4 h-4" /> View History
+                        </button>
+                     </div>
+                  </div>
+                  
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                     <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Breakdown by Method</h3>
+                     <div className="space-y-3">
+                         {Object.entries(breakdown).map(([method, amount]) => (
+                             <div key={method} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                 <span className="font-medium text-slate-700">{method}</span>
+                                 <span className="font-bold text-slate-900">₹{amount.toLocaleString()}</span>
+                             </div>
+                         ))}
+                         {Object.keys(breakdown).length === 0 && <p className="text-slate-400 text-sm italic">No collected payments yet</p>}
+                     </div>
+                  </div>
+               </div>
+
                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <h3 className="font-bold text-slate-900 mb-4">Submit Collected Cash</h3>
                   <div className="space-y-4">
@@ -453,7 +584,7 @@ function CashCollectionView({ history }) {
                          </select>
                      </div>
                      <div>
-                        <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount</label>
+                        <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount (Cash Only)</label>
                         <div className="relative">
                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
                            <input type="number"  className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" placeholder="Enter amount" />
@@ -464,24 +595,6 @@ function CashCollectionView({ history }) {
                      </button>
                   </div>
                </div>
-
-               <div className="space-y-4">
-                  <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
-                     <div className="text-slate-400 text-sm font-medium mb-1">Total Cash in Hand</div>
-                     <div className="text-4xl font-bold">₹{totalCash}</div>
-                     <div className="mt-4 flex gap-2">
-                        <button className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">Deposit to Bank</button>
-                        <button className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">View History</button>
-                     </div>
-                  </div>
-                  
-                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                     <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Recent Transactions</h3>
-                     <div className="space-y-3">
-                         <p className="text-slate-400 text-sm italic">No recent deposits</p>
-                     </div>
-                  </div>
-               </div>
             </div>
          </div>
     );
@@ -489,8 +602,7 @@ function CashCollectionView({ history }) {
 
 function AgentProfileView({ currentUser }) {
     const { staff } = useShipment();
-    // Find the staff record for the current user to get extended details
-    // Fallback to the first agent (Sita Verma typically) if no detailed match found for demo
+    // Fallback logic
     const agentDetails = staff.find(s => s.email === currentUser?.email) || staff.find(s => s.role === 'Agent') || {};
 
     return (

@@ -25,10 +25,10 @@ export function Sidebar({ isSidebarOpen, setIsSidebarOpen, sidebarItems, onLogou
       <div className="p-4 border-b border-slate-100 flex items-center justify-between h-16">
         <button 
           onClick={handleLogoClick}
-          className={`flex items-center gap-3 overflow-hidden transition-all hover:opacity-80 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0'}`}
+          className="flex items-center gap-3 overflow-hidden transition-all hover:opacity-80"
         >
-          <img src={logoImage} alt="ShipFast" className="h-8 w-auto" />
-          <span className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent truncate">
+          <img src={logoImage} alt="ShipFast" className="h-8 w-auto flex-shrink-0" />
+          <span className={`text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent truncate transition-all duration-300 ${isSidebarOpen ? 'opacity-100 w-auto' : 'opacity-0 w-0'}`}>
             ShipFast
           </span>
         </button>

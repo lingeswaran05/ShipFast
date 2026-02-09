@@ -1,51 +1,62 @@
-import React, { useRef } from 'react';
-import { Download } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Download, Loader2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+import { toast } from 'sonner';
 
-export function SectionDownloader({ children, title = "Download Section", className = "" }) {
+export function SectionDownloader({ children, title = "Download", className = "" }) {
   const sectionRef = useRef(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleDownload = () => {
-    // This uses the "Print to PDF" capability of the browser
-    // functionality is achieved by temporarily manipulating the DOM to hide everything else
+  const handleDownload = async () => {
     if (!sectionRef.current) return;
-
-    const originalContents = document.body.innerHTML;
-    const printContents = sectionRef.current.innerHTML;
     
-    // Create a temporary container for printing
-    const printContainer = document.createElement('div');
-    printContainer.innerHTML = printContents;
-    printContainer.className = 'print-container';
-    
-    // Apply basic styles to ensuring it looks good
-    // We are essentially replacing the body with just this content for a split second
-    // A better approach often used in React is a separate media query, but this is a robust quick implementation
-    
-    // Actually, a safer way without destroying React state is to use a hidden iframe or specific CSS classes.
-    // Let's use the CSS class toggling approach which doesn't unmount React components.
-    
-    document.body.classList.add('printing-mode');
-    sectionRef.current.classList.add('print-visible');
-    
-    window.print();
-    
-    document.body.classList.remove('printing-mode');
-    sectionRef.current.classList.remove('print-visible');
+    try {
+      setIsGenerating(true);
+      const element = sectionRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher resolution
+        useCORS: true, // Handle images
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${title.replace(/\s+/g, '_').toLowerCase()}_report.pdf`);
+      
+      toast.success("Report downloaded successfully");
+    } catch (error) {
+      console.error("PDF Generation Error:", error);
+      toast.error("Failed to generate report");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
-    <div className={`relative ${className}`}>
-      <div className="flex justify-end mb-2">
+    <div className={`relative group ${className}`}>
+      <div className="flex justify-end mb-4 print:hidden">
         <button 
           onClick={handleDownload}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200"
-          title="Download this section"
+          disabled={isGenerating}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-all shadow-lg shadow-slate-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Download className="w-4 h-4" />
-          {title}
+          {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {isGenerating ? 'Generating...' : title}
         </button>
       </div>
-      <div ref={sectionRef} className="print-section-content">
+      <div ref={sectionRef} className="bg-white p-4 sm:p-6 md:p-8 rounded-xl border border-slate-100 print:border-none">
         {children}
       </div>
     </div>
