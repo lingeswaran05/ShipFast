@@ -131,7 +131,7 @@ export default {
 }
 
 
---- FILE: src\App.css ---
+--- FILE: src/App.css ---
 #root {
   max-width: 1280px;
   margin: 0 auto;
@@ -176,7 +176,7 @@ export default {
 }
 
 
---- FILE: src\App.jsx ---
+--- FILE: src/App.jsx ---
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ShipmentProvider, useShipment } from './context/ShipmentContext';
 import { Homepage } from './components/other/Homepage';
@@ -331,7 +331,7 @@ function App() {
 export default App;
 
 
---- FILE: src\components\admin-page\AdminDashboard.jsx ---
+--- FILE: src/components/admin-page/AdminDashboard.jsx ---
 import { useState, useMemo } from 'react';
 import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -1107,7 +1107,7 @@ export function AdminDashboard({ view }) {
 }
 
 
---- FILE: src\components\agent-page\AgentDashboard.jsx ---
+--- FILE: src/components/agent-page/AgentDashboard.jsx ---
 import { useState, useMemo } from 'react';
 import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
@@ -1706,7 +1706,7 @@ function AgentProfileView({ currentUser }) {
 }
 
 
---- FILE: src\components\customer-page\BookingForm.jsx ---
+--- FILE: src/components/customer-page/BookingForm.jsx ---
 import { useState } from 'react';
 import { Package, Truck, Calendar, MapPin, CreditCard, ChevronRight, CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Wallet, Banknote, Printer } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
@@ -2228,7 +2228,7 @@ export function BookingForm({ onViewInvoice }) {
 }
 
 
---- FILE: src\components\customer-page\CancelShipmentModal.jsx ---
+--- FILE: src/components/customer-page/CancelShipmentModal.jsx ---
 import React, { useState } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 
@@ -2305,7 +2305,7 @@ export function CancelShipmentModal({ isOpen, onClose, shipmentId, onConfirm }) 
 }
 
 
---- FILE: src\components\customer-page\CustomerDashboard.jsx ---
+--- FILE: src/components/customer-page/CustomerDashboard.jsx ---
 import { useState } from 'react';
 import { Package, Truck, Search, CreditCard, ChevronRight, PlusCircle, Calculator, X, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -2546,7 +2546,7 @@ export function CustomerDashboard() {
 }
 
 
---- FILE: src\components\customer-page\CustomerReports.jsx ---
+--- FILE: src/components/customer-page/CustomerReports.jsx ---
 import React, { useState } from 'react';
 import { BarChart3, TrendingUp, Calendar, Download, FileText, CheckCircle2, Clock, Ban } from 'lucide-react';
 
@@ -2670,7 +2670,7 @@ export function CustomerReports() {
 }
 
 
---- FILE: src\components\customer-page\InvoicePage.jsx ---
+--- FILE: src/components/customer-page/InvoicePage.jsx ---
 import React, { useMemo } from 'react';
 import { ArrowLeft, Download, Printer, FileText } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -2854,7 +2854,7 @@ export function InvoicePage() {
 }
 
 
---- FILE: src\components\customer-page\MyShipments.jsx ---
+--- FILE: src/components/customer-page/MyShipments.jsx ---
 import React, { useState } from 'react';
 import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -3059,7 +3059,7 @@ export function MyShipments() {
 }
 
 
---- FILE: src\components\customer-page\Payments.jsx ---
+--- FILE: src/components/customer-page/Payments.jsx ---
 import React from 'react';
 import { CreditCard, DollarSign, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
 
@@ -3214,7 +3214,7 @@ export function Payments() {
 }
 
 
---- FILE: src\components\customer-page\RateShipmentModal.jsx ---
+--- FILE: src/components/customer-page/RateShipmentModal.jsx ---
 import React, { useState } from 'react';
 import { Star, X } from 'lucide-react';
 
@@ -3293,7 +3293,7 @@ export function RateShipmentModal({ isOpen, onClose, shipmentId, onSubmit }) {
 }
 
 
---- FILE: src\components\customer-page\SupportPage.jsx ---
+--- FILE: src/components/customer-page/SupportPage.jsx ---
 import React, { useState } from 'react';
 import { MessageSquare, Plus, Send, Clock, CheckCircle2, AlertCircle, Search, Filter } from 'lucide-react';
 
@@ -3569,7 +3569,7 @@ export function SupportPage() {
 }
 
 
---- FILE: src\components\layout\DashboardLayout.jsx ---
+--- FILE: src/components/layout/DashboardLayout.jsx ---
 import { Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { Sidebar } from './Sidebar';
@@ -3599,7 +3599,7 @@ export function DashboardLayout({ user, onLogout, sidebarItems }) {
 }
 
 
---- FILE: src\components\layout\Sidebar.jsx ---
+--- FILE: src/components/layout/Sidebar.jsx ---
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Settings, Menu, X } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
@@ -3685,7 +3685,7 @@ export function Sidebar({ isSidebarOpen, setIsSidebarOpen, sidebarItems, onLogou
 }
 
 
---- FILE: src\components\layout\TopNavbar.jsx ---
+--- FILE: src/components/layout/TopNavbar.jsx ---
 import { Bell } from 'lucide-react';
 import { useState } from 'react';
 import { useShipment } from '../../context/ShipmentContext';
@@ -3768,7 +3768,7 @@ export function TopNavbar({ user }) {
 }
 
 
---- FILE: src\components\other\ForgotPasswordPage.jsx ---
+--- FILE: src/components/other/ForgotPasswordPage.jsx ---
 import { useState } from 'react';
 import { Mail, ArrowLeft, CheckCircle, Lock, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -4070,7 +4070,7 @@ export function ForgotPasswordPage() {
 }
 
 
---- FILE: src\components\other\Homepage.jsx ---
+--- FILE: src/components/other/Homepage.jsx ---
 import { Button } from '../ui/button';
 import { Logo } from '../ui/Logo';
 import { Package, MapPin, Clock, Shield, TrendingUp, Users, Zap, Award, Truck, Globe, Star, ArrowRight } from 'lucide-react';
@@ -4370,7 +4370,7 @@ export function Homepage() {
 }
 
 
---- FILE: src\components\other\LoginPage.jsx ---
+--- FILE: src/components/other/LoginPage.jsx ---
 import { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -4591,7 +4591,7 @@ export function LoginPage() {
 }
 
 
---- FILE: src\components\other\PaymentPage.jsx ---
+--- FILE: src/components/other/PaymentPage.jsx ---
 import { useState } from 'react';
 import { CreditCard, DollarSign, Shield, Check, ArrowLeft, Smartphone } from 'lucide-react';
 
@@ -4927,7 +4927,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
 }
 
 
---- FILE: src\components\other\RegistrationPage.jsx ---
+--- FILE: src/components/other/RegistrationPage.jsx ---
 import { useState } from 'react';
 import { User as UserIcon, Lock, Mail, ArrowRight, AlertCircle, Shield, Phone, MapPin, Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -5260,7 +5260,7 @@ export function RegistrationPage() {
 }
 
 
---- FILE: src\components\other\TrackingPortal.jsx ---
+--- FILE: src/components/other/TrackingPortal.jsx ---
 import { useState, useEffect } from 'react';
 import { Search, Package, MapPin, Clock, CheckCircle, Truck, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -5524,7 +5524,7 @@ export function TrackingPortal() {
 }
 
 
---- FILE: src\components\shared\BarcodeGenerator.jsx ---
+--- FILE: src/components/shared/BarcodeGenerator.jsx ---
 import React from 'react';
 import Barcode from 'react-barcode';
 
@@ -5546,7 +5546,7 @@ export function BarcodeGenerator({ value }) {
 }
 
 
---- FILE: src\components\shared\SectionDownloader.jsx ---
+--- FILE: src/components/shared/SectionDownloader.jsx ---
 import React, { useRef } from 'react';
 import { Download } from 'lucide-react';
 
@@ -5602,7 +5602,7 @@ export function SectionDownloader({ children, title = "Download Section", classN
 }
 
 
---- FILE: src\components\shared\SettingsPage.jsx ---
+--- FILE: src/components/shared/SettingsPage.jsx ---
 import { useState } from 'react';
 import { User, Mail, Phone, MapPin, Save, Shield, Camera } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
@@ -5763,7 +5763,43 @@ export function SettingsPage() {
 }
 
 
---- FILE: src\components\ui\button.jsx ---
+--- FILE: src/components/ui/Logo.jsx ---
+import { Link } from 'react-router-dom';
+import { useShipment } from '../../context/ShipmentContext';
+import logoImage from '../../assets/logo.png';
+
+export function Logo({ className = "", imageSize = "h-14", textSize = "text-3xl" }) {
+  const { currentUser } = useShipment();
+
+  const getDestination = () => {
+    if (!currentUser) return '/';
+    if (currentUser.role === 'admin') return '/admin';
+    if (currentUser.role === 'agent') return '/agent';
+    return '/dashboard';
+  };
+
+  return (
+    <Link 
+      to={getDestination()} 
+      className={`flex items-center gap-3 hover:opacity-90 transition-all duration-300 group ${className}`}
+    >
+      <img 
+        src={logoImage} 
+        alt="ShipFast" 
+        className={`${imageSize} w-auto transition-transform group-hover:scale-110 duration-300`} 
+      />
+      <span 
+        className={`font-black bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent ${textSize}`} 
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+      >
+        ShipFast
+      </span>
+    </Link>
+  );
+}
+
+
+--- FILE: src/components/ui/button.jsx ---
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva } from "class-variance-authority";
@@ -5814,43 +5850,7 @@ Button.displayName = "Button";
 export { Button, buttonVariants };
 
 
---- FILE: src\components\ui\Logo.jsx ---
-import { Link } from 'react-router-dom';
-import { useShipment } from '../../context/ShipmentContext';
-import logoImage from '../../assets/logo.png';
-
-export function Logo({ className = "", imageSize = "h-14", textSize = "text-3xl" }) {
-  const { currentUser } = useShipment();
-
-  const getDestination = () => {
-    if (!currentUser) return '/';
-    if (currentUser.role === 'admin') return '/admin';
-    if (currentUser.role === 'agent') return '/agent';
-    return '/dashboard';
-  };
-
-  return (
-    <Link 
-      to={getDestination()} 
-      className={`flex items-center gap-3 hover:opacity-90 transition-all duration-300 group ${className}`}
-    >
-      <img 
-        src={logoImage} 
-        alt="ShipFast" 
-        className={`${imageSize} w-auto transition-transform group-hover:scale-110 duration-300`} 
-      />
-      <span 
-        className={`font-black bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent ${textSize}`} 
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        ShipFast
-      </span>
-    </Link>
-  );
-}
-
-
---- FILE: src\context\ShipmentContext.jsx ---
+--- FILE: src/context/ShipmentContext.jsx ---
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const ShipmentContext = createContext();
@@ -6128,7 +6128,7 @@ export function ShipmentProvider({ children }) {
 }
 
 
---- FILE: src\index.css ---
+--- FILE: src/index.css ---
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
@@ -6188,7 +6188,7 @@ export function ShipmentProvider({ children }) {
 }
 
 
---- FILE: src\lib\utils.js ---
+--- FILE: src/lib/utils.js ---
 import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -6197,7 +6197,7 @@ export function cn(...inputs) {
 }
 
 
---- FILE: src\main.jsx ---
+--- FILE: src/main.jsx ---
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
@@ -6211,7 +6211,7 @@ createRoot(document.getElementById('root')).render(
 )
 
 
---- FILE: src\print.css ---
+--- FILE: src/print.css ---
 @media print {
   body * {
     visibility: hidden;
