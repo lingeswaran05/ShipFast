@@ -5,12 +5,15 @@ import { useShipment } from '../../context/ShipmentContext';
 import { RateShipmentModal } from './RateShipmentModal';
 import { CancelShipmentModal } from './CancelShipmentModal';
 import { toast } from 'sonner';
+import { ConfirmationModal } from '../shared/ConfirmationModal';
 
 export function MyShipments() {
   const navigate = useNavigate();
   const { shipments, cancelShipment, deleteShipment } = useShipment();
   const [activeModal, setActiveModal] = useState(null);
   const [selectedShipment, setSelectedShipment] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [shipmentToDelete, setShipmentToDelete] = useState(null);
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
@@ -50,10 +53,17 @@ export function MyShipments() {
       closeModal();
   };
   
-  const handleDelete = (shipment) => {
-      if(confirm('Are you sure you want to delete this shipment from your history?')) {
-          deleteShipment(shipment.id);
+  
+  const confirmDelete = (shipment) => {
+      setShipmentToDelete(shipment);
+      setShowDeleteConfirm(true);
+  };
+
+  const handleDelete = () => {
+      if (shipmentToDelete) {
+          deleteShipment(shipmentToDelete.id);
           toast.success('Shipment removed from history.');
+          setShipmentToDelete(null);
       }
   };
 
@@ -174,12 +184,12 @@ export function MyShipments() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-sm text-slate-900">
                         <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                        {shipment.sender.city}
+                        {shipment.sender?.city || 'N/A'}
                       </div>
                       <div className="h-4 border-l border-dashed border-slate-300 ml-1"></div>
                       <div className="flex items-center gap-2 text-sm text-slate-900">
                         <span className="w-2 h-2 rounded-full bg-pink-500"></span>
-                        {shipment.receiver.city}
+                        {shipment.receiver?.city || 'N/A'}
                       </div>
                     </div>
                   </td>
@@ -201,15 +211,8 @@ export function MyShipments() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                       {formatStatus(shipment.status) === 'Delivered' && (
-                         <>
-                           <button 
-                              onClick={() => handleAction('rate', shipment)}
-                              className="p-2 text-slate-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-lg transition-colors"
-                              title="Rate Shipment"
-                            >
-                             <ThumbsUp className="w-4 h-4" />
-                           </button>
+                       {/* Link to Invoice - Available for most statuses except maybe cancelled/pending if unpaid */}
+                       {['delivered', 'in transit', 'out for delivery', 'booked'].includes(formatStatus(shipment.status).toLowerCase()) && (
                            <button 
                               onClick={() => navigate(`/dashboard/invoice/${shipment.id}`)}
                               className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -217,9 +220,21 @@ export function MyShipments() {
                            >
                              <FileText className="w-4 h-4" />
                            </button>
-                         </>
                        )}
-                       {(formatStatus(shipment.status) === 'Pending' || formatStatus(shipment.status) === 'Booked') && (
+
+                       {/* Rating - Only for Delivered */}
+                       {formatStatus(shipment.status).toLowerCase() === 'delivered' && (
+                           <button 
+                              onClick={() => handleAction('rate', shipment)}
+                              className="p-2 text-slate-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-lg transition-colors"
+                              title="Rate Shipment"
+                            >
+                             <ThumbsUp className="w-4 h-4" />
+                           </button>
+                       )}
+
+                       {/* Cancel - Only for Pending/Booked */}
+                       {['pending', 'booked'].includes(formatStatus(shipment.status).toLowerCase()) && (
                           <button 
                             onClick={() => handleAction('cancel', shipment)}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -229,9 +244,10 @@ export function MyShipments() {
                           </button>
                        )}
                        
-                       {(formatStatus(shipment.status) === 'Cancelled' || formatStatus(shipment.status) === 'Delivered') && (
+                       {/* Delete - Only for history cleanup (Cancelled/Delivered) */}
+                       {['cancelled', 'delivered'].includes(formatStatus(shipment.status).toLowerCase()) && (
                            <button 
-                              onClick={() => handleDelete(shipment)}
+                              onClick={() => confirmDelete(shipment)}
                               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete from History"
                            >
@@ -266,6 +282,16 @@ export function MyShipments() {
         onClose={closeModal}
         shipmentId={selectedShipment?.id}
         onConfirm={handleCancel}
+      />
+
+      <ConfirmationModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        title="Delete Shipment"
+        message="Are you sure you want to delete this shipment from your history? This action cannot be undone."
+        confirmText="Delete"
+        type="danger"
       />
     </div>
   );

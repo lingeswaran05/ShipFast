@@ -1,5 +1,6 @@
 import { Button } from '../ui/button';
 import { Logo } from '../ui/Logo';
+import logoImage from '../../assets/logo.png';
 import { Package, MapPin, Clock, Shield, TrendingUp, Users, Zap, Award, Truck, Globe, Star, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
@@ -38,9 +39,15 @@ export function Homepage() {
                    onClick={() => navigate(currentUser.role === 'admin' ? '/admin' : currentUser.role === 'agent' ? '/agent' : '/dashboard')}
                    className="flex items-center gap-3 bg-white/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/50 cursor-pointer hover:bg-white/80 transition-colors"
                 >
-                   <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-purple-500">
-                      <img src={currentUser.profilePic} alt={currentUser.name} className="w-full h-full object-cover" />
-                   </div>
+                   {currentUser.profilePic ? (
+                      <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-purple-500">
+                        <img src={currentUser.profilePic} alt={currentUser.name} className="w-full h-full object-cover" />
+                      </div>
+                   ) : (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border-2 border-white flex items-center justify-center text-white font-bold text-xs">
+                        {currentUser.name?.charAt(0).toUpperCase()}
+                      </div>
+                   )}
                    <span className="font-semibold text-slate-800">{currentUser.name}</span>
                 </div>
               ) : (
@@ -276,7 +283,15 @@ export function Homepage() {
         <footer className="border-t border-slate-200 bg-white/80 backdrop-blur-xl mt-20">
           <div className="container mx-auto px-6 py-12">
             <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-              <Logo className="scale-90 origin-left" />
+              <div 
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity scale-90 origin-left"
+              >
+                <img src={logoImage} alt="ShipFast" className="h-10 w-auto" />
+                <span className="font-black text-2xl bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                  ShipFast
+                </span>
+              </div>
               <div className="flex flex-col md:flex-row items-center gap-6">
                 <p className="text-slate-600 font-medium">© 2025 ShipFast. All rights reserved.</p>
                 <div className="flex gap-6 text-sm text-slate-600">

@@ -222,8 +222,15 @@ import {
 } from 'lucide-react';
 
 function ProtectedRoute({ children, allowedRole }) {
-  
-  const { currentUser } = useShipment();
+  const { currentUser, isLoading } = useShipment();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      </div>
+    );
+  }
   
   if (!currentUser) {
     return <Navigate to="/login" replace />;
@@ -2852,7 +2859,7 @@ export function CancelShipmentModal({ isOpen, onClose, shipmentId, onConfirm }) 
 import React from 'react';
 import { Mail, Phone, MapPin, Clock } from 'lucide-react';
 
-export default function ContactPage() {
+export function ContactPage() {
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">

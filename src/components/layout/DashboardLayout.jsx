@@ -19,7 +19,7 @@ export function DashboardLayout({ user, onLogout, sidebarItems }) {
 
       <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64 print:ml-0' : 'ml-20 print:ml-0'}`}>
         <div className="print:hidden">
-          <TopNavbar user={user} />
+          <TopNavbar user={user} isSidebarOpen={isSidebarOpen} />
         </div>
 
         <div className="p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">

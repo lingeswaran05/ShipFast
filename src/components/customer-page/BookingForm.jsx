@@ -8,10 +8,10 @@ export function BookingForm({ onViewInvoice }) {
   const { addShipment, calculateRate } = useShipment();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
-    sender: { name: '', phone: '', address: '', pincode: '', city: 'Mumbai' },
-    receiver: { name: '', phone: '', address: '', pincode: '', city: 'Delhi' },
+    sender: { name: '', phone: '', address: '', pincode: '', city: 'Covai' },
+    receiver: { name: '', phone: '', address: '', pincode: '', city: 'Madurai' },
     package: { weight: '', length: '', width: '', height: '', type: 'Standard', declaredValue: '' },
-    service: 'standard', // Default to standard
+    service: 'standard', 
     paymentMode: ''
   });
   
@@ -121,7 +121,7 @@ export function BookingForm({ onViewInvoice }) {
           <p className="text-slate-500 text-lg">Your shipment has been successfully scheduled.</p>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full printable">
           <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-600 print:hidden"></div>
           <div className="hidden print:block text-2xl font-bold mb-4 text-center border-b pb-4">SHIPFAST LOGISTICS</div>
           <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Tracking ID</p>

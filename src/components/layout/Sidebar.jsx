@@ -25,9 +25,10 @@ export function Sidebar({ isSidebarOpen, setIsSidebarOpen, sidebarItems, onLogou
       <div className="p-4 border-b border-slate-100 flex items-center justify-between h-16">
         <button 
           onClick={handleLogoClick}
-          className="flex items-center gap-3 overflow-hidden transition-all hover:opacity-80"
+          className={`flex items-center gap-3 overflow-hidden transition-all hover:opacity-80 ${!isSidebarOpen && 'hidden'}`}
         >
           <img src={logoImage} alt="ShipFast" className="h-8 w-auto flex-shrink-0" />
+          <span className="font-bold text-xl bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent whitespace-nowrap">ShipFast</span>
         </button>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg">
           {isSidebarOpen ? <X className="w-5 h-5 text-slate-500" /> : <Menu className="w-5 h-5 text-slate-500" />}
