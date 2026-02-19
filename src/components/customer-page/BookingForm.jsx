@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, Truck, Calendar, MapPin, CreditCard, ChevronRight, CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Wallet, Banknote, Printer } from 'lucide-react';
+import { Package, Truck, Calendar, MapPin, CreditCard, ChevronRight, CheckCircle, AlertCircle, ArrowLeft, ArrowRight, Wallet, Banknote, Printer, X, Lock } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { BarcodeGenerator } from '../shared/BarcodeGenerator';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ export function BookingForm({ onViewInvoice }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [trackingId, setTrackingId] = useState('');
+  const [showFakePayment, setShowFakePayment] = useState(false); // New state for mock modal
 
   const handleInputChange = (section, field, value) => {
     if (section === 'root') {
@@ -68,36 +69,214 @@ export function BookingForm({ onViewInvoice }) {
     if (step > 1) setStep(step - 1);
   };
 
+  const loadRazorpay = () => {
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  // Helper: Book Shipment (Backend Call)
+  const bookShipment = async (paymentDetails = {}) => {
+        setIsProcessing(true);
+        try {
+            const newShipment = await addShipment({
+                sender: formData.sender,
+                receiver: formData.receiver,
+                weight: formData.package.weight,
+                cost: getTotalPrice(),
+                type: getServiceTypeLabel(formData.service),
+                paymentMode: formData.paymentMode,
+                status: 'Booked',
+                service: getServiceTypeLabel(formData.service),
+                paymentStatus: formData.paymentMode === 'cash' ? 'Pending' : 'Paid',
+                transactionId: paymentDetails.razorpay_payment_id || null
+            });
+      
+            setTrackingId(newShipment.id);
+            setBookingSuccess(true);
+            toast.success('Shipment booked successfully!');
+        } catch (error) {
+            toast.error('Failed to book shipment. Please try again.');
+            console.error(error);
+        } finally {
+            setIsProcessing(false);
+            setShowFakePayment(false);
+        }
+    };
+
   const handleSubmit = async () => {
     if (!formData.paymentMode) {
         toast.error('Please select a payment method');
         return;
     }
-
-    setIsProcessing(true);
     
-    try {
-      const newShipment = await addShipment({
-         sender: formData.sender,
-         receiver: formData.receiver,
-         weight: formData.package.weight,
-         cost: getTotalPrice(),
-         type: getServiceTypeLabel(formData.service),
-         paymentMode: formData.paymentMode,
-         status: 'Booked',
-         service: getServiceTypeLabel(formData.service) // Ensure service name is passed
-      });
+    // Handle Cash Payment
+    if (formData.paymentMode === 'cash') {
+        await bookShipment();
+        return;
+    }
 
-      setTrackingId(newShipment.id);
-      setBookingSuccess(true);
-      toast.success('Shipment booked successfully!');
-    } catch (error) {
-        toast.error('Failed to book shipment. Please try again.');
-        console.error(error);
-    } finally {
+    // Handle Online Payment (Razorpay)
+    
+    // Define Key
+    const RAZORPAY_KEY_ID = "rzp_test_S"; 
+
+    // TEST MODE CHECK: Detect placeholder key
+    if (RAZORPAY_KEY_ID === "rzp_test_S" || RAZORPAY_KEY_ID.length < 10) {
+            // Simulate Redirect to Payment Gateway
+            setIsProcessing(true);
+            setTimeout(() => {
+                setIsProcessing(false);
+                setShowFakePayment(true); // Trigger Full Page Mock
+            }, 1500);
+            return;
+    }
+
+    // REAL MODE: Try Loading Razorpay
+    setIsProcessing(true); 
+    try {
+        const isLoaded = await loadRazorpay();
+        if (!isLoaded) {
+            throw new Error('Razorpay SDK failed to load.');
+        }
+
+        const options = {
+            key: RAZORPAY_KEY_ID, 
+            amount: getTotalPrice() * 100,
+            currency: "INR",
+            name: "ShipFast Logistics",
+            description: "Shipment Booking",
+            image: "https://i.pravatar.cc/150?u=shipfast",
+            handler: function (response) {
+                bookShipment(response);
+            },
+            prefill: {
+                name: formData.sender.name,
+                email: currentUser?.email || "customer@example.com",
+                contact: formData.sender.phone
+            },
+            theme: { color: "#9333ea" },
+            modal: {
+                ondismiss: function() {
+                    setIsProcessing(false);
+                    toast('Payment cancelled');
+                }
+            }
+        };
+
+        const paymentObject = new window.Razorpay(options);
+        paymentObject.on('payment.failed', function (response){
+            setIsProcessing(false);
+            toast.error(response.error.description || "Payment failed");
+        });
+        paymentObject.open();
+        
+    } catch (err) {
+        console.error("Payment initialization error:", err);
+        // Fallback to Mock if Real SDK fails
         setIsProcessing(false);
+        setShowFakePayment(true);
     }
   };
+
+  // Full Page Mock Payment Component (Simulates a Redirect)
+  if (showFakePayment) {
+      return (
+        <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col animate-fade-in font-sans">
+           {/* Fake Browser Header for Realism */}
+           <div className="bg-gray-100 border-b p-2 flex items-center gap-2 text-xs text-gray-500">
+               <div className="flex gap-1.5 ml-2">
+                   <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                   <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                   <div className="w-3 h-3 rounded-full bg-green-400"></div>
+               </div>
+               <div className="bg-white px-3 py-1 rounded-md flex-1 text-center flex items-center justify-center gap-2 border mx-4 shadow-sm">
+                   <Lock className="w-3 h-3 text-green-600" />
+                   <span className="text-green-700 font-medium">https://secure-payments.razorpay.com/checkout</span>
+               </div>
+           </div>
+
+           <div className="flex-1 flex items-center justify-center p-4">
+               <div className="bg-white w-full max-w-md shadow-2xl rounded-xl overflow-hidden border border-gray-200">
+                   <div className="bg-[#2b84ea] p-6 text-white text-center relative">
+                       <button onClick={() => setShowFakePayment(false)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X className="w-5 h-5"/></button>
+                       <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-3 backdrop-blur-sm">
+                           <Wallet className="w-6 h-6 text-white" />
+                       </div>
+                       <h2 className="text-lg font-bold">ShipFast Logistics</h2>
+                       <p className="opacity-90 text-sm mt-1">Order #OD{Date.now().toString().slice(-6)}</p>
+                       <div className="mt-4 text-3xl font-bold">₹{getTotalPrice()}.00</div>
+                   </div>
+
+                   <div className="p-6 bg-gray-50/50">
+                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Select Payment Method</p>
+                       
+                       <div className="space-y-3">
+                           <button 
+                               onClick={() => {
+                                   toast.loading("Processing Payment...");
+                                   setTimeout(() => bookShipment({ razorpay_payment_id: `pay_mock_upi_${Date.now()}` }), 1500);
+                               }}
+                               className="w-full bg-white p-4 rounded-lg border border-gray-200 flex items-center gap-4 hover:border-[#2b84ea] hover:shadow-md transition-all group"
+                           >
+                               <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center">
+                                   <Wallet className="w-5 h-5 text-orange-600" />
+                               </div>
+                               <div className="text-left flex-1">
+                                   <p className="font-bold text-gray-800">UPI</p>
+                                   <p className="text-xs text-gray-500">Google Pay, PhonePe, Paytm</p>
+                               </div>
+                               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#2b84ea]" />
+                           </button>
+
+                           <button 
+                               onClick={() => {
+                                   toast.loading("Processing Payment...");
+                                   setTimeout(() => bookShipment({ razorpay_payment_id: `pay_mock_card_${Date.now()}` }), 2000);
+                               }}
+                               className="w-full bg-white p-4 rounded-lg border border-gray-200 flex items-center gap-4 hover:border-[#2b84ea] hover:shadow-md transition-all group"
+                           >
+                               <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                                   <CreditCard className="w-5 h-5 text-blue-600" />
+                               </div>
+                               <div className="text-left flex-1">
+                                   <p className="font-bold text-gray-800">Card</p>
+                                   <p className="text-xs text-gray-500">Visa, Mastercard, RuPay</p>
+                               </div>
+                               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#2b84ea]" />
+                           </button>
+
+                           <button 
+                               onClick={() => {
+                                   toast.loading("Processing Payment...");
+                                   setTimeout(() => bookShipment({ razorpay_payment_id: `pay_mock_net_${Date.now()}` }), 2000);
+                               }}
+                               className="w-full bg-white p-4 rounded-lg border border-gray-200 flex items-center gap-4 hover:border-[#2b84ea] hover:shadow-md transition-all group"
+                           >
+                               <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center">
+                                   <Banknote className="w-5 h-5 text-purple-600" />
+                               </div>
+                               <div className="text-left flex-1">
+                                   <p className="font-bold text-gray-800">Netbanking</p>
+                                   <p className="text-xs text-gray-500">All Indian Banks</p>
+                               </div>
+                               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#2b84ea]" />
+                           </button>
+                       </div>
+                   </div>
+
+                   <div className="bg-gray-100 p-3 text-center text-xs text-gray-500 flex justify-center items-center gap-1">
+                        <Lock className="w-3 h-3" /> Securely processed by Razorpay
+                   </div>
+               </div>
+           </div>
+        </div>
+      );
+  }
 
   const handlePrint = () => {
       window.print();
