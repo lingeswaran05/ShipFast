@@ -206,7 +206,6 @@ export function TrackingPortal() {
             <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-100">
               <h2 className="text-slate-800 mb-6 font-bold text-xl">Shipment Journey</h2>
               <div className="flex items-center justify-between">
-                {/* Visual Timeline - simplified for mock data */}
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
                     <Package className="w-6 h-6 text-green-600" />

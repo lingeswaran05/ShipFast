@@ -1,0 +1,1903 @@
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
+import { useShipment } from '../../context/ShipmentContext';
+import { SectionDownloader } from '../shared/SectionDownloader';
+import { ConfirmationModal } from '../shared/ConfirmationModal';
+import { AdminTicketsPanel } from './AdminTicketsPanel';
+import { toast } from 'sonner';
+import { reportingService } from '../../lib/reportingService';
+import { operationsService } from '../../lib/operationsService';
+
+export function AdminDashboard({ view }) {
+
+  const navigate = useNavigate();
+  const location = useLocation();
+    const {
+        currentUser,
+        shipments,
+        users,
+        roleRequests,
+        lastDataSyncAt,
+        branches: contextBranches,
+        vehicles: contextVehicles,
+        staff: contextStaff,
+        addBranch,
+        addVehicle,
+        updateBranch,
+        updateVehicle,
+        updateStaff,
+        removeBranch,
+        removeStaff,
+        addStaff,
+        approveRoleRequest,
+        rejectRoleRequest,
+        updateUserRole,
+        removeUserAccess,
+        refreshOperationalData
+    } = useShipment();
+  
+  const [showBranchModal, setShowBranchModal] = useState(false);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+    const [isPricingEditing, setIsPricingEditing] = useState(false);
+    const [reportSummary, setReportSummary] = useState(null);
+  
+  const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, type: '', id: null, title: '', message: '' });
+
+  const [newBranch, setNewBranch] = useState({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
+  const [newVehicle, setNewVehicle] = useState({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
+  const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
+  const [isEditing, setIsEditing] = useState(false);
+    const [roleDrafts, setRoleDrafts] = useState({});
+    const [isRefreshing, setIsRefreshing] = useState(false);
+  const [agentProfiles, setAgentProfiles] = useState({});
+  const [selectedAgentRecord, setSelectedAgentRecord] = useState(null);
+  const [isAgentDetailOpen, setIsAgentDetailOpen] = useState(false);
+  const [isSavingVerification, setIsSavingVerification] = useState(false);
+  const vehicleFileInputRef = useRef(null);
+  // Handle auto-opening of branch modal from navigation state
+  useEffect(() => {
+    if (view === 'branches' && location.state?.openBranchId && contextBranches.length > 0) {
+        const branchToOpen = contextBranches.find(b => b.id === location.state.openBranchId);
+        if (branchToOpen) {
+            openBranchModal(branchToOpen);
+            // Clear the state to prevent reopening on subsequent renders
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }
+  }, [view, location.state, contextBranches, navigate, location.pathname]);
+
+  const getAgentKey = (agent = {}) => agent.userId || agent.id || agent.email;
+
+  const getLocalAgentDocs = (agentKey) => {
+    if (!agentKey) return {};
+    try {
+      const raw = localStorage.getItem(`sf_agent_onboarding_${agentKey}`) || localStorage.getItem(`agent_onboarding_${agentKey}`);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return {
+        profilePhoto: parsed?.profilePhoto || null,
+        aadharCopy: parsed?.aadharCopy || null,
+        licenseCopy: parsed?.licenseCopy || null,
+        rcBookCopy: parsed?.rcBookCopy || null
+      };
+    } catch {
+      return {};
+    }
+  };
+
+  const getAgentViewData = (agent = {}) => {
+    const key = getAgentKey(agent);
+    const profile = agentProfiles[key] || null;
+    const docs = getLocalAgentDocs(key);
+    const verificationStatus = String(profile?.verificationStatus || '').toUpperCase() || 'PENDING';
+    return { key, profile, docs, verificationStatus };
+  };
+
+  const openAgentDetails = (agent) => {
+    if (!agent) return;
+    setSelectedAgentRecord(agent);
+    setIsAgentDetailOpen(true);
+  };
+
+  const handleVerifyAgent = async (agent, verified = true) => {
+    const key = getAgentKey(agent);
+    if (!key) return;
+    const existingProfile = agentProfiles[key] || {};
+    try {
+      setIsSavingVerification(true);
+      const updated = await operationsService.verifyAgentProfile(key, {
+        verified,
+        verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
+        verificationNotes: verified ? 'Documents checked by admin' : 'Rejected by admin'
+      });
+      setAgentProfiles((prev) => ({ ...prev, [key]: updated }));
+      if (selectedAgentRecord && getAgentKey(selectedAgentRecord) === key) {
+        setSelectedAgentRecord((prev) => ({ ...prev }));
+      }
+      toast.success(verified ? 'Agent verified successfully' : 'Agent verification marked as rejected');
+    } catch {
+      try {
+        const fallback = await operationsService.upsertAgentProfile(key, {
+          licenseNumber: existingProfile.licenseNumber || '',
+          vehicleNumber: existingProfile.vehicleNumber || '',
+          rcBookNumber: existingProfile.rcBookNumber || '',
+          bloodType: existingProfile.bloodType || '',
+          organDonor: existingProfile.organDonor ?? false,
+          shiftTiming: existingProfile.shiftTiming || 'Day',
+          verificationStatus: verified ? 'VERIFIED' : 'REJECTED',
+          verifiedBy: currentUser?.name || currentUser?.email || 'Admin'
+        });
+        setAgentProfiles((prev) => ({ ...prev, [key]: fallback }));
+        toast.success(verified ? 'Agent verified successfully' : 'Agent verification marked as rejected');
+      } catch (error) {
+        toast.error(error.message || 'Failed to update verification');
+      }
+    } finally {
+      setIsSavingVerification(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view !== 'staff') return;
+    const agents = (users || []).filter((u) => String(u.role || '').toLowerCase() === 'agent');
+    if (agents.length === 0) {
+      setAgentProfiles({});
+      return;
+    }
+
+    let cancelled = false;
+    const loadProfiles = async () => {
+      const results = await Promise.allSettled(
+        agents.map(async (agent) => {
+          const key = getAgentKey(agent);
+          if (!key) return null;
+          const profile = await operationsService.getAgentProfile(key);
+          return profile ? { key, profile } : null;
+        })
+      );
+
+      if (cancelled) return;
+      const nextMap = {};
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value?.key) {
+          nextMap[result.value.key] = result.value.profile;
+        }
+      });
+      setAgentProfiles(nextMap);
+    };
+
+    loadProfiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [view, users]);
+
+  const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
+  const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
+  const activeBranchCount = (contextBranches || []).filter(b => String(b.status || '').toLowerCase() === 'active').length;
+  const hubCount = (contextBranches || []).filter(b => String(b.type || '').toLowerCase() === 'hub').length;
+  const availableFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase() === 'available').length;
+  const transitFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase().includes('transit')).length;
+  
+  // --- Handlers ---
+  const handleBranchSubmit = (e) => {
+      e.preventDefault();
+      if (isEditing) {
+          updateBranch(newBranch);
+      } else {
+          addBranch(newBranch);
+      }
+      setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
+      setIsEditing(false);
+      setShowBranchModal(false);
+  };
+
+  const confirmDelete = (type, id, title, message) => {
+      setDeleteConfirmation({ isOpen: true, type, id, title, message });
+  };
+
+  const executeDelete = () => {
+    if (deleteConfirmation.type === 'branch') {
+        removeBranch(deleteConfirmation.id);
+    } else if (deleteConfirmation.type === 'staff') {
+        removeStaff(deleteConfirmation.id);
+    }
+    setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' });
+  };
+
+  const handleVehicleSubmit = (e) => {
+      e.preventDefault();
+      if (isEditing) {
+          updateVehicle(newVehicle);
+      } else {
+          addVehicle(newVehicle);
+      }
+      setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
+      setIsEditing(false);
+      setShowVehicleModal(false);
+  };
+
+  const handleVehiclePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setNewVehicle(prev => ({ ...prev, photo: reader.result }));
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
+  const openBranchModal = (branch = null) => {
+      if (branch) {
+          setNewBranch(branch);
+          setIsEditing(true);
+      } else {
+          setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
+          setIsEditing(false);
+      }
+      setShowBranchModal(true);
+  };
+
+  const openVehicleModal = (vehicle = null) => {
+      if (vehicle) {
+          setNewVehicle(vehicle);
+          setIsEditing(true);
+      } else {
+          setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
+          setIsEditing(false);
+      }
+      setShowVehicleModal(true);
+  };
+  
+  const openStaffModal = (staffMember = null) => {
+      if (staffMember) {
+        setNewStaff(staffMember);
+        setIsEditing(true);
+      } else {
+        setNewStaff({ name: '', role: 'Agent', branch: '', status: 'Active' });
+        setIsEditing(false);
+      }
+      setShowStaffModal(true);
+  };
+  
+  // Dynamic Analytics Data
+  const { revenueData, volumeData } = useMemo(() => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const today = new Date();
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - (6 - i));
+        return { 
+            name: days[d.getDay()], 
+            date: d.toISOString().split('T')[0],
+            revenue: 0,
+            volume: 0 
+        };
+    });
+
+    shipments.forEach(s => {
+        const sDate = s.date; // YYYY-MM-DD
+        const dayEntry = last7Days.find(d => d.date === sDate);
+        if (dayEntry) {
+            dayEntry.volume += 1;
+            dayEntry.revenue += parseFloat(s.cost) || 0;
+        }
+    });
+
+    return { revenueData: last7Days, volumeData: last7Days };
+  }, [shipments]);
+
+    const shipmentStatusDistribution = useMemo(() => {
+        const statusCounts = shipments.reduce((acc, s) => {
+            const status = s.status || 'Unknown';
+            acc[status] = (acc[status] || 0) + 1;
+            return acc;
+        }, {});
+        const colors = {
+            'Delivered': '#22c55e',
+            'In Transit': '#3b82f6',
+            'Pending': '#f97316',
+            'Cancelled': '#ef4444',
+            'Out for Delivery': '#8b5cf6',
+            'Unknown': '#64748b'
+        };
+        return Object.entries(statusCounts).map(([name, value]) => ({ name, value, fill: colors[name] || colors['Unknown'] }));
+    }, [shipments]);
+
+    const userRoleDistribution = useMemo(() => {
+        const roleCounts = users.reduce((acc, u) => {
+            const role = (u.role || 'customer').toUpperCase();
+            acc[role] = (acc[role] || 0) + 1;
+            return acc;
+        }, {});
+        const colors = {
+            'CUSTOMER': '#3b82f6',
+            'AGENT': '#f97316',
+            'ADMIN': '#8b5cf6',
+        };
+        return Object.entries(roleCounts).map(([name, value]) => ({ name, value, fill: colors[name] || '#64748b' }));
+    }, [users]);
+
+    const topPerformingBranches = useMemo(() => {
+        return (contextBranches || [])
+            .map((branch) => ({
+                ...branch,
+                _revenue: Number(branch.revenue ?? branch.stats?.revenue ?? 0),
+                _performance: Number(branch.performance ?? branch.stats?.performanceScore ?? 0),
+                _shipments: Number(branch.shipments ?? branch.stats?.shipmentVolume ?? 0),
+            }))
+            .sort((a, b) => b._revenue - a._revenue)
+            .slice(0, 3);
+    }, [contextBranches]);
+
+
+  const onStaffFormSubmit = (e) => {
+      e.preventDefault();
+      if (isEditing) {
+          updateStaff(newStaff);
+      } else {
+          addStaff(newStaff);
+      }
+      setNewStaff({ name: '', role: 'Agent', branch: '', status: 'Active' });
+      setIsEditing(false);
+      setShowStaffModal(false);
+  };
+
+    const pendingRoleRequests = useMemo(
+        () => (roleRequests || []).filter(request => request.status === 'PENDING'),
+        [roleRequests]
+    );
+    const selectedAgentView = selectedAgentRecord ? getAgentViewData(selectedAgentRecord) : null;
+
+    const handleApproveRequest = async (request) => {
+        try {
+            // The context function expects the whole request object
+            await approveRoleRequest(request);
+            toast.success('Role request approved. User can now login as an agent.');
+        } catch (error) {
+            toast.error(error.message || 'Failed to approve request');
+        }
+    };
+
+    const handleRejectRequest = (requestId) => {
+        try {
+            rejectRoleRequest(requestId);
+            toast.success('Role request rejected.');
+        } catch (error) {
+            toast.error(error.message || 'Failed to reject request');
+        }
+    };
+
+    const handleUpdateUserRole = async (user) => {
+        const nextRole = (roleDrafts[user.email] || user.role || 'customer').toLowerCase();
+        try {
+            await updateUserRole(user, nextRole);
+            toast.success('User role updated successfully');
+        } catch (error) {
+            toast.error(error.message || 'Failed to update role');
+        }
+    };
+
+    const handleRemoveUserAccess = async (user) => {
+        try {
+            await removeUserAccess(user);
+            toast.success('User access removed successfully');
+        } catch (error) {
+            toast.error(error.message || 'Failed to remove access');
+        }
+    };
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        try {
+            await refreshOperationalData();
+                        if (view === 'reports') {
+                            const summary = await reportingService.getSummary();
+                            setReportSummary(summary);
+                        }
+            toast.success('Live data refreshed');
+        } catch (error) {
+            toast.error(error.message || 'Refresh failed');
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
+    const handleDownloadShipmentCsv = async () => {
+        try {
+            await reportingService.downloadShipmentCsv();
+            toast.success('Shipment CSV downloaded');
+        } catch (error) {
+            toast.error(error.message || 'Failed to download shipment CSV');
+        }
+    };
+
+        useEffect(() => {
+            if (view !== 'reports') return;
+            const loadSummary = async () => {
+                try {
+                    const summary = await reportingService.getSummary();
+                    setReportSummary(summary);
+                } catch {
+                    setReportSummary(null);
+                }
+            };
+            loadSummary();
+        }, [view]);
+
+  return (
+      <div className="space-y-6 animate-fade-in-up relative">
+        <ConfirmationModal 
+            isOpen={deleteConfirmation.isOpen}
+            onClose={() => setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' })}
+            onConfirm={executeDelete}
+            title={deleteConfirmation.title}
+            message={deleteConfirmation.message}
+        />
+
+        {isAgentDetailOpen && selectedAgentRecord && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+              onClick={() => setIsAgentDetailOpen(false)}
+            >
+              <div
+                className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl animate-scale-in max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">{selectedAgentRecord.name || 'Agent Details'}</h3>
+                    <p className="text-sm text-slate-500">{selectedAgentRecord.email || selectedAgentRecord.userId}</p>
+                  </div>
+                  <button onClick={() => setIsAgentDetailOpen(false)} className="text-slate-500">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">License Number</div>
+                    <div className="font-semibold text-slate-900">{selectedAgentView?.profile?.licenseNumber || 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">Vehicle Number</div>
+                    <div className="font-semibold text-slate-900">{selectedAgentView?.profile?.vehicleNumber || 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">RC Book Number</div>
+                    <div className="font-semibold text-slate-900">{selectedAgentView?.profile?.rcBookNumber || 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">Blood Type / Donor</div>
+                    <div className="font-semibold text-slate-900">
+                      {(selectedAgentView?.profile?.bloodType || 'N/A')} / {selectedAgentView?.profile?.organDonor ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  {[
+                    { label: 'Profile Photo', src: selectedAgentView?.profile?.profileImage || selectedAgentView?.docs?.profilePhoto },
+                    { label: 'Aadhaar Copy', src: selectedAgentView?.docs?.aadharCopy },
+                    { label: 'License Copy', src: selectedAgentView?.docs?.licenseCopy },
+                    { label: 'RC Book Copy', src: selectedAgentView?.docs?.rcBookCopy }
+                  ].map((doc) => (
+                    <div key={doc.label} className="p-3 rounded-lg border border-slate-200">
+                      <div className="text-xs font-semibold text-slate-600 mb-2">{doc.label}</div>
+                      {doc.src ? (
+                        <img src={doc.src} alt={doc.label} className="w-full h-40 object-cover rounded-md border border-slate-200" />
+                      ) : (
+                        <div className="h-40 rounded-md border-2 border-dashed border-slate-200 flex items-center justify-center text-xs text-slate-400">
+                          Not uploaded
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                  <div className="text-sm text-slate-600">
+                    Verification Status:{' '}
+                    <span className={`font-semibold ${selectedAgentView?.verificationStatus === 'VERIFIED' ? 'text-green-600' : selectedAgentView?.verificationStatus === 'REJECTED' ? 'text-red-600' : 'text-amber-600'}`}>
+                      {selectedAgentView?.verificationStatus || 'PENDING'}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleVerifyAgent(selectedAgentRecord, false)}
+                      disabled={isSavingVerification}
+                      className="px-4 py-2 text-sm font-semibold bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-60"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleVerifyAgent(selectedAgentRecord, true)}
+                      disabled={isSavingVerification}
+                      className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+                    >
+                      {isSavingVerification ? 'Saving...' : 'Verify Agent'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+        )}
+
+        {/* Branch Modal */}
+        {showBranchModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowBranchModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-slate-900">{isEditing ? 'Edit Branch' : 'Add New Branch'}</h3>
+                        <button onClick={() => setShowBranchModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
+                    </div>
+                    <form onSubmit={handleBranchSubmit} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <input className="w-full p-3 border rounded-lg" placeholder="Branch Name" value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
+                            <select className="w-full p-3 border rounded-lg" value={newBranch.type} onChange={e => setNewBranch({...newBranch, type: e.target.value})}>
+                                <option>Branch</option>
+                                <option>Hub</option>
+                            </select>
+                        </div>
+                        <textarea className="w-full p-3 border rounded-lg" rows="2" placeholder="Description" value={newBranch.description} onChange={e => setNewBranch({...newBranch, description: e.target.value})} />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Area/Location" value={newBranch.location} onChange={e => setNewBranch({...newBranch, location: e.target.value})} required />
+                             <input className="w-full p-3 border rounded-lg" placeholder="State/City" value={newBranch.state} onChange={e => setNewBranch({...newBranch, state: e.target.value})} required />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Manager Name" value={newBranch.manager} onChange={e => setNewBranch({...newBranch, manager: e.target.value})} />
+                             <input className="w-full p-3 border rounded-lg" placeholder="Staff Count" type="number" value={newBranch.staffCount} onChange={e => setNewBranch({...newBranch, staffCount: e.target.value})} />
+                        </div>
+                        
+                        <input className="w-full p-3 border rounded-lg" placeholder="Contact Info (Phone/Email)" value={newBranch.contact} onChange={e => setNewBranch({...newBranch, contact: e.target.value})} required />
+
+                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">{isEditing ? 'Save Changes' : 'Add Branch'}</button>
+                    </form>
+                </div>
+            </div>
+        )}
+
+        {/* Vehicle Modal */}
+        {showVehicleModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowVehicleModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-slate-900">{isEditing ? 'Edit Vehicle' : 'Add New Vehicle'}</h3>
+                        <button onClick={() => setShowVehicleModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
+                    </div>
+                    <form onSubmit={handleVehicleSubmit} className="space-y-4">
+                        <div className="flex justify-center mb-4">
+                             <div 
+                               onClick={() => vehicleFileInputRef.current.click()}
+                               className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors overflow-hidden relative"
+                             >
+                                {newVehicle.photo ? (
+                                    <div className="relative w-full h-full group">
+                                        <img src={newVehicle.photo} alt="Vehicle" className="w-full h-full object-cover" />
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setNewVehicle(prev => ({...prev, photo: null}));
+                                            }}
+                                            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-sm"
+                                            title="Remove Photo"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <Camera className="w-8 h-8 text-slate-400 mb-2" />
+                                        <span className="text-sm text-slate-500">Upload Vehicle Photo</span>
+                                    </>
+                                )}
+                                <input ref={vehicleFileInputRef} type="file" className="hidden" accept="image/*" onChange={handleVehiclePhotoUpload} />
+                             </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                             <input className="w-full p-3 border rounded-lg" placeholder="Vehicle Number" value={newVehicle.number} onChange={e => setNewVehicle({...newVehicle, number: e.target.value})} required />
+                             <select className="w-full p-3 border rounded-lg" value={newVehicle.type} onChange={e => setNewVehicle({...newVehicle, type: e.target.value})}>
+                                <option>Van</option>
+                                <option>Truck</option>
+                                <option>Scooter</option>
+                            </select>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                             <select 
+                                className="w-full p-3 border rounded-lg" 
+                                value={newVehicle.driver} 
+                                onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})}
+                             >
+                                <option value="N/A">Select Driver</option>
+                                {contextStaff?.filter(s => s.role === 'Driver').map(s => (
+                                    <option key={s.id} value={s.name}>{s.name}</option>
+                                ))}
+                             </select>
+                             <input className="w-full p-3 border rounded-lg" type="number" placeholder="Seats" value={newVehicle.seats} onChange={e => setNewVehicle({...newVehicle, seats: e.target.value})} />
+                        </div>
+                        
+                        <input className="w-full p-3 border rounded-lg" placeholder="RC Book Details" value={newVehicle.rcBook} onChange={e => setNewVehicle({...newVehicle, rcBook: e.target.value})} />
+
+                        {isEditing && (
+                            <select className="w-full p-3 border rounded-lg" value={newVehicle.status} onChange={e => setNewVehicle({...newVehicle, status: e.target.value})}>
+                                <option>Available</option>
+                                <option>In Transit</option>
+                                <option>Delivering</option>
+                            </select>
+                        )}
+                        <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">{isEditing ? 'Save Changes' : 'Add Vehicle'}</button>
+                    </form>
+                </div>
+            </div>
+        )}
+
+        {/* Staff Modal */}
+        {showStaffModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowStaffModal(false)}>
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xl font-bold text-slate-900">
+                            {isEditing ? 'Staff Details & Documents' : 'Add New Staff'}
+                        </h3>
+                        <button onClick={() => setShowStaffModal(false)}><X className="w-5 h-5 text-slate-500" /></button>
+                    </div>
+
+                    <form onSubmit={onStaffFormSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Personal Details */}
+                            <div className="space-y-4">
+                                <h4 className="font-semibold text-slate-700 flex items-center gap-2">
+                                    <Users className="w-4 h-4" /> Personal Information
+                                </h4>
+                                <input className="w-full p-3 border rounded-lg" placeholder="Name" value={newStaff.name} onChange={e => setNewStaff({...newStaff, name: e.target.value})} required />
+                                <input className="w-full p-3 border rounded-lg" type="email" placeholder="Email" value={newStaff.email || ''} onChange={e => setNewStaff({...newStaff, email: e.target.value})} />
+                                <input className="w-full p-3 border rounded-lg" placeholder="Phone" value={newStaff.phone || ''} onChange={e => setNewStaff({...newStaff, phone: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input className="w-full p-3 border rounded-lg" type="date" placeholder="DOB" value={newStaff.personalDetails?.dob || ''} onChange={e => setNewStaff({...newStaff, personalDetails: {...newStaff.personalDetails, dob: e.target.value}})} />
+                                    <input className="w-full p-3 border rounded-lg" placeholder="Blood Group" value={newStaff.personalDetails?.bloodGroup || ''} onChange={e => setNewStaff({...newStaff, personalDetails: {...newStaff.personalDetails, bloodGroup: e.target.value}})} />
+                                </div>
+                                <textarea className="w-full p-3 border rounded-lg" placeholder="Address" rows="2" value={newStaff.personalDetails?.address || ''} onChange={e => setNewStaff({...newStaff, personalDetails: {...newStaff.personalDetails, address: e.target.value}})}></textarea>
+                            </div>
+
+                            {/* Job & Documents */}
+                            <div className="space-y-4">
+                                <h4 className="font-semibold text-slate-700 flex items-center gap-2">
+                                    <Briefcase className="w-4 h-4" /> Job Details
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <select className="w-full p-3 border rounded-lg" value={newStaff.role} onChange={e => setNewStaff({...newStaff, role: e.target.value})}>
+                                        <option>Customer</option>
+                                        <option>Agent</option>
+                                        <option>Driver</option>
+                                        <option>Manager</option>
+                                        <option>Sorter</option>
+                                    </select>
+                                    <select className="w-full p-3 border rounded-lg" value={newStaff.status} onChange={e => setNewStaff({...newStaff, status: e.target.value})}>
+                                        <option>Active</option>
+                                        <option>Leave</option>
+                                        <option>Inactive</option>
+                                    </select>
+                                </div>
+                                <select 
+                                    className="w-full p-3 border rounded-lg" 
+                                    value={newStaff.branch} 
+                                    onChange={e => setNewStaff({...newStaff, branch: e.target.value})}
+                                    required
+                                >
+                                    <option value="">Select Branch</option>
+                                    {contextBranches?.map(b => (
+                                        <option key={b.id} value={b.name}>{b.name}</option>
+                                    ))}
+                                </select>
+
+                                <div className="pt-4 border-t border-slate-100">
+                                    <h4 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                                        <FileText className="w-4 h-4" /> Documents
+                                    </h4>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Aadhaar Card', key: 'aadhaar' },
+                                            { label: 'Driving License', key: 'license' },
+                                            { label: 'PAN Card', key: 'pan' }
+                                        ].map((doc) => {
+                                            const isUploaded = newStaff.documents?.[doc.key] === 'submitted' || newStaff.documents?.[doc.key] === true;
+                                            const fileName = newStaff.documents?.[`${doc.key}File`];
+
+                                            return (
+                                                <div key={doc.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`p-2 rounded-full ${isUploaded ? 'bg-green-100 text-green-600' : 'bg-slate-200 text-slate-500'}`}>
+                                                            <FileText className="w-4 h-4" />
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-sm font-medium text-slate-900">{doc.label}</div>
+                                                            <div className="text-xs text-slate-500">{isUploaded ? fileName || 'Verified' : 'Pending Upload'}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <input 
+                                                            type="file" 
+                                                            id={`file-${doc.key}`} 
+                                                            className="hidden" 
+                                                            accept=".pdf,.jpg,.jpeg,.png"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files[0];
+                                                                if (file) {
+                                                                    setNewStaff(prev => ({
+                                                                        ...prev,
+                                                                        documents: {
+                                                                            ...prev.documents,
+                                                                            [doc.key]: 'submitted',
+                                                                            [`${doc.key}File`]: file.name
+                                                                        }
+                                                                    }));
+                                                                }
+                                                            }}
+                                                        />
+                                                        {isUploaded ? (
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => {
+                                                                    setNewStaff(prev => {
+                                                                        const newDocs = { ...prev.documents };
+                                                                        delete newDocs[doc.key];
+                                                                        delete newDocs[`${doc.key}File`];
+                                                                        return { ...prev, documents: newDocs };
+                                                                    });
+                                                                }}
+                                                                className="p-2 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 text-green-600 hover:text-red-600 transition-all" 
+                                                                title="Remove/Re-upload"
+                                                            >
+                                                                <XCircle className="w-4 h-4" />
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => document.getElementById(`file-${doc.key}`).click()}
+                                                                className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 text-slate-600 transition-all" 
+                                                                title="Upload"
+                                                            >
+                                                                <Upload className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-6 border-t border-slate-100">
+                            <button type="button" onClick={() => setShowStaffModal(false)} className="flex-1 py-3 border border-slate-200 rounded-lg font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                            <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700">{isEditing ? 'Save Changes' : 'Add Staff'}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )}
+
+        {view === 'overview' && (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Network Overview</h1>
+              <p className="text-slate-600">System-wide performance and operations</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white p-6 rounded-xl shadow-lg shadow-indigo-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="opacity-80">Total Users</span>
+                  <Users className="w-5 h-5 opacity-80" />
+                </div>
+                <div className="text-3xl font-bold">{users.length}</div>
+                <div className="text-indigo-100 text-sm mt-1">{pendingRoleRequests.length} requests pending</div>
+              </div>
+
+              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-6 rounded-xl shadow-lg shadow-emerald-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="opacity-80">Lifetime Revenue</span>
+                  <DollarSign className="w-5 h-5 opacity-80" />
+                </div>
+
+
+                <div className="text-3xl font-bold">₹{totalRevenue.toLocaleString()}</div>
+                <div className="text-emerald-100 text-sm mt-1">{shipments.length} total shipments</div>
+              </div>
+
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-6 rounded-xl shadow-lg shadow-orange-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="opacity-80">Active Branches</span>
+                  <Building2 className="w-5 h-5 opacity-80" />
+                </div>
+                <div className="text-3xl font-bold">{contextBranches?.length || 0}</div>
+                <div className="text-orange-100 text-sm mt-1">Across 12 states</div>
+              </div>
+
+              <div className="bg-gradient-to-br from-violet-500 to-violet-600 text-white p-6 rounded-xl shadow-lg shadow-violet-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="opacity-80">Fleet Vehicles</span>
+                  <Truck className="w-5 h-5 opacity-80" />
+                </div>
+                <div className="text-3xl font-bold">{contextVehicles?.length || 0}</div>
+                <div className="text-violet-100 text-sm mt-1">98% operational</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <Package className="w-5 h-5 text-orange-600" />
+                        Shipment Status Summary
+                    </h3>
+                    <div className="space-y-3">
+                        {shipmentStatusDistribution.length > 0 ? shipmentStatusDistribution.map((item) => (
+                            <div key={item.name} className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg">
+                                <span className="text-slate-700 font-medium">{item.name}</span>
+                                <span className="text-slate-900 font-bold">{item.value}</span>
+                            </div>
+                        )) : (
+                            <p className="text-slate-500 text-sm">No shipment records available.</p>
+                        )}
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-blue-600" />
+                        User Role Distribution
+                    </h3>
+                    <div className="space-y-3">
+                        {userRoleDistribution.length > 0 ? userRoleDistribution.map((item) => (
+                            <div key={item.name} className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg">
+                                <span className="text-slate-700 font-medium">{item.name}</span>
+                                <span className="text-slate-900 font-bold">{item.value}</span>
+                            </div>
+                        )) : (
+                            <p className="text-slate-500 text-sm">No user records available.</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <SectionDownloader title="Download Analytics Report" className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6 mb-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-slate-600" />
+                    Detailed Performance Report
+                </h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Metric</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Count/Value</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Growth</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Target</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            <tr className="hover:bg-slate-50">
+                                <td className="px-6 py-4 font-medium text-slate-900">Total Revenue</td>
+                                <td className="px-6 py-4 text-emerald-600 font-bold">₹{totalRevenue.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-green-600">+12.5%</td>
+                                <td className="px-6 py-4 text-slate-600">₹{(totalRevenue * 1.2).toLocaleString()}</td>
+                                <td className="px-6 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">On Track</span></td>
+                            </tr>
+                            <tr className="hover:bg-slate-50">
+                                <td className="px-6 py-4 font-medium text-slate-900">Total Shipments</td>
+                                <td className="px-6 py-4 font-bold">{shipments.length}</td>
+                                <td className="px-6 py-4 text-green-600">+8.2%</td>
+                                <td className="px-6 py-4 text-slate-600">2,000</td>
+                                <td className="px-6 py-4"><span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold">Exceeding</span></td>
+                            </tr>
+                            <tr className="hover:bg-slate-50">
+                                <td className="px-6 py-4 font-medium text-slate-900">Total Users</td>
+                                <td className="px-6 py-4 font-bold">{users.length}</td>
+                                <td className="px-6 py-4 text-slate-500">0%</td>
+                                <td className="px-6 py-4 text-slate-600">50</td>
+                                <td className="px-6 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold">Needs Attention</span></td>
+                            </tr>
+                            <tr className="hover:bg-slate-50">
+                                <td className="px-6 py-4 font-medium text-slate-900">Avg. Delivery Time</td>
+                                <td className="px-6 py-4 font-bold">2.4 Days</td>
+                                <td className="px-6 py-4 text-red-500">-5%</td>
+                                <td className="px-6 py-4 text-slate-600">2.0 Days</td>
+                                <td className="px-6 py-4"><span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">Lagging</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </SectionDownloader>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-800 mb-4">Top Performing Branches</h2>
+              <div className="space-y-3">
+                                {topPerformingBranches.map((branch, index) => (
+                  <div 
+                    key={index} 
+                    onClick={() => navigate('/admin/branches', { state: { openBranchId: branch.id } })}
+                    className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
+                        <Building2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{branch.name}</div>
+                                                <div className="text-sm text-slate-500">{branch._shipments} shipments</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                                            <div className="font-bold text-slate-900">₹{branch._revenue.toLocaleString()}</div>
+                                            <div className="text-sm text-green-600 font-medium">+{branch._performance}%</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'branches' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Branch & Hub Management</h1>
+                <p className="text-slate-600">Manage branch locations and hub hierarchy</p>
+              </div>
+              <button 
+                onClick={() => openBranchModal()}
+                className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add New Branch
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Total Branches</div>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{contextBranches?.length || 0}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Active Branches</div>
+                <div className="text-2xl font-bold text-emerald-600 mt-1">{activeBranchCount}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Hubs</div>
+                <div className="text-2xl font-bold text-indigo-600 mt-1">{hubCount}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Open Shipments</div>
+                <div className="text-2xl font-bold text-amber-600 mt-1">{activeShipmentsCount}</div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Branch Name</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Manager</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {contextBranches && contextBranches.map(branch => (
+                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openBranchModal(branch)}>
+                                    <td className="px-6 py-4 font-medium text-slate-900">
+                                        <div className="hover:text-indigo-600 transition-colors">{branch.name}</div>
+                                        <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <span className={`px-2 py-1 rounded text-xs font-semibold ${branch.type === 'Hub' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+                                            {branch.type}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-slate-600">{branch.manager || 'N/A'}</td>
+                                    <td className="px-6 py-4 text-slate-600">{branch.contact || 'N/A'}</td>
+                                    <td className="px-6 py-4">
+                                        <span className={`flex items-center gap-1 text-sm font-medium ${branch.status === 'Active' ? 'text-green-600' : 'text-amber-600'}`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${branch.status === 'Active' ? 'bg-green-600' : 'bg-amber-600'}`}></span>
+                                            {branch.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                                        <button onClick={() => openBranchModal(branch)} className="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch? This action cannot be undone.')} className="text-red-500 hover:text-red-700 text-sm font-medium">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'pricing' && (
+             <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold text-slate-800">Pricing Configuration</h1>
+                    <p className="text-slate-600">Base rates and zone adjustments</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                        if (isPricingEditing) {
+                            toast.success("Pricing configuration saved successfully!");
+                        }
+                        setIsPricingEditing(!isPricingEditing);
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors shadow-lg flex items-center gap-2 font-bold ${isPricingEditing ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-500/20' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'}`}
+                  >
+                    {isPricingEditing ? (
+                        <>
+                            <Save className="w-4 h-4" /> Save Changes
+                        </>
+                    ) : (
+                        <>
+                            <Edit className="w-4 h-4" /> Edit Configuration
+                        </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                           <tr>
+                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Weight Slab</th>
+                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone A (Metro)</th>
+                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone B (Tier 1)</th>
+                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone C (Remote)</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {[
+                            { slab: '0 - 500g', zoneA: 40, zoneB: 50, zoneC: 65 },
+                            { slab: '500g - 1kg', zoneA: 75, zoneB: 90, zoneC: 110 },
+                            { slab: '1kg - 2kg', zoneA: 130, zoneB: 150, zoneC: 180 },
+                            { slab: 'Additional 1kg', zoneA: 50, zoneB: 60, zoneC: 80 },
+                          ].map((row, index) => (                           
+                             <tr key={index} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4 font-medium text-slate-900">{row.slab}</td>
+                                <td className="px-6 py-4">
+                                   <div className="flex items-center gap-1">
+                                      <span className="text-slate-400">₹</span>
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneA} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
+                                   </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                   <div className="flex items-center gap-1">
+                                      <span className="text-slate-400">₹</span>
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneB} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
+                                   </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                   <div className="flex items-center gap-1">
+                                      <span className="text-slate-400">₹</span>
+                                      <input 
+                                        type="number" 
+                                        defaultValue={row.zoneC} 
+                                        readOnly={!isPricingEditing}
+                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
+                                      />
+                                   </div>
+                                </td>
+                             </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                   </div>
+                </div>
+             </div>
+        )}
+        
+        {view === 'fleet' && (
+             <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold text-slate-800">Fleet Management</h1>
+                    <p className="text-slate-600">Vehicle tracking and driver assignment</p>
+                  </div>
+                  <button 
+                     onClick={() => openVehicleModal()}
+                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Vehicle
+                  </button>
+                </div>
+                
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                       <table className="w-full text-left">
+                          <thead className="bg-slate-50 border-b border-slate-200">
+                             <tr>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehicle Details</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Driver</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                                                         {contextVehicles && contextVehicles.map((vehicle, index) => {
+                                                             const driverName = typeof vehicle?.driver === 'string' && vehicle.driver.trim() ? vehicle.driver : 'N/A';
+                                                             return (
+                               <tr key={index} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-6 py-4 font-medium text-slate-900">
+                                      <div className="flex items-center gap-3">
+                                          {vehicle.photo && <img src={vehicle.photo} alt="Car" className="w-10 h-10 rounded object-cover border border-slate-200" />}
+                                          <div>
+                                              <div>{vehicle.id}</div>
+                                              <div className="text-xs text-slate-500 max-w-[100px] truncate">{vehicle.rcBook}</div>
+                                          </div>
+                                      </div>
+                                  </td>
+                                  <td className="px-6 py-4 text-slate-600">{vehicle.type}</td>
+                                  <td className="px-6 py-4">
+                                                 {driverName !== 'N/A' ? (
+                                        <div className="flex items-center gap-2">
+                                           <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                                             {driverName.charAt(0)}
+                                           </div>
+                                                         <span className="text-slate-900">{driverName}</span>
+                                        </div>
+                                     ) : (
+                                        <button 
+                                            onClick={() => openVehicleModal(vehicle)}
+                                            className="text-xs text-indigo-600 font-medium hover:underline"
+                                        >
+                                            Assign Driver
+                                        </button>
+                                     )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                     <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                        vehicle.status === 'Available' ? 'bg-green-50 text-green-700' : 
+                                        vehicle.status === 'In Transit' ? 'bg-indigo-50 text-indigo-700' : 'bg-orange-50 text-orange-700'
+                                     }`}>
+                                        {vehicle.status}
+                                     </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     <button onClick={() => openVehicleModal(vehicle)} className="text-indigo-600 hover:text-indigo-900 transition-colors flex items-center gap-1 justify-end ml-auto">
+                                        <Edit className="w-4 h-4" /> Edit
+                                     </button>
+                                  </td>
+                                                             </tr>
+                                                         )})}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+
+                 <div className="grid md:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                      <div className="text-xs uppercase text-slate-500 font-semibold">Total Fleet</div>
+                      <div className="text-2xl font-bold text-slate-900 mt-1">{contextVehicles?.length || 0}</div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                      <div className="text-xs uppercase text-slate-500 font-semibold">Available</div>
+                      <div className="text-2xl font-bold text-emerald-600 mt-1">{availableFleetCount}</div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                      <div className="text-xs uppercase text-slate-500 font-semibold">In Transit</div>
+                      <div className="text-2xl font-bold text-indigo-600 mt-1">{transitFleetCount}</div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                      <div className="text-xs uppercase text-slate-500 font-semibold">Utilization</div>
+                      <div className="text-2xl font-bold text-amber-600 mt-1">
+                        {contextVehicles?.length ? Math.round(((transitFleetCount) / contextVehicles.length) * 100) : 0}%
+                      </div>
+                    </div>
+                 </div>
+             </div>
+        )}
+
+        {view === 'staff' && (
+             <div className="space-y-6">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                   <h1 className="text-2xl font-bold text-slate-800">Staff Directory</h1>
+                   <p className="text-slate-600">Manage employee access and roles</p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {lastDataSyncAt && <span className="text-xs text-slate-500">Synced: {new Date(lastDataSyncAt).toLocaleTimeString()}</span>}
+                                        <button
+                                            onClick={handleRefresh}
+                                            disabled={isRefreshing}
+                                            className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-800 disabled:opacity-70"
+                                        >
+                                            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                        </button>
+                                    </div>
+                </div>
+
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <div className="p-4 border-b border-slate-100 bg-slate-50">
+                                        <h3 className="font-bold text-slate-900">Pending Agent Role Requests</h3>
+                                    </div>
+                                    <div className="p-4">
+                                        {pendingRoleRequests.length === 0 ? (
+                                            <p className="text-sm text-slate-500">No pending requests.</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {pendingRoleRequests.map(request => (
+                                                    <div key={request.id} className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                                        <div>
+                                                            <div className="font-semibold text-slate-900">{request.name} ({request.email})</div>
+                                                            <div className="text-sm text-slate-600">Requested: <span className="font-medium uppercase">{request.requestedRole}</span></div>
+                                                            {request.reason && <div className="text-sm text-slate-500 mt-1">Reason: {request.reason}</div>}
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => handleApproveRequest(request)}
+                                                                className="px-3 py-1.5 text-sm font-bold bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                                            >
+                                                                Approve
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleRejectRequest(request.id)}
+                                                                className="px-3 py-1.5 text-sm font-bold bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <div className="p-4 border-b border-slate-100 bg-slate-50">
+                                        <h3 className="font-bold text-slate-900">All User Access Control</h3>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-slate-50 border-b border-slate-200">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Role</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Update Role</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {(users || []).map(user => {
+                                                    const isAdmin = String(user.role || '').toLowerCase() === 'admin';
+                                                    const roleValue = roleDrafts[user.email] || user.role || 'customer';
+
+                                                    return (
+                                                        <tr key={user.email} className="hover:bg-slate-50">
+                                                            <td className="px-6 py-4 font-medium text-slate-900">
+                                                                {String(user.role || '').toLowerCase() === 'agent' ? (
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() => openAgentDetails(user)}
+                                                                    className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+                                                                  >
+                                                                    {user.name || 'N/A'}
+                                                                  </button>
+                                                                ) : (user.name || 'N/A')}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-slate-600">{user.email}</td>
+                                                            <td className="px-6 py-4">
+                                                                <span className={`px-2 py-1 rounded text-xs font-semibold ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
+                                                                    {(user.role || 'customer').toUpperCase()}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4">
+                                                                {isAdmin ? (
+                                                                    <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-1 rounded">LOCKED</span>
+                                                                ) : (
+                                                                    <select
+                                                                        value={roleValue}
+                                                                        onChange={(e) => setRoleDrafts(prev => ({ ...prev, [user.email]: e.target.value }))}
+                                                                        className="w-36 p-2 border border-slate-200 rounded-lg text-sm"
+                                                                    >
+                                                                        <option value="customer">Customer</option>
+                                                                        <option value="agent">Agent</option>
+                                                                    </select>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right">
+                                                                <div className="inline-flex gap-2">
+                                                                    <button
+                                                                        onClick={() => handleUpdateUserRole(user)}
+                                                                        disabled={isAdmin}
+                                                                        className="px-3 py-1.5 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+                                                                    >
+                                                                        Save Role
+                                                                    </button>
+                                                                    {!isAdmin && (
+                                                                        <button
+                                                                            onClick={() => handleRemoveUserAccess(user)}
+                                                                            className="px-3 py-1.5 text-xs font-bold bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                                                                        >
+                                                                            Remove Access
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                {/* New Section: Agent Document Verification */}
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+                                    <div className="p-4 border-b border-slate-100 bg-slate-50">
+                                        <h3 className="font-bold text-slate-900">Agent Document Verification</h3>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-slate-50 border-b border-slate-200">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Agent</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Aadhaar</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehicle Details</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Verification</th>
+                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {(users || []).filter(u => String(u.role || '').toLowerCase() === 'agent').map(agent => {
+                                                    const viewData = getAgentViewData(agent);
+                                                    return (
+                                                      <tr key={`doc-${agent.email || viewData.key}`} className="hover:bg-slate-50">
+                                                          <td className="px-6 py-4 font-medium text-slate-900">
+                                                            <button
+                                                              type="button"
+                                                              onClick={() => openAgentDetails(agent)}
+                                                              className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+                                                            >
+                                                              {agent.name || 'N/A'}
+                                                            </button>
+                                                            <br />
+                                                            <span className="text-xs text-slate-500">{agent.email || viewData.key}</span>
+                                                          </td>
+                                                          <td className="px-6 py-4">
+                                                              {viewData.docs?.aadharCopy ? (
+                                                                  <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded">Uploaded</span>
+                                                              ) : (
+                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
+                                                              )}
+                                                          </td>
+                                                          <td className="px-6 py-4">
+                                                              {viewData.docs?.licenseCopy ? (
+                                                                  <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded">Uploaded</span>
+                                                              ) : (
+                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
+                                                              )}
+                                                          </td>
+                                                          <td className="px-6 py-4 text-sm text-slate-600">
+                                                              {viewData.profile?.vehicleNumber ? (
+                                                                  <>
+                                                                    <span className="font-medium">Reg:</span> {viewData.profile.vehicleNumber} <br/>
+                                                                    <span className="font-medium">Lic:</span> {viewData.profile.licenseNumber || 'N/A'}
+                                                                  </>
+                                                              ) : (
+                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
+                                                              )}
+                                                          </td>
+                                                          <td className="px-6 py-4">
+                                                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                                                              viewData.verificationStatus === 'VERIFIED'
+                                                                ? 'bg-green-100 text-green-700'
+                                                                : viewData.verificationStatus === 'REJECTED'
+                                                                  ? 'bg-red-100 text-red-700'
+                                                                  : 'bg-amber-100 text-amber-700'
+                                                            }`}>
+                                                              {viewData.verificationStatus}
+                                                            </span>
+                                                          </td>
+                                                          <td className="px-6 py-4 text-right">
+                                                            <div className="inline-flex gap-2">
+                                                              <button
+                                                                type="button"
+                                                                onClick={() => openAgentDetails(agent)}
+                                                                className="px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
+                                                              >
+                                                                View
+                                                              </button>
+                                                              <button
+                                                                type="button"
+                                                                onClick={() => handleVerifyAgent(agent, true)}
+                                                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                                              >
+                                                                Verify
+                                                              </button>
+                                                            </div>
+                                                          </td>
+                                                      </tr>
+                                                    );
+                                                })}
+                                                {(users || []).filter(u => String(u.role || '').toLowerCase() === 'agent').length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="6" className="px-6 py-8 text-center text-slate-500">No agents found in the system.</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                
+                <button 
+                    onClick={() => openStaffModal()}
+                    className="mb-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 float-right relative -top-16"
+                >
+                    <Plus className="w-4 h-4" />
+                    Add Staff
+                </button>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 clear-both">
+                   {contextStaff && contextStaff.map(s => (
+                      <div key={s.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
+                         <div className="flex gap-4">
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600">{(typeof s?.name === 'string' && s.name.length > 0 ? s.name.charAt(0) : 'U')}</div>
+                            <div>
+                               <div className="font-bold text-slate-900">{s.name}</div>
+                               <div className="text-sm text-slate-500">{s.role}</div>
+                               <div className="text-xs text-indigo-600 mt-1">{s.branch}</div>
+                            </div>
+                         </div>
+                         <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => openAgentDetails(s)}
+                              className="text-slate-700 hover:text-slate-900 flex items-center gap-1 text-sm font-medium"
+                            >
+                              <Eye className="w-4 h-4" /> View
+                            </button>
+                            <button onClick={() => openStaffModal(s)} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-sm font-medium">
+                                <Edit className="w-4 h-4" /> Edit
+                            </button>
+                            <button onClick={() => confirmDelete('staff', s.id, 'Delete Staff', 'Are you sure you want to delete this staff member?')} className="text-red-500 hover:text-red-700 flex items-center gap-1 text-sm font-medium">
+                                <Trash2 className="w-4 h-4" /> Delete
+                            </button>
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             </div>
+        )}
+
+        {view === 'performance' && (
+             <div className="space-y-6">
+                 <div>
+                    <h1 className="text-2xl font-bold text-slate-800">Performance Analytics & Reports</h1>
+                    <p className="text-slate-600">Deep dive into operational metrics and shipment data</p>
+                 </div>
+
+                 <SectionDownloader title="Download Full Report" className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-6 border-b border-slate-200 bg-slate-50">
+                        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                             <FileText className="w-5 h-5 text-indigo-600" />
+                             Master Shipment Report
+                        </h3>
+                    </div>
+
+                    {/* Service Breakdown Summary */}
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8 border-b border-slate-100">
+                        <div>
+                             <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Service Type Breakdown</h4>
+                             <table className="w-full text-sm text-left">
+                                 <thead className="bg-slate-50 text-slate-500">
+                                     <tr>
+                                         <th className="px-3 py-2">Service</th>
+                                         <th className="px-3 py-2">Volume</th>
+                                         <th className="px-3 py-2">Revenue Share</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-slate-100">
+                                     <tr>
+                                         <td className="px-3 py-2 font-medium">Standard</td>
+                                         <td className="px-3 py-2">65%</td>
+                                         <td className="px-3 py-2 text-slate-600">40%</td>
+                                     </tr>
+                                     <tr>
+                                         <td className="px-3 py-2 font-medium">Express</td>
+                                         <td className="px-3 py-2">25%</td>
+                                         <td className="px-3 py-2 text-slate-600">45%</td>
+                                     </tr>
+                                      <tr>
+                                         <td className="px-3 py-2 font-medium">Perishable</td>
+                                         <td className="px-3 py-2">10%</td>
+                                         <td className="px-3 py-2 text-slate-600">15%</td>
+                                     </tr>
+                                 </tbody>
+                             </table>
+                        </div>
+                        <div>
+                             <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Regional Distribution</h4>
+                             <div className="space-y-3">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">North Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500 w-[45%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">45%</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">West Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-emerald-500 w-[30%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">30%</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-600">South Zone</span>
+                                    <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-orange-500 w-[25%]"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-900">25%</span>
+                                </div>
+                             </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6">
+                        <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Recent Transactions</h4>
+                        <table className="w-full text-left text-sm">
+                             <thead>
+                                 <tr className="text-slate-500 border-b border-slate-200">
+                                     <th className="pb-3">ID</th>
+                                     <th className="pb-3">Date</th>
+                                     <th className="pb-3">Client</th>
+                                     <th className="pb-3">Amount</th>
+                                     <th className="pb-3">Status</th>
+                                 </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-100">
+                                 {[1,2,3,4,5].map(i => (
+                                     <tr key={i}>
+                                         <td className="py-3 font-mono text-slate-600">TRX-00{i}</td>
+                                         <td className="py-3 text-slate-600">Oct 2{i}, 2025</td>
+                                         <td className="py-3 font-medium text-slate-900">Client {String.fromCharCode(64+i)}</td>
+                                         <td className="py-3 text-slate-900 font-bold">₹{1200 + (i*150)}</td>
+                                         <td className="py-3 text-green-600 font-medium">Completed</td>
+                                     </tr>
+                                 ))}
+                             </tbody>
+                        </table>
+                    </div>
+                 </SectionDownloader>
+             </div>
+        )}
+
+        {view === 'reports' && (
+             <div className="space-y-6">
+                 <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-800">Reports & Downloads</h1>
+                        <p className="text-slate-600">Generate and download shipment analytics reports</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleDownloadShipmentCsv}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                    >
+                        <Download className="w-4 h-4" />
+                        Download Shipment CSV
+                    </button>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="text-sm text-slate-500">Total Shipments</div>
+                        <div className="text-3xl font-bold text-slate-900 mt-2">{reportSummary?.totalShipments ?? 0}</div>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="text-sm text-slate-500">Delivered Shipments</div>
+                        <div className="text-3xl font-bold text-emerald-600 mt-2">{reportSummary?.deliveredShipments ?? 0}</div>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="text-sm text-slate-500">Total Revenue</div>
+                        <div className="text-3xl font-bold text-indigo-600 mt-2">₹{Number(reportSummary?.totalRevenue ?? 0).toLocaleString()}</div>
+                    </div>
+                 </div>
+
+                 <SectionDownloader title="Download Printable Report" className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">Printable Report Snapshot</h3>
+                    <table className="w-full text-left text-sm">
+                      <tbody className="divide-y divide-slate-100">
+                        <tr><td className="py-2 text-slate-500">In Transit</td><td className="py-2 font-semibold text-slate-900">{reportSummary?.inTransitShipments ?? 0}</td></tr>
+                        <tr><td className="py-2 text-slate-500">Cancelled</td><td className="py-2 font-semibold text-slate-900">{reportSummary?.cancelledShipments ?? 0}</td></tr>
+                        <tr><td className="py-2 text-slate-500">Average Ticket Size</td><td className="py-2 font-semibold text-slate-900">₹{Number(reportSummary?.averageTicketSize ?? 0).toLocaleString()}</td></tr>
+                      </tbody>
+                    </table>
+                 </SectionDownloader>
+             </div>
+        )}
+
+        {view === 'tickets' && (
+             <AdminTicketsPanel />
+        )}
+
+        {view === 'runsheets' && (
+             <AdminRunSheetView 
+                 todaysDeliveries={shipments.filter(s => ['RECEIVED AT HUB', 'BOOKED', 'OUT FOR DELIVERY'].includes(String(s.status || '').toUpperCase().replace(/_/g, ' ')))}
+                 contextStaff={contextStaff}
+                 agentProfiles={agentProfiles}
+                 currentUser={currentUser}
+                 onRefresh={handleRefresh}
+             />
+        )}
+      </div>
+  );
+}
+
+
+function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {}, currentUser, onRefresh }) {
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [selectedAgentId, setSelectedAgentId] = useState('AUTO');
+    const [generatedSheet, setGeneratedSheet] = useState(null);
+
+    const mappedAgents = useMemo(() => {
+        return (contextStaff || [])
+            .filter((staff) => ['agent', 'driver'].includes(String(staff.role || '').toLowerCase()))
+            .map((staff) => {
+                const userKey = staff.userId || staff.id || staff.email;
+                const profile = agentProfiles[userKey] || null;
+                return {
+                    ...staff,
+                    userKey,
+                    runtimeAgentId: profile?.agentId || userKey,
+                    verificationStatus: String(profile?.verificationStatus || '').toUpperCase() || 'PENDING'
+                };
+            })
+            .filter((staff) => staff.runtimeAgentId);
+    }, [contextStaff, agentProfiles]);
+
+    const toggleSelection = (id) => {
+        setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const getActiveAgents = () => mappedAgents.filter(s =>
+        String(s.status || 'active').toLowerCase() !== 'inactive'
+    );
+
+    const handleAssign = async () => {
+        if (selectedIds.length === 0) return toast.error("Select shipments to assign");
+        if (selectedAgentId === 'AUTO') {
+            await handleAutoDistribute();
+            return;
+        }
+        if (!selectedAgentId) return toast.error("Please select an agent to assign the run sheet.");
+
+        const selectedShipments = todaysDeliveries.filter(s => selectedIds.includes(s.id));
+        const selectedAgent = mappedAgents.find((agent) => agent.runtimeAgentId === selectedAgentId || agent.userKey === selectedAgentId);
+        const agentName = selectedAgent?.name || selectedAgent?.email || 'Selected Agent';
+
+        try {
+            const response = await operationsService.createRunSheet({
+                agentId: selectedAgentId,
+                hubId: 'HUB-DEFAULT',
+                shipmentTrackingNumbers: selectedIds
+            });
+
+            const sheet = {
+                id: response?.runSheetId || `RS-${Date.now()}`,
+                date: response?.date ? new Date(response.date).toLocaleDateString() : new Date().toLocaleDateString(),
+                items: selectedShipments,
+                agent: agentName
+            };
+            setGeneratedSheet(sheet);
+            setSelectedIds([]);
+            toast.success(`Run Sheet ${sheet.id} Generated`);
+        } catch (error) {
+            const sheet = {
+                id: `RS-${Date.now()}`,
+                date: new Date().toLocaleDateString(),
+                items: selectedShipments,
+                agent: agentName
+            };
+            setGeneratedSheet(sheet);
+            setSelectedIds([]);
+            toast.warning(`Run sheet saved locally (${error.message || 'backend unavailable'})`);
+        }
+    };
+
+    const handleAutoDistribute = async () => {
+        const targetIds = selectedIds.length > 0 ? selectedIds : todaysDeliveries.map(s => s.id);
+        if (targetIds.length === 0) return toast.error('No shipments to assign');
+
+        const activeAgents = getActiveAgents();
+
+        if (activeAgents.length === 0) return toast.error('No active agents available');
+
+        const loadMap = {};
+        activeAgents.forEach(agent => {
+            const agentId = agent.runtimeAgentId;
+            const userKey = agent.userKey;
+            loadMap[agentId] = todaysDeliveries.filter(s => s.assignedAgentId === agentId || s.assignedAgentId === userKey).length;
+        });
+
+        for (const shipmentId of targetIds) {
+            const nextAgent = activeAgents.reduce((least, candidate) => {
+                const leastId = least.runtimeAgentId;
+                const candidateId = candidate.runtimeAgentId;
+                return loadMap[candidateId] < loadMap[leastId] ? candidate : least;
+            });
+            const nextAgentId = nextAgent.runtimeAgentId;
+            await operationsService.createRunSheet({
+                agentId: nextAgentId,
+                hubId: 'HUB-DEFAULT',
+                shipmentTrackingNumbers: [shipmentId]
+            });
+            loadMap[nextAgentId] += 1;
+        }
+
+        toast.success(`Auto-assigned ${targetIds.length} shipments to available agents`);
+        setSelectedIds([]);
+        await onRefresh?.();
+    };
+    
+    return (
+         <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Admin Run Sheet Master</h1>
+                <p className="text-slate-600">Assign pending deliveries to any agent globally</p>
+              </div>
+              <div className="flex gap-4 items-center">
+                  {generatedSheet && (
+                      <SectionDownloader 
+                        title="Download Sheet"
+                        className="inline-block"
+                      >
+                           <div className="p-8 bg-white" id="run-sheet-content">
+                               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                   <div>
+                                       <h1 className="text-2xl font-bold text-slate-900">Delivery Run Sheet</h1>
+                                       <p className="text-slate-500">ID: {generatedSheet.id}</p>
+                                   </div>
+                                   <div className="text-right">
+                                       <p className="font-bold">{generatedSheet.date}</p>
+                                       <p className="text-sm text-slate-500">Agent: {generatedSheet.agent}</p>
+                                       <p className="text-sm text-slate-500">Items: {generatedSheet.items.length}</p>
+                                   </div>
+                               </div>
+                               <table className="w-full text-left text-sm border-collapse">
+                                   <thead>
+                                       <tr className="bg-slate-100">
+                                           <th className="p-3 border text-slate-700">Tracking ID</th>
+                                           <th className="p-3 border text-slate-700">Receiver / Address</th>
+                                           <th className="p-3 border text-slate-700">Type</th>
+                                           <th className="p-3 border text-slate-700 text-right">COD Amount</th>
+                                           <th className="p-3 border text-slate-700">Signature</th>
+                                       </tr>
+                                   </thead>
+                                   <tbody>
+                                       {generatedSheet.items.map(s => {
+                                           const receiverDetails = s.receiver || s.receiverAddress || {};
+                                           return (
+                                           <tr key={`gen-${s.id}`}>
+                                               <td className="p-3 border font-mono">{s.id}</td>
+                                               <td className="p-3 border">
+                                                   <div className="font-bold">{receiverDetails.name || 'N/A'}</div>
+                                                   <div className="text-slate-500">{receiverDetails.address || ''}, {receiverDetails.city || ''}</div>
+                                               </td>
+                                               <td className="p-3 border">{s.type}</td>
+                                               <td className="p-3 border text-right font-mono">
+                                                   {s.paymentMode === 'Cash' || s.paymentMode === 'COD' ? `₹${s.cost}` : '-'}
+                                               </td>
+                                               <td className="p-3 border"></td>
+                                           </tr>
+                                       )})}
+                                   </tbody>
+                               </table>
+                               <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
+                                   <div>Master Admin Log</div>
+                                   <div>Authorized Signature _________________</div>
+                               </div>
+                           </div>
+                      </SectionDownloader>
+                  )}
+
+                  <select 
+                      className="px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                      value={selectedAgentId}
+                      onChange={(e) => setSelectedAgentId(e.target.value)}
+                  >
+                      <option value="AUTO">Auto Select (Recommended)</option>
+                      {mappedAgents.map(agent => (
+                          <option key={`opt-${agent.runtimeAgentId}`} value={agent.runtimeAgentId}>
+                              {agent.name || agent.email} ({agent.branch || 'Unassigned'})
+                          </option>
+                      ))}
+                   </select>
+
+                  <button 
+                    onClick={handleAssign}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 h-10"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Assign ({selectedIds.length})
+                  </button>
+                  <button
+                    onClick={handleAutoDistribute}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20 flex items-center gap-2 h-10"
+                  >
+                    Auto-Distribute
+                  </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+               <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <span className="font-semibold text-slate-700">All System Pending Deliveries</span>
+                  <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{todaysDeliveries.length} Shipments</span>
+               </div>
+               <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+                        {todaysDeliveries.length > 0 ? todaysDeliveries.map(s => {
+                            const receiverDetails = s.receiver || s.receiverAddress || {};
+                            return (
+                            <div key={`pend-${s.id}`} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
+                        <div className="relative flex items-center justify-center p-2">
+                            <input 
+                                type="checkbox" 
+                                className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" 
+                                checked={selectedIds.includes(s.id)}
+                                onChange={() => {}} 
+                            />
+                        </div>
+                        <div className="flex-1">
+                           <div className="font-medium text-slate-900">{s.id}</div>
+                           <div className="text-sm text-slate-500">{receiverDetails.city || 'N/A'} • <span className="text-indigo-600 font-medium">{s.type}</span></div>
+                        </div>
+                        <div className="text-right text-sm">
+                           <div className="font-medium text-slate-900">COD: ₹{s.cost}</div>
+                           <div className="text-slate-500">{s.weight} kg</div>
+                        </div>
+                     </div>
+                        )}) : (
+                      <div className="p-8 text-center text-slate-500">No shipments pending for run sheet globally.</div>
+                  )}
+               </div>
+            </div>
+         </div>
+    );
+}
+
+

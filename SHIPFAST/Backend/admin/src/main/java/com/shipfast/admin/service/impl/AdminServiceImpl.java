@@ -1,0 +1,83 @@
+package com.shipfast.admin.service.impl;
+
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.shipfast.admin.entity.Branch;
+import com.shipfast.admin.entity.Vehicle;
+import com.shipfast.admin.repository.BranchRepository;
+import com.shipfast.admin.repository.VehicleRepository;
+import com.shipfast.admin.service.AdminService;
+
+@Service
+public class AdminServiceImpl implements AdminService {
+
+    private final BranchRepository branchRepository;
+    private final VehicleRepository vehicleRepository;
+
+    public AdminServiceImpl(BranchRepository branchRepository,
+                            VehicleRepository vehicleRepository) {
+        this.branchRepository = branchRepository;
+        this.vehicleRepository = vehicleRepository;
+    }
+
+    @Override
+    public Branch createBranch(Branch branch) {
+        branch.setBranchId(UUID.randomUUID().toString());
+        return branchRepository.save(branch);
+    }
+
+    @Override
+    public Vehicle createVehicle(Vehicle vehicle) {
+        vehicle.setVehicleId(UUID.randomUUID().toString());
+        return vehicleRepository.save(vehicle);
+    }
+
+    @Override
+    public List<Branch> getAllBranches() {
+        return branchRepository.findAll();
+    }
+
+    @Override
+    public List<Vehicle> getAllVehicles() {
+        return vehicleRepository.findAll();
+    }
+
+    @Override
+    public Branch updateBranch(String branchId, Branch branch) {
+        Branch existing = branchRepository.findById(Objects.requireNonNull(branchId))
+                .orElseThrow(() -> new NoSuchElementException("Branch not found"));
+        existing.setName(branch.getName());
+        existing.setType(branch.getType());
+        existing.setAddress(branch.getAddress());
+        existing.setManagerUserId(branch.getManagerUserId());
+        existing.setStaffCount(branch.getStaffCount());
+        existing.setStatus(branch.getStatus());
+        return branchRepository.save(existing);
+    }
+
+    @Override
+    public Vehicle updateVehicle(String vehicleId, Vehicle vehicle) {
+        Vehicle existing = vehicleRepository.findById(Objects.requireNonNull(vehicleId))
+                .orElseThrow(() -> new NoSuchElementException("Vehicle not found"));
+        existing.setVehicleNumber(vehicle.getVehicleNumber());
+        existing.setType(vehicle.getType());
+        existing.setDriverUserId(vehicle.getDriverUserId());
+        existing.setStatus(vehicle.getStatus());
+        return vehicleRepository.save(existing);
+    }
+
+    @Override
+    public void deleteBranch(String branchId) {
+        branchRepository.deleteById(Objects.requireNonNull(branchId));
+    }
+
+    @Override
+    public void deleteVehicle(String vehicleId) {
+        vehicleRepository.deleteById(Objects.requireNonNull(vehicleId));
+    }
+}

@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { useShipment } from '../../context/ShipmentContext';
 import { useNavigate } from 'react-router-dom';
 
-export function TopNavbar({ user }) {
+import logoImage from '../../assets/logo.png';
+
+export function TopNavbar({ user, isSidebarOpen }) {
   const { getRoleNotifications } = useShipment();
   const [showNotifications, setShowNotifications] = useState(false);
   const notifications = getRoleNotifications(user?.role);
@@ -17,21 +19,19 @@ export function TopNavbar({ user }) {
 
   return (
     <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
-      {/* Left side - Logo */}
+      {/* Left side - Logo (Only visible when sidebar is closed) */}
       <div 
         onClick={() => navigate('/')} 
-        className="flex items-center gap-3 cursor-pointer group"
+        className={`flex items-center gap-3 cursor-pointer group ${isSidebarOpen ? 'hidden' : 'flex'}`}
       >
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-lg shadow-lg group-hover:shadow-purple-500/30 transition-all duration-300">
-          S
-        </div>
+        <img src={logoImage} alt="ShipFast" className="h-8 w-auto transition-transform group-hover:scale-110 duration-300" />
         <span className="font-heading font-bold text-xl bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent group-hover:from-purple-600 group-hover:to-pink-500 transition-all duration-300">
           ShipFast
         </span>
       </div>
 
       {/* Right side - Notifications & Profile */}
-       <div className="flex items-center gap-4">
+       <div className="flex items-center gap-4 ml-auto">
           <div className="relative">
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
