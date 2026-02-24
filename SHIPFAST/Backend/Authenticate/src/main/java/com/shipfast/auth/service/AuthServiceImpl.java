@@ -66,6 +66,15 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
 
+        if (request.getEmail() == null || request.getEmail().isBlank())
+            throw new CustomException("Email is required");
+
+        if (request.getPhoneNumber() == null || request.getPhoneNumber().isBlank())
+            throw new CustomException("Phone number is required");
+
+        if (request.getPassword() == null || request.getPassword().isBlank())
+            throw new CustomException("Password is required");
+
         if (userAuthRepository.existsByEmail(request.getEmail()))
             throw new CustomException("Email already registered");
 
@@ -112,6 +121,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse login(LoginRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isBlank()
+                || request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new CustomException("Email and password are required");
+        }
 
         UserAuth user = userAuthRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new CustomException("Invalid credentials"));

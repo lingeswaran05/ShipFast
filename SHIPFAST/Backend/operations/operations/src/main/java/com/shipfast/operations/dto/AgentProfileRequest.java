@@ -14,4 +14,8 @@ public class AgentProfileRequest {
     private String verificationStatus;
     private String verifiedBy;
     private String verificationNotes;
+    private String availabilityStatus;
+    private Long deliveredCount;
+    private Long failedCount;
+    private Long inTransitCount;
 }

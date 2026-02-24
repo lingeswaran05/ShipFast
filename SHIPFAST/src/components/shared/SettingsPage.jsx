@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { User, Mail, Phone, MapPin, Save, Shield, Camera, X, Edit2, Upload, Trash2, Check, Smartphone } from 'lucide-react';
+import { User, Mail, Phone, MapPin, Save, Shield, Camera, X, Edit2, Upload, Trash2 } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import Webcam from 'react-webcam';
 import { toast } from 'sonner';
 import { operationsService } from '../../lib/operationsService';
 
 export function SettingsPage() {
-   const { currentUser, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
+   const { currentUser, shipments, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
    const [requestedRole, setRequestedRole] = useState('agent');
@@ -19,6 +19,17 @@ export function SettingsPage() {
     bloodType: '',
     organDonor: false
   });
+  const [agentInsights, setAgentInsights] = useState({
+    agentId: '',
+    availabilityStatus: 'AVAILABLE',
+    deliveredCount: 0,
+    failedCount: 0,
+    inTransitCount: 0,
+    averageRating: 0,
+    totalRatings: 0,
+    successRate: 0
+  });
+  const [agentDocs, setAgentDocs] = useState({});
   
   // Profile Picture State
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -46,8 +57,72 @@ export function SettingsPage() {
         bloodType: profile.bloodType || '',
         organDonor: Boolean(profile.organDonor)
       });
+      setAgentInsights({
+        agentId: profile.agentId || '',
+        availabilityStatus: String(profile.availabilityStatus || 'AVAILABLE').toUpperCase(),
+        deliveredCount: Number(profile.deliveredCount || 0),
+        failedCount: Number(profile.failedCount || 0),
+        inTransitCount: Number(profile.inTransitCount || 0),
+        averageRating: Number(profile.averageRating || 0),
+        totalRatings: Number(profile.totalRatings || 0),
+        successRate: Number(profile.successRate || 0)
+      });
     });
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'agent') return;
+    const userKey = currentUser?.userId || currentUser?.id || currentUser?.email || 'default';
+    const possibleKeys = [`sf_agent_onboarding_${userKey}`, `agent_onboarding_${userKey}`];
+    let docs = {};
+    for (const key of possibleKeys) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+        if (parsed && Object.keys(parsed).length > 0) {
+          docs = parsed;
+          break;
+        }
+      } catch {
+        docs = {};
+      }
+    }
+    setAgentDocs(docs);
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'agent') return;
+    const normalize = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
+    const identityValues = new Set([
+      currentUser?.userId,
+      currentUser?.id,
+      currentUser?.email,
+      agentInsights.agentId
+    ].filter(Boolean).map((value) => String(value).toLowerCase()));
+
+    const myShipments = (shipments || []).filter((shipment) => {
+      const candidates = [
+        shipment.assignedAgentId,
+        shipment.assignedToAgentId,
+        shipment.deliveredByAgentId,
+        shipment.agentId
+      ].filter(Boolean).map((value) => String(value).toLowerCase());
+      return candidates.some((candidate) => identityValues.has(candidate));
+    });
+
+    const deliveredCount = myShipments.filter((shipment) => normalize(shipment.status) === 'DELIVERED').length;
+    const failedCount = myShipments.filter((shipment) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalize(shipment.status))).length;
+    const inTransitCount = myShipments.filter((shipment) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalize(shipment.status))).length;
+    const totalClosed = deliveredCount + failedCount;
+    const successRate = totalClosed > 0 ? (deliveredCount / totalClosed) * 100 : 0;
+
+    setAgentInsights((prev) => ({
+      ...prev,
+      deliveredCount: Math.max(prev.deliveredCount || 0, deliveredCount),
+      failedCount: Math.max(prev.failedCount || 0, failedCount),
+      inTransitCount: Math.max(prev.inTransitCount || 0, inTransitCount),
+      successRate: prev.successRate > 0 ? prev.successRate : successRate
+    }));
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, agentInsights.agentId, shipments]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -79,7 +154,13 @@ export function SettingsPage() {
          });
          if (currentUser?.role === 'agent') {
            const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
-           await operationsService.upsertAgentProfile(userId, agentProfile);
+           await operationsService.upsertAgentProfile(userId, {
+             ...agentProfile,
+             availabilityStatus: agentInsights.availabilityStatus,
+             deliveredCount: agentInsights.deliveredCount,
+             failedCount: agentInsights.failedCount,
+             inTransitCount: agentInsights.inTransitCount
+           });
          }
          setIsEditing(false);
          toast.success("Details updated successfully");
@@ -307,6 +388,30 @@ export function SettingsPage() {
       </div>
 
       {currentUser?.role === 'agent' && (
+        <>
+        <div className="grid md:grid-cols-5 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Agent ID</div>
+            <div className="text-lg font-bold text-slate-900 mt-1">{agentInsights.agentId || 'N/A'}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Availability</div>
+            <div className="text-lg font-bold text-indigo-600 mt-1">{String(agentInsights.availabilityStatus || 'AVAILABLE').replace(/_/g, ' ')}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Rating</div>
+            <div className="text-lg font-bold text-emerald-600 mt-1">{agentInsights.averageRating.toFixed(1)} / 5.0</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Delivered / Failed</div>
+            <div className="text-lg font-bold text-slate-900 mt-1">{agentInsights.deliveredCount} / {agentInsights.failedCount}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">In Transit</div>
+            <div className="text-lg font-bold text-amber-600 mt-1">{agentInsights.inTransitCount}</div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 bg-slate-50">
             <h3 className="font-bold text-slate-900">Agent Verification Details</h3>
@@ -371,8 +476,32 @@ export function SettingsPage() {
                 <option value="yes">Yes</option>
               </select>
             </div>
+            </div>
           </div>
-        </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-slate-900">Uploaded Verification Documents</h3>
+              <p className="text-sm text-slate-500 mt-1">Stored in browser local storage for admin verification.</p>
+            </div>
+            <div className="p-6 grid md:grid-cols-4 gap-4">
+              {[
+                { label: 'Profile', key: 'profilePhoto' },
+                { label: 'Aadhaar', key: 'aadharCopy' },
+                { label: 'License', key: 'licenseCopy' },
+                { label: 'RC Book', key: 'rcBookCopy' }
+              ].map((doc) => (
+                <div key={doc.key} className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">{doc.label}</div>
+                  {agentDocs?.[doc.key] ? (
+                    <img src={agentDocs[doc.key]} alt={doc.label} className="w-full h-28 object-cover" />
+                  ) : (
+                    <div className="h-28 flex items-center justify-center text-xs text-slate-400">Not uploaded</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
          {currentUser?.role === 'customer' && (

@@ -73,6 +73,10 @@ public class OperationsService {
                 .successRate(100.0)
                 .averageRating(0.0)
                 .totalRatings(0L)
+                .availabilityStatus("AVAILABLE")
+                .deliveredCount(0L)
+                .failedCount(0L)
+                .inTransitCount(0L)
                 .build();
 
         agentRepo.save(Objects.requireNonNull(agent));
@@ -116,6 +120,10 @@ public class OperationsService {
                         .successRate(100.0)
                         .averageRating(0.0)
                         .totalRatings(0L)
+                        .availabilityStatus("AVAILABLE")
+                        .deliveredCount(0L)
+                        .failedCount(0L)
+                        .inTransitCount(0L)
                         .build());
 
         if (request.getLicenseNumber() != null) profile.setLicenseNumber(request.getLicenseNumber());
@@ -128,8 +136,16 @@ public class OperationsService {
         if (request.getVerificationStatus() != null) profile.setVerificationStatus(request.getVerificationStatus().toUpperCase());
         if (request.getVerifiedBy() != null) profile.setVerifiedBy(request.getVerifiedBy());
         if (request.getVerificationNotes() != null) profile.setVerificationNotes(request.getVerificationNotes());
+        if (request.getAvailabilityStatus() != null) profile.setAvailabilityStatus(request.getAvailabilityStatus().toUpperCase());
+        if (request.getDeliveredCount() != null) profile.setDeliveredCount(Math.max(0L, request.getDeliveredCount()));
+        if (request.getFailedCount() != null) profile.setFailedCount(Math.max(0L, request.getFailedCount()));
+        if (request.getInTransitCount() != null) profile.setInTransitCount(Math.max(0L, request.getInTransitCount()));
         if (profile.getAverageRating() == null) profile.setAverageRating(0.0);
         if (profile.getTotalRatings() == null) profile.setTotalRatings(0L);
+        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("AVAILABLE");
+        if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
+        if (profile.getFailedCount() == null) profile.setFailedCount(0L);
+        if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
         profile.setUpdatedAt(LocalDateTime.now());
         if ("VERIFIED".equalsIgnoreCase(profile.getVerificationStatus())) {
             profile.setVerifiedAt(LocalDateTime.now());
@@ -149,6 +165,10 @@ public class OperationsService {
                         .successRate(100.0)
                         .averageRating(0.0)
                         .totalRatings(0L)
+                        .availabilityStatus("AVAILABLE")
+                        .deliveredCount(0L)
+                        .failedCount(0L)
+                        .inTransitCount(0L)
                         .build());
 
         boolean verified = request != null && request.getVerified() != null && request.getVerified();
@@ -159,6 +179,10 @@ public class OperationsService {
         profile.setVerifiedAt(LocalDateTime.now());
         if (profile.getAverageRating() == null) profile.setAverageRating(0.0);
         if (profile.getTotalRatings() == null) profile.setTotalRatings(0L);
+        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("AVAILABLE");
+        if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
+        if (profile.getFailedCount() == null) profile.setFailedCount(0L);
+        if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
 
         agentRepo.save(Objects.requireNonNull(profile));
         return mapToAgentProfileResponse(profile);
@@ -208,6 +232,10 @@ public class OperationsService {
                 .averageRating(profile.getAverageRating() != null ? profile.getAverageRating().doubleValue() : 0.0)
                 .totalRatings(profile.getTotalRatings() != null ? profile.getTotalRatings().longValue() : 0L)
                 .profileImage(profile.getProfileImage())
+                .availabilityStatus(profile.getAvailabilityStatus() != null ? profile.getAvailabilityStatus() : "AVAILABLE")
+                .deliveredCount(profile.getDeliveredCount() != null ? profile.getDeliveredCount() : 0L)
+                .failedCount(profile.getFailedCount() != null ? profile.getFailedCount() : 0L)
+                .inTransitCount(profile.getInTransitCount() != null ? profile.getInTransitCount() : 0L)
                 .build();
     }
 

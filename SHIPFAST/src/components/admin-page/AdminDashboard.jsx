@@ -26,6 +26,9 @@ export function AdminDashboard({ view }) {
         addVehicle,
         updateBranch,
         updateVehicle,
+        removeVehicle,
+        updateBranchStatus,
+        updateVehicleStatus,
         updateStaff,
         removeBranch,
         removeStaff,
@@ -46,16 +49,38 @@ export function AdminDashboard({ view }) {
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, type: '', id: null, title: '', message: '' });
 
   const [newBranch, setNewBranch] = useState({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
-  const [newVehicle, setNewVehicle] = useState({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
+  const [newVehicle, setNewVehicle] = useState({ number: '', type: 'Van', driver: '', driverName: '', seats: 2, rcBook: '', photo: null, status: 'Available' });
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
   const [isEditing, setIsEditing] = useState(false);
     const [roleDrafts, setRoleDrafts] = useState({});
     const [isRefreshing, setIsRefreshing] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [branchTypeFilter, setBranchTypeFilter] = useState('ALL');
+  const [fleetSearch, setFleetSearch] = useState('');
+  const [fleetStatusFilter, setFleetStatusFilter] = useState('ALL');
+  const [staffAudienceFilter, setStaffAudienceFilter] = useState('staff');
+  const [staffSearch, setStaffSearch] = useState('');
   const [agentProfiles, setAgentProfiles] = useState({});
   const [selectedAgentRecord, setSelectedAgentRecord] = useState(null);
   const [isAgentDetailOpen, setIsAgentDetailOpen] = useState(false);
   const [isSavingVerification, setIsSavingVerification] = useState(false);
   const vehicleFileInputRef = useRef(null);
+
+  const agentUsers = useMemo(
+    () => (users || []).filter((u) => String(u.role || '').toLowerCase() === 'agent'),
+    [users]
+  );
+
+  const userNameById = useMemo(() => {
+    const map = {};
+    (users || []).forEach((u) => {
+      const label = u.name || u.email || 'N/A';
+      if (u.userId) map[u.userId] = label;
+      if (u.id) map[u.id] = label;
+      if (u.email) map[u.email] = label;
+    });
+    return map;
+  }, [users]);
   // Handle auto-opening of branch modal from navigation state
   useEffect(() => {
     if (view === 'branches' && location.state?.openBranchId && contextBranches.length > 0) {
@@ -140,7 +165,7 @@ export function AdminDashboard({ view }) {
   };
 
   useEffect(() => {
-    if (view !== 'staff') return;
+    if (!['staff', 'runsheets', 'overview'].includes(view)) return;
     const agents = (users || []).filter((u) => String(u.role || '').toLowerCase() === 'agent');
     if (agents.length === 0) {
       setAgentProfiles({});
@@ -180,18 +205,92 @@ export function AdminDashboard({ view }) {
   const hubCount = (contextBranches || []).filter(b => String(b.type || '').toLowerCase() === 'hub').length;
   const availableFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase() === 'available').length;
   const transitFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase().includes('transit')).length;
+  const isStaffRole = (role) => String(role || '').toLowerCase() !== 'customer';
+
+  const filteredBranches = useMemo(() => {
+    const query = branchSearch.trim().toLowerCase();
+    return (contextBranches || []).filter((branch) => {
+      const matchesType = branchTypeFilter === 'ALL' || String(branch.type || '').toUpperCase() === branchTypeFilter;
+      if (!matchesType) return false;
+      if (!query) return true;
+      return [branch.name, branch.location, branch.state, branch.manager, branch.contact]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [contextBranches, branchSearch, branchTypeFilter]);
+
+  const filteredVehicles = useMemo(() => {
+    const query = fleetSearch.trim().toLowerCase();
+    return (contextVehicles || []).filter((vehicle) => {
+      const status = String(vehicle.status || '').toUpperCase().replace(/ /g, '_');
+      const matchesStatus = fleetStatusFilter === 'ALL' || status === fleetStatusFilter;
+      if (!matchesStatus) return false;
+      if (!query) return true;
+      return [vehicle.number, vehicle.vehicleNumber, vehicle.type, vehicle.driver, vehicle.driverName, userNameById[vehicle.driverUserId], vehicle.status]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [contextVehicles, fleetSearch, fleetStatusFilter, userNameById]);
+
+  const filteredUsers = useMemo(() => {
+    const query = staffSearch.trim().toLowerCase();
+    return (users || []).filter((user) => {
+      const role = String(user.role || 'customer').toLowerCase();
+      if (staffAudienceFilter === 'staff' && !isStaffRole(role)) return false;
+      if (staffAudienceFilter === 'customer' && role !== 'customer') return false;
+      if (!query) return true;
+      return [user.name, user.email, user.userId, user.id, role]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [users, staffAudienceFilter, staffSearch]);
+
+  const filteredStaffCards = useMemo(() => {
+    const query = staffSearch.trim().toLowerCase();
+    return (contextStaff || []).filter((staffMember) => {
+      const role = String(staffMember.role || '').toLowerCase();
+      if (staffAudienceFilter === 'customer') return false;
+      if (staffAudienceFilter === 'staff' && !isStaffRole(role)) return false;
+      if (!query) return true;
+      return [staffMember.name, staffMember.role, staffMember.branch, staffMember.id]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [contextStaff, staffAudienceFilter, staffSearch]);
+
+  const shipmentKpis = useMemo(() => {
+    const total = shipments.length;
+    const delivered = shipments.filter((s) => String(s.status || '').toLowerCase() === 'delivered').length;
+    const inProgress = shipments.filter((s) => ['booked', 'in transit', 'out for delivery', 'received at hub']
+      .includes(String(s.status || '').toLowerCase())).length;
+    const failed = shipments.filter((s) => ['failed', 'failed attempt', 'cancelled']
+      .includes(String(s.status || '').toLowerCase())).length;
+    const deliveryRate = total > 0 ? Math.round((delivered / total) * 100) : 0;
+    const avgRevenue = total > 0 ? totalRevenue / total : 0;
+    const codDelivered = shipments
+      .filter((s) => String(s.status || '').toLowerCase() === 'delivered' && ['cod', 'cash'].includes(String(s.paymentMode || '').toLowerCase()))
+      .reduce((sum, s) => sum + (Number(s.cost) || 0), 0);
+
+    return { total, delivered, inProgress, failed, deliveryRate, avgRevenue, codDelivered };
+  }, [shipments, totalRevenue]);
   
   // --- Handlers ---
-  const handleBranchSubmit = (e) => {
+  const handleBranchSubmit = async (e) => {
       e.preventDefault();
-      if (isEditing) {
-          updateBranch(newBranch);
-      } else {
-          addBranch(newBranch);
+      try {
+        if (isEditing) {
+            await updateBranch(newBranch);
+            toast.success('Branch updated');
+        } else {
+            await addBranch(newBranch);
+            toast.success('Branch added');
+        }
+        setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
+        setIsEditing(false);
+        setShowBranchModal(false);
+      } catch (error) {
+        toast.error(error.message || 'Failed to save branch');
       }
-      setNewBranch({ name: '', type: 'Branch', state: '', manager: '', contact: '', staffCount: 0, location: '', description: '' });
-      setIsEditing(false);
-      setShowBranchModal(false);
   };
 
   const confirmDelete = (type, id, title, message) => {
@@ -201,22 +300,41 @@ export function AdminDashboard({ view }) {
   const executeDelete = () => {
     if (deleteConfirmation.type === 'branch') {
         removeBranch(deleteConfirmation.id);
+    } else if (deleteConfirmation.type === 'vehicle') {
+        removeVehicle(deleteConfirmation.id);
     } else if (deleteConfirmation.type === 'staff') {
         removeStaff(deleteConfirmation.id);
     }
     setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' });
   };
 
-  const handleVehicleSubmit = (e) => {
+  const handleVehicleSubmit = async (e) => {
       e.preventDefault();
-      if (isEditing) {
-          updateVehicle(newVehicle);
-      } else {
-          addVehicle(newVehicle);
+      const selectedAgent = agentUsers.find(
+        (agent) =>
+          (agent.userId || agent.id || agent.email) === newVehicle.driver ||
+          agent.email === newVehicle.driver
+      );
+      const payload = {
+        ...newVehicle,
+        driverUserId: selectedAgent?.userId || selectedAgent?.id || selectedAgent?.email || newVehicle.driver || '',
+        driverName: selectedAgent?.name || selectedAgent?.email || newVehicle.driverName || ''
+      };
+
+      try {
+        if (isEditing) {
+            await updateVehicle(payload);
+            toast.success('Vehicle updated');
+        } else {
+            await addVehicle(payload);
+            toast.success('Vehicle added');
+        }
+        setNewVehicle({ number: '', type: 'Van', driver: '', driverName: '', seats: 2, rcBook: '', photo: null, status: 'Available' });
+        setIsEditing(false);
+        setShowVehicleModal(false);
+      } catch (error) {
+        toast.error(error.message || 'Failed to save vehicle');
       }
-      setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
-      setIsEditing(false);
-      setShowVehicleModal(false);
   };
 
   const handleVehiclePhotoUpload = (e) => {
@@ -243,10 +361,14 @@ export function AdminDashboard({ view }) {
 
   const openVehicleModal = (vehicle = null) => {
       if (vehicle) {
-          setNewVehicle(vehicle);
+          setNewVehicle({
+            ...vehicle,
+            driver: vehicle.driverUserId || vehicle.driver || '',
+            driverName: vehicle.driverName || userNameById[vehicle.driverUserId] || vehicle.driver || ''
+          });
           setIsEditing(true);
       } else {
-          setNewVehicle({ number: '', type: 'Van', driver: 'N/A', seats: 2, rcBook: '', photo: null, status: 'Available' });
+          setNewVehicle({ number: '', type: 'Van', driver: '', driverName: '', seats: 2, rcBook: '', photo: null, status: 'Available' });
           setIsEditing(false);
       }
       setShowVehicleModal(true);
@@ -610,29 +732,29 @@ export function AdminDashboard({ view }) {
                             </select>
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-4">
+                         <div className="grid grid-cols-2 gap-4">
                              <select 
                                 className="w-full p-3 border rounded-lg" 
-                                value={newVehicle.driver} 
-                                onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})}
+                                 value={newVehicle.driver} 
+                                 onChange={e => setNewVehicle({...newVehicle, driver: e.target.value})}
                              >
-                                <option value="N/A">Select Driver</option>
-                                {contextStaff?.filter(s => s.role === 'Driver').map(s => (
-                                    <option key={s.id} value={s.name}>{s.name}</option>
-                                ))}
+                                <option value="">Assign Agent</option>
+                                {agentUsers.map((agent) => {
+                                    const key = agent.userId || agent.id || agent.email;
+                                    const label = agent.name || agent.email || key;
+                                    return (
+                                      <option key={key} value={key}>{label}</option>
+                                    );
+                                })}
                              </select>
                              <input className="w-full p-3 border rounded-lg" type="number" placeholder="Seats" value={newVehicle.seats} onChange={e => setNewVehicle({...newVehicle, seats: e.target.value})} />
                         </div>
                         
                         <input className="w-full p-3 border rounded-lg" placeholder="RC Book Details" value={newVehicle.rcBook} onChange={e => setNewVehicle({...newVehicle, rcBook: e.target.value})} />
 
-                        {isEditing && (
-                            <select className="w-full p-3 border rounded-lg" value={newVehicle.status} onChange={e => setNewVehicle({...newVehicle, status: e.target.value})}>
-                                <option>Available</option>
-                                <option>In Transit</option>
-                                <option>Delivering</option>
-                            </select>
-                        )}
+                        <div className="text-xs text-slate-500">
+                          Vehicle status can be changed directly from the fleet table.
+                        </div>
                         <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">{isEditing ? 'Save Changes' : 'Add Vehicle'}</button>
                     </form>
                 </div>
@@ -964,6 +1086,24 @@ export function AdminDashboard({ view }) {
               </button>
             </div>
 
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row gap-3">
+              <input
+                value={branchSearch}
+                onChange={(e) => setBranchSearch(e.target.value)}
+                placeholder="Search branch, manager, location..."
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={branchTypeFilter}
+                onChange={(e) => setBranchTypeFilter(e.target.value)}
+                className="px-4 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="ALL">All Types</option>
+                <option value="BRANCH">Branch</option>
+                <option value="HUB">Hub</option>
+              </select>
+            </div>
+
             <div className="grid md:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                 <div className="text-xs uppercase text-slate-500 font-semibold">Total Branches</div>
@@ -997,10 +1137,10 @@ export function AdminDashboard({ view }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {contextBranches && contextBranches.map(branch => (
-                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openBranchModal(branch)}>
+                            {filteredBranches.map(branch => (
+                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors">
                                     <td className="px-6 py-4 font-medium text-slate-900">
-                                        <div className="hover:text-indigo-600 transition-colors">{branch.name}</div>
+                                        <div>{branch.name}</div>
                                         <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -1011,21 +1151,51 @@ export function AdminDashboard({ view }) {
                                     <td className="px-6 py-4 text-slate-600">{branch.manager || 'N/A'}</td>
                                     <td className="px-6 py-4 text-slate-600">{branch.contact || 'N/A'}</td>
                                     <td className="px-6 py-4">
-                                        <span className={`flex items-center gap-1 text-sm font-medium ${branch.status === 'Active' ? 'text-green-600' : 'text-amber-600'}`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${branch.status === 'Active' ? 'bg-green-600' : 'bg-amber-600'}`}></span>
-                                            {branch.status}
-                                        </span>
+                                        <select
+                                          value={branch.status || 'Active'}
+                                          onChange={async (e) => {
+                                            const nextStatus = e.target.value;
+                                            try {
+                                              await updateBranchStatus(branch.id || branch.branchId, nextStatus);
+                                              toast.success('Branch status updated');
+                                            } catch (error) {
+                                              toast.error(error.message || 'Failed to update branch status');
+                                            }
+                                          }}
+                                          className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
+                                        >
+                                          <option value="Active">Active</option>
+                                          <option value="Inactive">Inactive</option>
+                                          <option value="Under Maintenance">Under Maintenance</option>
+                                        </select>
                                     </td>
                                     <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                                        <button onClick={() => openBranchModal(branch)} className="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openBranchModal(branch);
+                                          }}
+                                          className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
+                                        >
                                             <Edit className="w-4 h-4" />
                                         </button>
-                                        <button onClick={() => confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch? This action cannot be undone.')} className="text-red-500 hover:text-red-700 text-sm font-medium">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch? This action cannot be undone.');
+                                          }}
+                                          className="text-red-500 hover:text-red-700 text-sm font-medium"
+                                        >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </td>
                                 </tr>
                             ))}
+                            {filteredBranches.length === 0 && (
+                              <tr>
+                                <td colSpan="6" className="px-6 py-8 text-center text-slate-500">No branches match current filters.</td>
+                              </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>
@@ -1138,6 +1308,26 @@ export function AdminDashboard({ view }) {
                     Add Vehicle
                   </button>
                 </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row gap-3">
+                    <input
+                      value={fleetSearch}
+                      onChange={(e) => setFleetSearch(e.target.value)}
+                      placeholder="Search vehicle number, driver, type..."
+                      className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <select
+                      value={fleetStatusFilter}
+                      onChange={(e) => setFleetStatusFilter(e.target.value)}
+                      className="px-4 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="ALL">All Status</option>
+                      <option value="AVAILABLE">Available</option>
+                      <option value="IN_TRANSIT">In Transit</option>
+                      <option value="MAINTENANCE">Maintenance</option>
+                      <option value="OFFLINE">Offline</option>
+                    </select>
+                </div>
                 
                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
@@ -1152,16 +1342,20 @@ export function AdminDashboard({ view }) {
                              </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                                                         {contextVehicles && contextVehicles.map((vehicle, index) => {
-                                                             const driverName = typeof vehicle?.driver === 'string' && vehicle.driver.trim() ? vehicle.driver : 'N/A';
+                                                         {filteredVehicles.map((vehicle, index) => {
+                                                             const resolvedDriverName =
+                                                               vehicle?.driverName ||
+                                                               userNameById[vehicle?.driverUserId] ||
+                                                               (typeof vehicle?.driver === 'string' && vehicle.driver.trim() ? vehicle.driver : '');
+                                                             const driverName = resolvedDriverName || 'N/A';
                                                              return (
                                <tr key={index} className="hover:bg-slate-50 transition-colors">
                                   <td className="px-6 py-4 font-medium text-slate-900">
                                       <div className="flex items-center gap-3">
                                           {vehicle.photo && <img src={vehicle.photo} alt="Car" className="w-10 h-10 rounded object-cover border border-slate-200" />}
                                           <div>
-                                              <div>{vehicle.id}</div>
-                                              <div className="text-xs text-slate-500 max-w-[100px] truncate">{vehicle.rcBook}</div>
+                                              <div>{vehicle.number || vehicle.vehicleNumber || vehicle.id}</div>
+                                              <div className="text-xs text-slate-500 max-w-[160px] truncate">{vehicle.rcBook || 'No RC details'}</div>
                                           </div>
                                       </div>
                                   </td>
@@ -1170,34 +1364,59 @@ export function AdminDashboard({ view }) {
                                                  {driverName !== 'N/A' ? (
                                         <div className="flex items-center gap-2">
                                            <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
-                                                             {driverName.charAt(0)}
+                                                              {driverName.charAt(0)}
                                            </div>
-                                                         <span className="text-slate-900">{driverName}</span>
+                                                          <span className="text-slate-900">{driverName}</span>
                                         </div>
                                      ) : (
-                                        <button 
-                                            onClick={() => openVehicleModal(vehicle)}
-                                            className="text-xs text-indigo-600 font-medium hover:underline"
-                                        >
-                                            Assign Driver
-                                        </button>
+                                         <button 
+                                             onClick={() => openVehicleModal(vehicle)}
+                                             className="text-xs text-indigo-600 font-medium hover:underline"
+                                         >
+                                             Assign Driver
+                                         </button>
                                      )}
                                   </td>
                                   <td className="px-6 py-4">
-                                     <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                        vehicle.status === 'Available' ? 'bg-green-50 text-green-700' : 
-                                        vehicle.status === 'In Transit' ? 'bg-indigo-50 text-indigo-700' : 'bg-orange-50 text-orange-700'
-                                     }`}>
-                                        {vehicle.status}
-                                     </span>
+                                     <select
+                                       value={vehicle.status || 'Available'}
+                                       onChange={async (e) => {
+                                          const nextStatus = e.target.value;
+                                          try {
+                                            await updateVehicleStatus(vehicle.id || vehicle.vehicleId, nextStatus);
+                                            toast.success('Fleet status updated');
+                                          } catch (error) {
+                                            toast.error(error.message || 'Failed to update fleet status');
+                                          }
+                                       }}
+                                       className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
+                                     >
+                                       <option value="Available">Available</option>
+                                       <option value="In Transit">In Transit</option>
+                                       <option value="Maintenance">Maintenance</option>
+                                       <option value="Offline">Offline</option>
+                                     </select>
                                   </td>
                                   <td className="px-6 py-4 text-right">
-                                     <button onClick={() => openVehicleModal(vehicle)} className="text-indigo-600 hover:text-indigo-900 transition-colors flex items-center gap-1 justify-end ml-auto">
-                                        <Edit className="w-4 h-4" /> Edit
-                                     </button>
+                                     <div className="inline-flex items-center gap-3">
+                                       <button onClick={() => openVehicleModal(vehicle)} className="text-indigo-600 hover:text-indigo-900 transition-colors flex items-center gap-1 justify-end ml-auto">
+                                          <Edit className="w-4 h-4" /> Edit
+                                       </button>
+                                       <button
+                                         onClick={() => confirmDelete('vehicle', vehicle.id || vehicle.vehicleId, 'Delete Vehicle', 'Are you sure you want to delete this vehicle?')}
+                                         className="text-red-500 hover:text-red-700 transition-colors"
+                                       >
+                                         <Trash2 className="w-4 h-4" />
+                                       </button>
+                                     </div>
                                   </td>
-                                                             </tr>
-                                                         )})}
+                                                              </tr>
+                                                          )})}
+                                                         {filteredVehicles.length === 0 && (
+                                                            <tr>
+                                                              <td colSpan="5" className="px-6 py-8 text-center text-slate-500">No vehicles match current filters.</td>
+                                                            </tr>
+                                                         )}
                           </tbody>
                        </table>
                     </div>
@@ -1286,6 +1505,30 @@ export function AdminDashboard({ view }) {
                                     <div className="p-4 border-b border-slate-100 bg-slate-50">
                                         <h3 className="font-bold text-slate-900">All User Access Control</h3>
                                     </div>
+                                    <div className="p-4 border-b border-slate-100 bg-white flex flex-col md:flex-row md:items-center gap-3">
+                                      <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                                        <button
+                                          type="button"
+                                          onClick={() => setStaffAudienceFilter('staff')}
+                                          className={`px-4 py-2 text-sm font-semibold ${staffAudienceFilter === 'staff' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                                        >
+                                          Staff / Agents
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setStaffAudienceFilter('customer')}
+                                          className={`px-4 py-2 text-sm font-semibold border-l border-slate-200 ${staffAudienceFilter === 'customer' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                                        >
+                                          Customers
+                                        </button>
+                                      </div>
+                                      <input
+                                        value={staffSearch}
+                                        onChange={(e) => setStaffSearch(e.target.value)}
+                                        placeholder="Search user by name / email / id..."
+                                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      />
+                                    </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left">
                                             <thead className="bg-slate-50 border-b border-slate-200">
@@ -1298,7 +1541,7 @@ export function AdminDashboard({ view }) {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {(users || []).map(user => {
+                                                {filteredUsers.map(user => {
                                                     const isAdmin = String(user.role || '').toLowerCase() === 'admin';
                                                     const roleValue = roleDrafts[user.email] || user.role || 'customer';
 
@@ -1357,6 +1600,13 @@ export function AdminDashboard({ view }) {
                                                         </tr>
                                                     );
                                                 })}
+                                                {filteredUsers.length === 0 && (
+                                                  <tr>
+                                                    <td colSpan="5" className="px-6 py-8 text-center text-slate-500">
+                                                      No users found for selected filter.
+                                                    </td>
+                                                  </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -1461,16 +1711,18 @@ export function AdminDashboard({ view }) {
                                     </div>
                                 </div>
                 
-                <button 
-                    onClick={() => openStaffModal()}
-                    className="mb-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 float-right relative -top-16"
-                >
-                    <Plus className="w-4 h-4" />
-                    Add Staff
-                </button>
+                {staffAudienceFilter === 'staff' && (
+                  <>
+                    <button 
+                        onClick={() => openStaffModal()}
+                        className="mb-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-2 float-right relative -top-16"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add Staff
+                    </button>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 clear-both">
-                   {contextStaff && contextStaff.map(s => (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 clear-both">
+                   {filteredStaffCards.map(s => (
                       <div key={s.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
                          <div className="flex gap-4">
                             <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600">{(typeof s?.name === 'string' && s.name.length > 0 ? s.name.charAt(0) : 'U')}</div>
@@ -1496,7 +1748,9 @@ export function AdminDashboard({ view }) {
                          </div>
                       </div>
                    ))}
-                </div>
+                    </div>
+                  </>
+                )}
              </div>
         )}
 
@@ -1654,7 +1908,7 @@ export function AdminDashboard({ view }) {
 
         {view === 'runsheets' && (
              <AdminRunSheetView 
-                 todaysDeliveries={shipments.filter(s => ['RECEIVED AT HUB', 'BOOKED', 'OUT FOR DELIVERY'].includes(String(s.status || '').toUpperCase().replace(/_/g, ' ')))}
+                 shipments={shipments}
                  contextStaff={contextStaff}
                  agentProfiles={agentProfiles}
                  currentUser={currentUser}
@@ -1666,10 +1920,18 @@ export function AdminDashboard({ view }) {
 }
 
 
-function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {}, currentUser, onRefresh }) {
+function AdminRunSheetView({ shipments = [], contextStaff, agentProfiles = {}, currentUser, onRefresh }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState('AUTO');
     const [generatedSheet, setGeneratedSheet] = useState(null);
+    const [statusFilter, setStatusFilter] = useState('PENDING');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const normalizeStatus = (value) => String(value || '').toUpperCase().replace(/_/g, ' ').trim();
+    const isPendingStatus = (status) => ['BOOKED', 'RECEIVED AT HUB'].includes(normalizeStatus(status));
+    const isInProgressStatus = (status) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalizeStatus(status));
+    const isSuccessStatus = (status) => normalizeStatus(status) === 'DELIVERED';
+    const isFailedStatus = (status) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalizeStatus(status));
 
     const mappedAgents = useMemo(() => {
         return (contextStaff || [])
@@ -1681,39 +1943,85 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                     ...staff,
                     userKey,
                     runtimeAgentId: profile?.agentId || userKey,
-                    verificationStatus: String(profile?.verificationStatus || '').toUpperCase() || 'PENDING'
+                    verificationStatus: String(profile?.verificationStatus || '').toUpperCase() || 'PENDING',
+                    availabilityStatus: String(profile?.availabilityStatus || 'AVAILABLE').toUpperCase()
                 };
             })
             .filter((staff) => staff.runtimeAgentId);
     }, [contextStaff, agentProfiles]);
 
-    const toggleSelection = (id) => {
-        setSelectedIds(prev => 
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
-    };
+    const shipmentMetrics = useMemo(() => {
+        const total = shipments.length;
+        const successful = shipments.filter((s) => isSuccessStatus(s.status)).length;
+        const failed = shipments.filter((s) => isFailedStatus(s.status)).length;
+        const inProgress = shipments.filter((s) => isInProgressStatus(s.status)).length;
+        return { total, successful, failed, inProgress };
+    }, [shipments]);
 
-    const getActiveAgents = () => mappedAgents.filter(s =>
-        String(s.status || 'active').toLowerCase() !== 'inactive'
+    const filteredShipments = useMemo(() => {
+        const query = searchTerm.trim().toLowerCase();
+        return shipments.filter((shipment) => {
+            const status = normalizeStatus(shipment.status);
+            if (statusFilter === 'PENDING' && !isPendingStatus(status)) return false;
+            if (statusFilter === 'IN_PROGRESS' && !isInProgressStatus(status)) return false;
+            if (statusFilter === 'SUCCESS' && !isSuccessStatus(status)) return false;
+            if (statusFilter === 'FAILED' && !isFailedStatus(status)) return false;
+
+            if (!query) return true;
+            const receiver = shipment.receiver || shipment.receiverAddress || {};
+            return [
+                shipment.id,
+                shipment.trackingId,
+                shipment.trackingNumber,
+                shipment.type,
+                shipment.status,
+                receiver.name,
+                receiver.city
+            ]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(query));
+        });
+    }, [shipments, searchTerm, statusFilter]);
+
+    const assignableShipments = useMemo(
+        () => filteredShipments.filter((s) => isPendingStatus(s.status)),
+        [filteredShipments]
     );
 
+    const toggleSelection = (id) => {
+        setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+    };
+
+    const getActiveAgents = () =>
+      mappedAgents.filter((agent) => {
+        const userStatus = String(agent.status || 'active').toLowerCase();
+        const availability = String(agent.availabilityStatus || 'AVAILABLE').toUpperCase();
+        if (userStatus === 'inactive') return false;
+        if (availability === 'OFFLINE') return false;
+        if (availability === 'IN_TRANSIT') return false;
+        return true;
+      });
+
     const handleAssign = async () => {
-        if (selectedIds.length === 0) return toast.error("Select shipments to assign");
+        if (selectedIds.length === 0) return toast.error('Select shipments to assign');
         if (selectedAgentId === 'AUTO') {
             await handleAutoDistribute();
             return;
         }
-        if (!selectedAgentId) return toast.error("Please select an agent to assign the run sheet.");
+        if (!selectedAgentId) return toast.error('Please select an agent to assign the run sheet.');
 
-        const selectedShipments = todaysDeliveries.filter(s => selectedIds.includes(s.id));
+        const selectedShipments = assignableShipments.filter((s) => selectedIds.includes(s.id));
+        if (selectedShipments.length === 0) return toast.error('No pending shipments selected');
+
         const selectedAgent = mappedAgents.find((agent) => agent.runtimeAgentId === selectedAgentId || agent.userKey === selectedAgentId);
         const agentName = selectedAgent?.name || selectedAgent?.email || 'Selected Agent';
+        const trackingIds = selectedShipments.map((s) => s.id);
 
         try {
             const response = await operationsService.createRunSheet({
                 agentId: selectedAgentId,
                 hubId: 'HUB-DEFAULT',
-                shipmentTrackingNumbers: selectedIds
+                shipmentTrackingNumbers: trackingIds
             });
 
             const sheet = {
@@ -1724,7 +2032,7 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
             };
             setGeneratedSheet(sheet);
             setSelectedIds([]);
-            toast.success(`Run Sheet ${sheet.id} Generated`);
+            toast.success(`Run Sheet ${sheet.id} generated`);
         } catch (error) {
             const sheet = {
                 id: `RS-${Date.now()}`,
@@ -1739,18 +2047,17 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
     };
 
     const handleAutoDistribute = async () => {
-        const targetIds = selectedIds.length > 0 ? selectedIds : todaysDeliveries.map(s => s.id);
-        if (targetIds.length === 0) return toast.error('No shipments to assign');
+        const targetIds = selectedIds.length > 0 ? selectedIds : assignableShipments.map((s) => s.id);
+        if (targetIds.length === 0) return toast.error('No pending shipments to assign');
 
         const activeAgents = getActiveAgents();
-
         if (activeAgents.length === 0) return toast.error('No active agents available');
 
         const loadMap = {};
-        activeAgents.forEach(agent => {
+        activeAgents.forEach((agent) => {
             const agentId = agent.runtimeAgentId;
             const userKey = agent.userKey;
-            loadMap[agentId] = todaysDeliveries.filter(s => s.assignedAgentId === agentId || s.assignedAgentId === userKey).length;
+            loadMap[agentId] = shipments.filter((s) => s.assignedAgentId === agentId || s.assignedAgentId === userKey).length;
         });
 
         for (const shipmentId of targetIds) {
@@ -1760,25 +2067,29 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                 return loadMap[candidateId] < loadMap[leastId] ? candidate : least;
             });
             const nextAgentId = nextAgent.runtimeAgentId;
-            await operationsService.createRunSheet({
-                agentId: nextAgentId,
-                hubId: 'HUB-DEFAULT',
-                shipmentTrackingNumbers: [shipmentId]
-            });
-            loadMap[nextAgentId] += 1;
+            try {
+              await operationsService.createRunSheet({
+                  agentId: nextAgentId,
+                  hubId: 'HUB-DEFAULT',
+                  shipmentTrackingNumbers: [shipmentId]
+              });
+              loadMap[nextAgentId] += 1;
+            } catch (error) {
+              console.warn(`Failed to assign ${shipmentId}`, error);
+            }
         }
 
-        toast.success(`Auto-assigned ${targetIds.length} shipments to available agents`);
+        toast.success(`Auto-assigned ${targetIds.length} shipments`);
         setSelectedIds([]);
         await onRefresh?.();
     };
-    
+
     return (
          <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">Admin Run Sheet Master</h1>
-                <p className="text-slate-600">Assign pending deliveries to any agent globally</p>
+                <p className="text-slate-600">Global shipment orchestration with live assignment controls</p>
               </div>
               <div className="flex gap-4 items-center">
                   {generatedSheet && (
@@ -1809,7 +2120,7 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                                        </tr>
                                    </thead>
                                    <tbody>
-                                       {generatedSheet.items.map(s => {
+                                       {generatedSheet.items.map((s) => {
                                            const receiverDetails = s.receiver || s.receiverAddress || {};
                                            return (
                                            <tr key={`gen-${s.id}`}>
@@ -1819,12 +2130,10 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                                                    <div className="text-slate-500">{receiverDetails.address || ''}, {receiverDetails.city || ''}</div>
                                                </td>
                                                <td className="p-3 border">{s.type}</td>
-                                               <td className="p-3 border text-right font-mono">
-                                                   {s.paymentMode === 'Cash' || s.paymentMode === 'COD' ? `₹${s.cost}` : '-'}
-                                               </td>
+                                               <td className="p-3 border text-right font-mono">{s.paymentMode === 'Cash' || s.paymentMode === 'COD' ? `Rs ${s.cost}` : '-'}</td>
                                                <td className="p-3 border"></td>
                                            </tr>
-                                       )})}
+                                       );})}
                                    </tbody>
                                </table>
                                <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
@@ -1841,9 +2150,9 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                       onChange={(e) => setSelectedAgentId(e.target.value)}
                   >
                       <option value="AUTO">Auto Select (Recommended)</option>
-                      {mappedAgents.map(agent => (
+                      {getActiveAgents().map((agent) => (
                           <option key={`opt-${agent.runtimeAgentId}`} value={agent.runtimeAgentId}>
-                              {agent.name || agent.email} ({agent.branch || 'Unassigned'})
+                              {agent.name || agent.email} ({agent.branch || 'Unassigned'}) [{agent.availabilityStatus || 'AVAILABLE'}]
                           </option>
                       ))}
                    </select>
@@ -1864,13 +2173,56 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Total Shipments</div>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{shipmentMetrics.total}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Successful</div>
+                <div className="text-2xl font-bold text-emerald-600 mt-1">{shipmentMetrics.successful}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">In Progress</div>
+                <div className="text-2xl font-bold text-indigo-600 mt-1">{shipmentMetrics.inProgress}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Failed</div>
+                <div className="text-2xl font-bold text-red-600 mt-1">{shipmentMetrics.failed}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-xs uppercase text-slate-500 font-semibold">Ready To Assign</div>
+                <div className="text-2xl font-bold text-amber-600 mt-1">{assignableShipments.length}</div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row gap-3">
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by tracking ID, city, receiver..."
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-4 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="PENDING">Pending</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="SUCCESS">Successful</option>
+                <option value="FAILED">Failed</option>
+                <option value="ALL">All</option>
+              </select>
+            </div>
+
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                  <span className="font-semibold text-slate-700">All System Pending Deliveries</span>
-                  <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{todaysDeliveries.length} Shipments</span>
+                  <span className="font-semibold text-slate-700">Shipment Assignment Queue</span>
+                  <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{assignableShipments.length} pending</span>
                </div>
                <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-                        {todaysDeliveries.length > 0 ? todaysDeliveries.map(s => {
+                        {assignableShipments.length > 0 ? assignableShipments.map((s) => {
                             const receiverDetails = s.receiver || s.receiverAddress || {};
                             return (
                             <div key={`pend-${s.id}`} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
@@ -1884,20 +2236,20 @@ function AdminRunSheetView({ todaysDeliveries, contextStaff, agentProfiles = {},
                         </div>
                         <div className="flex-1">
                            <div className="font-medium text-slate-900">{s.id}</div>
-                           <div className="text-sm text-slate-500">{receiverDetails.city || 'N/A'} • <span className="text-indigo-600 font-medium">{s.type}</span></div>
+                           <div className="text-sm text-slate-500">{receiverDetails.city || 'N/A'} - <span className="text-indigo-600 font-medium">{s.type}</span></div>
+                           <div className="text-xs text-slate-500 mt-1">Status: {s.status}</div>
                         </div>
                         <div className="text-right text-sm">
-                           <div className="font-medium text-slate-900">COD: ₹{s.cost}</div>
+                           <div className="font-medium text-slate-900">COD: Rs {s.cost}</div>
                            <div className="text-slate-500">{s.weight} kg</div>
                         </div>
                      </div>
-                        )}) : (
-                      <div className="p-8 text-center text-slate-500">No shipments pending for run sheet globally.</div>
+                        );}) : (
+                      <div className="p-8 text-center text-slate-500">No pending shipments for selected filter.</div>
                   )}
                </div>
             </div>
          </div>
     );
 }
-
 

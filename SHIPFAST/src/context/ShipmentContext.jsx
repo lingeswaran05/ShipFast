@@ -310,9 +310,16 @@ export function ShipmentProvider({ children }) {
           });
 
           const user = applyRoleOverride(baseUser);
+          syncUserDirectory(user);
+
+          // Some auth providers return only registration confirmation without login tokens.
+          if (baseUser?.requiresLogin) {
+            addNotification('Registration successful. Please login to continue.', 'customer');
+            return user;
+          }
+
           setCurrentUser(user);
           authStorage.setCurrentUser(user);
-          syncUserDirectory(user);
 
           let userShipments = [];
           try {
@@ -578,7 +585,7 @@ export function ShipmentProvider({ children }) {
       return newBranch;
   };
   
-    const removeBranch = async (branchId) => {
+  const removeBranch = async (branchId) => {
       await adminService.deleteBranch(branchId);
       setBranches(prev => prev.filter(b => b.id !== branchId && b.branchId !== branchId));
       addNotification('Branch removed successfully.', 'admin');
@@ -593,7 +600,7 @@ export function ShipmentProvider({ children }) {
       return savedBranch;
   };
 
-    const addVehicle = async (vehicleData) => {
+  const addVehicle = async (vehicleData) => {
       const newVehicle = await adminService.createVehicle(vehicleData);
       setVehicles(prev => [newVehicle, ...prev]);
       addNotification(`Vehicle ${vehicleData.number || vehicleData.vehicleNumber} added to fleet.`, 'admin');
@@ -601,10 +608,45 @@ export function ShipmentProvider({ children }) {
       return newVehicle;
   };
 
-    const updateVehicle = async (updatedVehicle) => {
+  const updateVehicle = async (updatedVehicle) => {
       const savedVehicle = await adminService.updateVehicle(updatedVehicle.id || updatedVehicle.vehicleId || updatedVehicle.number, updatedVehicle);
       setVehicles(prev => prev.map(v => (v.id === savedVehicle.id || v.vehicleId === savedVehicle.vehicleId) ? savedVehicle : v));
       addNotification(`Vehicle ${savedVehicle.number || savedVehicle.id} updated successfully.`, 'admin');
+      setLastDataSyncAt(new Date().toISOString());
+      return savedVehicle;
+  };
+
+  const removeVehicle = async (vehicleId) => {
+      await adminService.deleteVehicle(vehicleId);
+      setVehicles(prev => prev.filter(v => v.id !== vehicleId && v.vehicleId !== vehicleId));
+      addNotification('Vehicle removed successfully.', 'admin');
+      setLastDataSyncAt(new Date().toISOString());
+  };
+
+  const updateBranchStatus = async (branchId, status) => {
+      const existing = branches.find((b) => b.id === branchId || b.branchId === branchId);
+      if (!existing) {
+        throw new Error('Branch not found');
+      }
+      const savedBranch = await adminService.updateBranch(branchId, {
+        ...existing,
+        status
+      });
+      setBranches(prev => prev.map(b => (b.id === savedBranch.id || b.branchId === savedBranch.branchId) ? savedBranch : b));
+      setLastDataSyncAt(new Date().toISOString());
+      return savedBranch;
+  };
+
+  const updateVehicleStatus = async (vehicleId, status) => {
+      const existing = vehicles.find((v) => v.id === vehicleId || v.vehicleId === vehicleId);
+      if (!existing) {
+        throw new Error('Vehicle not found');
+      }
+      const savedVehicle = await adminService.updateVehicle(vehicleId, {
+        ...existing,
+        status
+      });
+      setVehicles(prev => prev.map(v => (v.id === savedVehicle.id || v.vehicleId === savedVehicle.vehicleId) ? savedVehicle : v));
       setLastDataSyncAt(new Date().toISOString());
       return savedVehicle;
   };
@@ -688,6 +730,23 @@ export function ShipmentProvider({ children }) {
 
   const getRoleNotifications = (role) => {
       return notifications.filter(n => !n.role || n.role === role || n.role === 'all');
+  };
+
+  const notifyAdminFromAgent = async (message) => {
+      const text = String(message || '').trim();
+      if (!text) throw new Error('Message is required');
+
+      const sender = currentUser?.name || currentUser?.email || currentUser?.userId || 'Agent';
+      const composed = `Agent message from ${sender}: ${text}`;
+
+      try {
+        await communicationService.sendNotification('ADMIN', 'IN_APP', composed);
+      } catch {
+        // Non-blocking: fallback to in-app notification state
+      }
+
+      addNotification(composed, 'admin', 'INFO');
+      return true;
   };
 
     const getSupportTickets = async (userId = null) => {
@@ -815,6 +874,9 @@ export function ShipmentProvider({ children }) {
       updateBranch,
       addVehicle,
       updateVehicle,
+      removeVehicle,
+      updateBranchStatus,
+      updateVehicleStatus,
       addStaff,
       removeStaff,
       updateStaff,
@@ -836,6 +898,7 @@ export function ShipmentProvider({ children }) {
       deleteSupportTicket,
       refreshUserNotifications,
       getRoleNotifications,
+      notifyAdminFromAgent,
       calculateRate,
       clearAllData
     }}>

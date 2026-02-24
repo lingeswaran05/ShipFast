@@ -26,4 +26,8 @@ public class AgentProfileResponse {
     private Double averageRating;
     private Long totalRatings;
     private String profileImage;
+    private String availabilityStatus;
+    private Long deliveredCount;
+    private Long failedCount;
+    private Long inTransitCount;
 }

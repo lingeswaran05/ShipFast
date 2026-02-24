@@ -197,26 +197,12 @@ export function LoginPage() {
             <div className="pt-6 border-t border-slate-200">
               <div className="flex items-center gap-2 mb-3">
                 <Shield className="w-5 h-5 text-blue-600" />
-                <p className="text-slate-700 font-semibold">Demo Login Guide:</p>
+                <p className="text-slate-700 font-semibold">Authorized Access Only</p>
               </div>
               <div className="space-y-3 bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-4 border border-slate-200">
-                <div className="text-sm space-y-2">
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">⚙️ Admin:</span>
-                    <code className="text-purple-600 font-mono bg-white px-2 py-1 rounded flex-1">717823s132@kce.ac.in + any password</code>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">🏢 Owner:</span>
-                    <code className="text-orange-600 font-mono bg-white px-2 py-1 rounded flex-1">lingesw0561@gmail.com + any password</code>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">👤 Customer:</span>
-                    <code className="text-blue-600 font-mono bg-white px-2 py-1 rounded flex-1">Any other email + any password</code>
-                  </div>
-                </div>
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="mt-1 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-xs text-blue-800">
-                    <strong>Note:</strong> Role is automatically assigned based on your email address. No verification required for design demo.
+                    <strong>Note:</strong> Attempting to access unauthorized accounts is strictly prohibited. Admin and Staff credentials are required for backend portals.
                   </p>
                 </div>
               </div>

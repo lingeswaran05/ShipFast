@@ -65,18 +65,18 @@ export function TopNavbar({ user, isSidebarOpen }) {
             className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-1.5 pr-3 rounded-full border border-transparent hover:border-slate-100 transition-all duration-300"
           >
              <div className="text-right hidden sm:block">
-               <div className="text-sm font-bold text-slate-900 leading-tight group-hover:text-purple-600 transition-colors">{user?.name}</div>
-               <div className="text-xs text-slate-500 font-medium capitalize">{user?.role}</div>
+               <div className="text-sm font-bold text-slate-900 leading-tight group-hover:text-purple-600 transition-colors">{user?.fullName || user?.name || 'User'}</div>
+               <div className="text-xs text-slate-500 font-medium capitalize">{user?.role || 'Guest'}</div>
              </div>
              {user?.profilePic ? (
                <img
                  src={user.profilePic}
-                 alt={user?.name}
+                 alt={user?.fullName || user?.name}
                  className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-md"
                />
              ) : (
                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-sm">
-                 {user?.name?.charAt(0).toUpperCase()}
+                 {(user?.fullName || user?.name || 'U').charAt(0).toUpperCase()}
                </div>
              )}
           </div>

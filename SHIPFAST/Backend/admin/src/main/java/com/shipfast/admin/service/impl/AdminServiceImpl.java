@@ -28,12 +28,24 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public Branch createBranch(Branch branch) {
         branch.setBranchId(UUID.randomUUID().toString());
+        if (branch.getStatus() == null || branch.getStatus().isBlank()) {
+            branch.setStatus("Active");
+        }
+        if (branch.getType() == null || branch.getType().isBlank()) {
+            branch.setType("Branch");
+        }
+        if (branch.getStaffCount() == null) {
+            branch.setStaffCount(0);
+        }
         return branchRepository.save(branch);
     }
 
     @Override
     public Vehicle createVehicle(Vehicle vehicle) {
         vehicle.setVehicleId(UUID.randomUUID().toString());
+        if (vehicle.getStatus() == null || vehicle.getStatus().isBlank()) {
+            vehicle.setStatus("Available");
+        }
         return vehicleRepository.save(vehicle);
     }
 
@@ -51,12 +63,18 @@ public class AdminServiceImpl implements AdminService {
     public Branch updateBranch(String branchId, Branch branch) {
         Branch existing = branchRepository.findById(Objects.requireNonNull(branchId))
                 .orElseThrow(() -> new NoSuchElementException("Branch not found"));
-        existing.setName(branch.getName());
-        existing.setType(branch.getType());
-        existing.setAddress(branch.getAddress());
-        existing.setManagerUserId(branch.getManagerUserId());
-        existing.setStaffCount(branch.getStaffCount());
-        existing.setStatus(branch.getStatus());
+        existing.setName(firstNonBlank(branch.getName(), existing.getName()));
+        existing.setType(firstNonBlank(branch.getType(), existing.getType()));
+        existing.setAddress(firstNonBlank(branch.getAddress(), existing.getAddress()));
+        existing.setState(firstNonBlank(branch.getState(), existing.getState()));
+        existing.setManagerUserId(firstNonBlank(branch.getManagerUserId(), existing.getManagerUserId()));
+        existing.setManagerName(firstNonBlank(branch.getManagerName(), existing.getManagerName()));
+        existing.setContact(firstNonBlank(branch.getContact(), existing.getContact()));
+        if (branch.getStaffCount() != null) {
+            existing.setStaffCount(branch.getStaffCount());
+        }
+        existing.setStatus(firstNonBlank(branch.getStatus(), existing.getStatus()));
+        existing.setDescription(firstNonBlank(branch.getDescription(), existing.getDescription()));
         return branchRepository.save(existing);
     }
 
@@ -64,10 +82,18 @@ public class AdminServiceImpl implements AdminService {
     public Vehicle updateVehicle(String vehicleId, Vehicle vehicle) {
         Vehicle existing = vehicleRepository.findById(Objects.requireNonNull(vehicleId))
                 .orElseThrow(() -> new NoSuchElementException("Vehicle not found"));
-        existing.setVehicleNumber(vehicle.getVehicleNumber());
-        existing.setType(vehicle.getType());
-        existing.setDriverUserId(vehicle.getDriverUserId());
-        existing.setStatus(vehicle.getStatus());
+        existing.setVehicleNumber(firstNonBlank(vehicle.getVehicleNumber(), existing.getVehicleNumber()));
+        existing.setType(firstNonBlank(vehicle.getType(), existing.getType()));
+        existing.setDriverUserId(firstNonBlank(vehicle.getDriverUserId(), existing.getDriverUserId()));
+        existing.setDriverName(firstNonBlank(vehicle.getDriverName(), existing.getDriverName()));
+        if (vehicle.getSeats() != null) {
+            existing.setSeats(vehicle.getSeats());
+        }
+        existing.setRcBook(firstNonBlank(vehicle.getRcBook(), existing.getRcBook()));
+        if (vehicle.getPhoto() != null) {
+            existing.setPhoto(vehicle.getPhoto());
+        }
+        existing.setStatus(firstNonBlank(vehicle.getStatus(), existing.getStatus()));
         return vehicleRepository.save(existing);
     }
 
@@ -79,5 +105,15 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public void deleteVehicle(String vehicleId) {
         vehicleRepository.deleteById(Objects.requireNonNull(vehicleId));
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 }

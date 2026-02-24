@@ -1,16 +1,29 @@
 import axios from 'axios';
-import { API_BASE_URL } from './apiConfig';
+import { resolveServiceBaseUrls, shouldRetryWithFallback } from './apiConfig';
 
-const AUTH_BASE_URL = String(import.meta.env.VITE_AUTH_BASE_URL || '').replace(/\/+$/, '');
-const BASE_URL = AUTH_BASE_URL
-  ? (AUTH_BASE_URL.endsWith('/api/auth') ? AUTH_BASE_URL : `${AUTH_BASE_URL}/api/auth`)
-  : `${API_BASE_URL}/api/auth`;
+const toAuthBaseUrl = (base = '') => {
+  const cleaned = String(base || '').replace(/\/+$/, '');
+  if (!cleaned) return '/api/auth';
+  return cleaned.endsWith('/api/auth') ? cleaned : `${cleaned}/api/auth`;
+};
+
+const AUTH_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_AUTH_BASE_URL, {
+  localDirectBase: 'http://localhost:8085'
+})
+  .map(toAuthBaseUrl)
+  .filter((value, index, list) => list.indexOf(value) === index);
+
+let activeAuthBaseIndex = 0;
+const setActiveAuthBase = (index) => {
+  activeAuthBaseIndex = index;
+  api.defaults.baseURL = AUTH_BASE_URLS[index] || AUTH_BASE_URLS[0];
+};
 const ACCESS_TOKEN_KEY = 'sf_access_token';
 const REFRESH_TOKEN_KEY = 'sf_refresh_token';
 const CURRENT_USER_KEY = 'currentUser';
 
 const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: AUTH_BASE_URLS[0],
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json'
@@ -18,6 +31,23 @@ const api = axios.create({
 });
 
 let refreshPromise = null;
+
+const withAuthFallback = async (requestFactory, options = {}) => {
+  const { retryOnFailure = true } = options;
+  let lastError;
+  for (let offset = 0; offset < AUTH_BASE_URLS.length; offset += 1) {
+    const index = (activeAuthBaseIndex + offset) % AUTH_BASE_URLS.length;
+    setActiveAuthBase(index);
+    try {
+      return await requestFactory(api);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = retryOnFailure && shouldRetryWithFallback(error) && offset < AUTH_BASE_URLS.length - 1;
+      if (!shouldRetry) throw error;
+    }
+  }
+  throw lastError;
+};
 
 const safeJsonParse = (value) => {
   try {
@@ -160,7 +190,7 @@ api.interceptors.response.use(
 
     if (!refreshPromise) {
       refreshPromise = axios
-        .post(`${BASE_URL}/refresh-token`, { refreshToken })
+        .post(`${api.defaults.baseURL}/refresh-token`, { refreshToken })
         .then((response) => {
           const payload = getResponsePayload(response);
           const tokens = extractTokens(payload);
@@ -191,10 +221,10 @@ export const authService = {
 
   async login(email, password) {
     try {
-      const response = await api.post('/login', {
+      const response = await withAuthFallback((client) => client.post('/login', {
         email: normalizeEmail(email),
         password
-      });
+      }));
       const payload = getResponsePayload(response);
       const tokens = extractTokens(payload);
       authStorage.setTokens(tokens);
@@ -210,7 +240,7 @@ export const authService = {
 
   async register(userData) {
     try {
-      const response = await api.post('/register', {
+      const response = await withAuthFallback((client) => client.post('/register', {
         name: userData.fullName || userData.name,
         fullName: userData.fullName || userData.name,
         email: normalizeEmail(userData.email),
@@ -221,7 +251,7 @@ export const authService = {
         state: userData.state,
         pincode: userData.pincode,
         role: 'CUSTOMER'
-      });
+      }));
 
       const payload = getResponsePayload(response);
       const tokens = extractTokens(payload);
@@ -254,7 +284,7 @@ export const authService = {
 
   async getProfile() {
     try {
-      const response = await api.get('/profile');
+      const response = await withAuthFallback((client) => client.get('/profile'));
       const payload = getResponsePayload(response);
       const user = mapProfileToCurrentUser(payload);
       authStorage.setCurrentUser(user);
@@ -266,14 +296,14 @@ export const authService = {
 
   async updateProfile(profileData) {
     try {
-      const response = await api.put('/profile', {
+      const response = await withAuthFallback((client) => client.put('/profile', {
         fullName: profileData.fullName,
         phoneNumber: profileData.phoneNumber,
         address: profileData.address,
         city: profileData.city,
         state: profileData.state,
         pincode: profileData.pincode
-      });
+      }));
       const payload = getResponsePayload(response);
       const current = authStorage.getCurrentUser() || {};
       const updated = {
@@ -289,7 +319,7 @@ export const authService = {
 
   async forgotPassword(email) {
     try {
-      await api.post('/forgot-password', { email: normalizeEmail(email) });
+      await withAuthFallback((client) => client.post('/forgot-password', { email: normalizeEmail(email) }));
       return true;
     } catch (error) {
       if (error?.response?.status === 404) {
@@ -301,7 +331,7 @@ export const authService = {
 
   async verifyOtp(email, otp) {
     try {
-      await api.post('/verify-otp', { email: normalizeEmail(email), otp });
+      await withAuthFallback((client) => client.post('/verify-otp', { email: normalizeEmail(email), otp }));
       return true;
     } catch (error) {
       if (error?.response?.status === 404) {
@@ -313,7 +343,7 @@ export const authService = {
 
   async resetPassword(email, newPassword) {
     try {
-      await api.post('/reset-password', { email: normalizeEmail(email), newPassword });
+      await withAuthFallback((client) => client.post('/reset-password', { email: normalizeEmail(email), newPassword }));
       return true;
     } catch (error) {
       if (error?.response?.status === 404) {
@@ -325,7 +355,7 @@ export const authService = {
 
   async changePassword(oldPassword, newPassword) {
     try {
-      await api.put('/change-password', { oldPassword, newPassword });
+      await withAuthFallback((client) => client.put('/change-password', { oldPassword, newPassword }));
       return true;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Password change failed'));
@@ -336,7 +366,7 @@ export const authService = {
     const refreshToken = authStorage.getRefreshToken();
     try {
       if (refreshToken) {
-        await api.post('/logout', { refreshToken });
+        await withAuthFallback((client) => client.post('/logout', { refreshToken }));
       }
     } catch {
       // ignore network/logout errors and clear local session anyway
@@ -347,7 +377,7 @@ export const authService = {
 
   async getAllUsers() {
     try {
-      const response = await api.get('/admin/users');
+      const response = await withAuthFallback((client) => client.get('/admin/users'));
       const payload = getResponsePayload(response);
       const list = Array.isArray(payload) ? payload : payload.users || payload.content || [];
       return list.map(mapAnyUserToCurrentUser);
@@ -359,9 +389,9 @@ export const authService = {
   async updateUserRole(userIdOrEmail, role) {
     const identifier = encodeURIComponent(userIdOrEmail);
     try {
-      const response = await api.put(`/admin/users/${identifier}/role`, {
+      const response = await withAuthFallback((client) => client.put(`/admin/users/${identifier}/role`, {
         role: toBackendRole(role)
-      });
+      }));
       const payload = getResponsePayload(response);
       return payload && Object.keys(payload).length > 0
         ? mapAnyUserToCurrentUser(payload)
@@ -374,7 +404,7 @@ export const authService = {
   async removeUserAccess(userIdOrEmail) {
     const identifier = encodeURIComponent(userIdOrEmail);
     try {
-      await api.delete(`/admin/users/${identifier}`);
+      await withAuthFallback((client) => client.delete(`/admin/users/${identifier}`));
       return true;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to remove user access in DB'));

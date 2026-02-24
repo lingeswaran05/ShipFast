@@ -33,4 +33,8 @@ public class AgentProfile {
     private Long totalRatings;
     private String profileImage;
     private String shiftTiming;
+    private String availabilityStatus;
+    private Long deliveredCount;
+    private Long failedCount;
+    private Long inTransitCount;
 }

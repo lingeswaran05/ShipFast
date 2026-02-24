@@ -1,6 +1,7 @@
 package com.shipfast.shipment.controller;
 
 import java.time.LocalDate;
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -42,10 +43,22 @@ public class ShipmentController {
 
     @PostMapping
     public ResponseEntity<Shipment> createShipment(@RequestBody CreateShipmentRequest request,
-                                                   @RequestHeader(value = "X-User-Id", required = false) String customerId,
-                                                   @RequestHeader(value = "X-Branch-Id", required = false) String branchId) {
-        request.setCustomerId(customerId);
-        request.setBranchId(branchId);
+                                                   @RequestParam(value = "userId", required = false) String userId,
+                                                   @RequestParam(value = "customerId", required = false) String customerIdParam,
+                                                   @RequestParam(value = "branchId", required = false) String branchIdParam,
+                                                   @RequestHeader(value = "X-User-Id", required = false) String customerIdHeader,
+                                                   @RequestHeader(value = "X-Branch-Id", required = false) String branchIdHeader) {
+        request.setCustomerId(firstNonBlank(
+                request.getCustomerId(),
+                userId,
+                customerIdParam,
+                customerIdHeader
+        ));
+        request.setBranchId(firstNonBlank(
+                request.getBranchId(),
+                branchIdParam,
+                branchIdHeader
+        ));
         Shipment created = shipmentService.createShipment(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -61,7 +74,13 @@ public class ShipmentController {
     }
 
     @GetMapping("/mine")
-    public List<Shipment> getMine(@RequestHeader("X-User-Id") String customerId) {
+    public List<Shipment> getMine(@RequestParam(value = "userId", required = false) String userId,
+                                  @RequestParam(value = "customerId", required = false) String customerIdParam,
+                                  @RequestHeader(value = "X-User-Id", required = false) String customerIdHeader) {
+        String customerId = firstNonBlank(userId, customerIdParam, customerIdHeader);
+        if (customerId == null || customerId.isBlank()) {
+            return Collections.emptyList();
+        }
         return shipmentService.getMine(customerId);
     }
 
@@ -90,7 +109,9 @@ public class ShipmentController {
     @PatchMapping("/{shipmentId}/status")
     public Shipment updateStatus(@PathVariable String shipmentId,
                                  @RequestBody UpdateStatusRequest request,
-                                 @RequestHeader(value = "X-User-Id", required = false) String customerId) {
+                                 @RequestParam(value = "userId", required = false) String userId,
+                                 @RequestHeader(value = "X-User-Id", required = false) String customerIdHeader) {
+        String customerId = firstNonBlank(userId, customerIdHeader);
         return shipmentService.updateStatus(shipmentId, request, customerId);
     }
 
@@ -115,5 +136,15 @@ public class ShipmentController {
     @PostMapping("/calculate-rate")
     public RateCalculationResponse calculateRate(@RequestBody CalculateRateRequest request) {
         return shipmentService.calculateRate(request);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 }
