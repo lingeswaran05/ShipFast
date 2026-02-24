@@ -9,8 +9,12 @@ export function Homepage() {
   const navigate = useNavigate();
   const { currentUser } = useShipment();
 
-  const handleGetStarted = () => {
+  const handleSignIn = () => {
     navigate('/login');
+  };
+
+  const handleCreateAccount = () => {
+    navigate('/signup');
   };
 
   const handleTrackShipment = () => {
@@ -51,7 +55,7 @@ export function Homepage() {
                    <span className="font-semibold text-slate-800">{currentUser.name}</span>
                 </div>
               ) : (
-                <Button onClick={handleGetStarted} className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 shadow-lg shadow-purple-500/50 text-white font-semibold transition-all duration-300 hover:scale-105 hover:shadow-xl">
+                <Button onClick={handleSignIn} className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 shadow-lg shadow-purple-500/50 text-white font-semibold transition-all duration-300 hover:scale-105 hover:shadow-xl">
                   Sign In
                   <ArrowRight className="size-4 ml-2 group-hover:translate-x-1 transition-transform" />
                 </Button>
@@ -81,7 +85,7 @@ export function Homepage() {
                 Experience next-level logistics with real-time tracking, instant quotes, and seamless delivery operations. Your parcels, our priority.
               </p>
               <div className="flex flex-wrap gap-4">
-                <Button size="lg" onClick={handleGetStarted} className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 shadow-xl shadow-purple-500/50 text-white font-bold text-lg px-8 py-6">
+                <Button size="lg" onClick={handleCreateAccount} className="bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 shadow-xl shadow-purple-500/50 text-white font-bold text-lg px-8 py-6">
                   Get Started Free
                   <Zap className="size-5 ml-2" />
                 </Button>
@@ -268,7 +272,7 @@ export function Homepage() {
                 Get started in minutes and experience the future of logistics.
               </p>
               <div className="flex flex-wrap gap-4 justify-center">
-                <Button size="lg" onClick={handleGetStarted} className="bg-white text-blue-600 hover:bg-blue-50 font-bold text-lg px-8 py-6 shadow-xl">
+                <Button size="lg" onClick={handleCreateAccount} className="bg-white text-blue-600 hover:bg-blue-50 font-bold text-lg px-8 py-6 shadow-xl">
                   Create Free Account
                   <ArrowRight className="size-5 ml-2" />
                 </Button>
@@ -308,4 +312,3 @@ export function Homepage() {
     </div>
   );
 }
-

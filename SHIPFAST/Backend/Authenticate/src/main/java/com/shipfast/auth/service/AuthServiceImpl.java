@@ -33,6 +33,7 @@ import jakarta.transaction.Transactional;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+    private static final String DISALLOWED_ADMIN_EMAIL = "admin1771688417078@test.com";
 
     private final EmailService emailService;
     private final UserAuthRepository userAuthRepository;
@@ -121,6 +122,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse login(LoginRequest request) {
+        sanitizeDisallowedAdminAccount();
 
         if (request.getEmail() == null || request.getEmail().isBlank()
                 || request.getPassword() == null || request.getPassword().isBlank()) {
@@ -130,7 +132,19 @@ public class AuthServiceImpl implements AuthService {
         UserAuth user = userAuthRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new CustomException("Invalid credentials"));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash()))
+        boolean isPasswordValid;
+        try {
+            isPasswordValid = passwordEncoder.matches(request.getPassword(), user.getPasswordHash());
+        } catch (IllegalArgumentException ex) {
+            // Backward compatibility for legacy records that may contain plain text passwords.
+            isPasswordValid = request.getPassword().equals(user.getPasswordHash());
+            if (isPasswordValid) {
+                user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+                userAuthRepository.save(user);
+            }
+        }
+
+        if (!isPasswordValid)
             throw new CustomException("Invalid credentials");
 
         refreshTokenRepository.deleteByUserId(user.getUserId());
@@ -218,7 +232,14 @@ public class AuthServiceImpl implements AuthService {
         UserAuth user = userAuthRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException("User not found"));
 
-        if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash()))
+        boolean oldPasswordValid;
+        try {
+            oldPasswordValid = passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash());
+        } catch (IllegalArgumentException ex) {
+            oldPasswordValid = request.getOldPassword().equals(user.getPasswordHash());
+        }
+
+        if (!oldPasswordValid)
             throw new CustomException("Old password incorrect");
 
         if (!PasswordValidator.isValid(request.getNewPassword()))
@@ -321,6 +342,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public java.util.List<UserProfileResponse> getAllUsers() {
+        sanitizeDisallowedAdminAccount();
         return userAuthRepository.findAll().stream().map(user -> {
             UserProfile profile = userProfileRepository.findByUserId(user.getUserId()).orElse(new UserProfile());
             return mapToProfileResponse(user, profile);
@@ -330,6 +352,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public UserProfileResponse updateUserRole(String emailOrId, String roleStr) {
+        sanitizeDisallowedAdminAccount();
         if (roleStr == null || roleStr.isBlank()) {
             throw new CustomException("Role is required");
         }
@@ -339,6 +362,9 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new CustomException("User not found")));
         
         try {
+            if (DISALLOWED_ADMIN_EMAIL.equalsIgnoreCase(user.getEmail()) && "ADMIN".equalsIgnoreCase(roleStr.trim())) {
+                throw new CustomException("This account cannot be assigned admin role");
+            }
             user.setRole(UserRole.valueOf(roleStr.trim().toUpperCase()));
         } catch (IllegalArgumentException e) {
             throw new CustomException("Invalid role");
@@ -361,5 +387,15 @@ public class AuthServiceImpl implements AuthService {
         userProfileRepository.findByUserId(user.getUserId()).ifPresent(userProfileRepository::delete);
         refreshTokenRepository.deleteByUserId(user.getUserId());
         userAuthRepository.delete(user);
+    }
+
+    private void sanitizeDisallowedAdminAccount() {
+        userAuthRepository.findByEmail(DISALLOWED_ADMIN_EMAIL).ifPresent(user -> {
+            if (user.getRole() == UserRole.ADMIN) {
+                user.setRole(UserRole.CUSTOMER);
+                user.setUpdatedAt(LocalDateTime.now());
+                userAuthRepository.save(user);
+            }
+        });
     }
 }

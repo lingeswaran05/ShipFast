@@ -163,7 +163,9 @@ export function LoginPage() {
                     <input type="checkbox" id="remember" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                     <label htmlFor="remember" className="text-sm text-slate-600">Remember me</label>
                 </div>
-                <span className="text-xs font-medium text-slate-500">Password reset via admin support</span>
+                <Link to="/forgot-password" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors">
+                  Forgot Password?
+                </Link>
               </div>
 
               <button
@@ -186,7 +188,7 @@ export function LoginPage() {
 
               <div className="pt-6 border-t border-slate-100 text-center">
                 <p className="text-slate-500 text-sm mb-4">New to ShipFast?</p>
-                <Link to="/register" className="w-full block py-3 rounded-xl border-2 border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors">
+                <Link to="/signup" className="w-full block py-3 rounded-xl border-2 border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors">
                     Create New Account
                 </Link>
               </div>

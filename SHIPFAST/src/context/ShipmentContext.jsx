@@ -5,11 +5,13 @@ import { adminService } from '../lib/adminService';
 import { communicationService } from '../lib/communicationService';
 import { shipmentService } from '../lib/shipmentService';
 import { reportingService } from '../lib/reportingService';
+import { operationsService } from '../lib/operationsService';
 
 const ShipmentContext = createContext();
 const ROLE_REQUESTS_KEY = 'sf_role_requests';
 const ROLE_OVERRIDES_KEY = 'sf_role_overrides';
 const USERS_DIRECTORY_KEY = 'sf_users_directory';
+const PRICING_CONFIG_KEY = 'sf_pricing_config';
 
 const parseStored = (key, fallback = []) => {
   try {
@@ -25,6 +27,8 @@ const normalizeRole = (value) => {
   if (['driver', 'manager', 'sorter'].includes(normalized)) return 'agent';
   return normalized;
 };
+
+const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
 
 const isProtectedAdmin = (user) => normalizeRole(user?.role) === 'admin';
 
@@ -44,7 +48,32 @@ export function ShipmentProvider({ children }) {
   const [lastDataSyncAt, setLastDataSyncAt] = useState(null);
   const [roleRequests, setRoleRequests] = useState(parseStored(ROLE_REQUESTS_KEY, []));
   const [roleOverrides, setRoleOverrides] = useState(parseStored(ROLE_OVERRIDES_KEY, []));
+  const [pricingConfig, setPricingConfig] = useState(parseStored(PRICING_CONFIG_KEY, { profitPercentage: 20 }));
   const [isLoading, setIsLoading] = useState(true);
+
+  const readRoleRequestDocuments = (request = {}) => ({
+    profilePhoto: request?.documents?.profilePhoto || request?.agentDetails?.profilePhoto || null,
+    aadharCopy: request?.documents?.aadharCopy || null,
+    licenseCopy: request?.documents?.licenseCopy || null,
+    rcBookCopy: request?.documents?.rcBookCopy || null
+  });
+
+  const persistRoleRequestDocuments = (request = {}, fallbackIdentifiers = []) => {
+    const docs = readRoleRequestDocuments(request);
+    const hasAnyDoc = Object.values(docs).some(Boolean);
+    if (!hasAnyDoc) return;
+
+    const identities = [
+      request?.userId,
+      request?.email,
+      ...fallbackIdentifiers
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const unique = [...new Set(identities)];
+    unique.forEach((identity) => {
+      localStorage.setItem(`sf_agent_onboarding_${identity}`, JSON.stringify(docs));
+      localStorage.setItem(`agent_onboarding_${identity}`, JSON.stringify(docs));
+    });
+  };
 
   useEffect(() => {
     localStorage.setItem(USERS_DIRECTORY_KEY, JSON.stringify(users));
@@ -57,6 +86,10 @@ export function ShipmentProvider({ children }) {
   useEffect(() => {
     localStorage.setItem(ROLE_OVERRIDES_KEY, JSON.stringify(roleOverrides));
   }, [roleOverrides]);
+
+  useEffect(() => {
+    localStorage.setItem(PRICING_CONFIG_KEY, JSON.stringify(pricingConfig));
+  }, [pricingConfig]);
 
   const syncUserDirectory = (user) => {
     if (!user?.email) return;
@@ -431,14 +464,16 @@ export function ShipmentProvider({ children }) {
       return shipments.find(s => s.id === id || s.trackingId === id || s.trackingNumber === id);
   };
 
-  const requestRoleUpgrade = (requestedRole, reason = '') => {
+  const requestRoleUpgrade = async (requestedRole, reason = '', details = {}) => {
       if (!currentUser) throw new Error('Please login first');
       if (normalizeRole(currentUser.role) !== 'customer') {
         throw new Error('Only customers can request role upgrade');
       }
 
       const existingPending = roleRequests.find(
-        request => request.email === currentUser.email && request.status === 'PENDING'
+        request =>
+          request.email === currentUser.email &&
+          String(request.status || '').toUpperCase() === 'PENDING'
       );
 
       if (existingPending) {
@@ -452,10 +487,69 @@ export function ShipmentProvider({ children }) {
         name: currentUser.name,
         currentRole: normalizeRole(currentUser.role),
         requestedRole: normalizeRole(requestedRole || 'agent'),
-        reason,
+        reason: String(reason || '').trim(),
+        agentDetails: {
+          licenseNumber: String(details?.licenseNumber || '').trim(),
+          aadharNumber: String(details?.aadharNumber || '').trim(),
+          vehicleNumber: String(details?.vehicleNumber || '').trim(),
+          rcBookNumber: String(details?.rcBookNumber || '').trim(),
+          bloodType: String(details?.bloodType || '').trim(),
+          organDonor: Boolean(details?.organDonor),
+          bankAccountHolder: String(details?.bankAccountHolder || '').trim(),
+          bankAccountNumber: String(details?.bankAccountNumber || '').trim(),
+          bankIfsc: String(details?.bankIfsc || '').trim().toUpperCase(),
+          bankName: String(details?.bankName || '').trim(),
+          shiftTiming: String(details?.shiftTiming || 'Day').trim(),
+          profilePhoto: details?.profilePhoto || null
+        },
+        documents: {
+          profilePhoto: details?.profilePhoto || null,
+          aadharCopy: details?.aadharCopy || null,
+          licenseCopy: details?.licenseCopy || null,
+          rcBookCopy: details?.rcBookCopy || null
+        },
         status: 'PENDING',
         createdAt: new Date().toISOString()
       };
+
+      const profileUserId = request.userId || request.email;
+      const backendExistingProfile = profileUserId
+        ? await operationsService.getAgentProfile(profileUserId)
+        : null;
+      if (backendExistingProfile && String(backendExistingProfile.verificationStatus || '').toUpperCase() === 'PENDING') {
+        throw new Error('You already have a pending request');
+      }
+
+      try {
+        if (profileUserId) {
+          await operationsService.upsertAgentProfile(profileUserId, {
+            licenseNumber: request.agentDetails.licenseNumber || undefined,
+            aadharNumber: request.agentDetails.aadharNumber || undefined,
+            vehicleNumber: request.agentDetails.vehicleNumber || undefined,
+            rcBookNumber: request.agentDetails.rcBookNumber || undefined,
+            bloodType: request.agentDetails.bloodType || undefined,
+            organDonor: request.agentDetails.organDonor ?? false,
+            shiftTiming: request.agentDetails.shiftTiming || 'Day',
+            profileImage: request.documents.profilePhoto || undefined,
+            bankAccountHolder: request.agentDetails.bankAccountHolder || undefined,
+            bankAccountNumber: request.agentDetails.bankAccountNumber || undefined,
+            bankIfsc: request.agentDetails.bankIfsc || undefined,
+            bankName: request.agentDetails.bankName || undefined,
+            salaryBalance: 0,
+            totalSalaryCredited: 0,
+            totalSalaryDebited: 0,
+            verificationStatus: 'PENDING',
+            verificationNotes: request.reason || 'Role upgrade request submitted by customer',
+            availabilityStatus: 'OFFLINE',
+            deliveredCount: 0,
+            failedCount: 0,
+            inTransitCount: 0
+          });
+        }
+      } catch (error) {
+        // Keep local role-request flow available even when operations service is down.
+        console.warn('Failed to persist role request in operations profile store', error);
+      }
 
       setRoleRequests(prev => [request, ...prev]);
       addNotification('Role upgrade request submitted to admin.', 'customer');
@@ -475,6 +569,59 @@ export function ShipmentProvider({ children }) {
       
       const roleToAssign = request.requestedRole || 'agent';
 
+      const fallbackUser = users.find((user) => {
+        const requestIdentities = [
+          request.userId,
+          request.email
+        ].map(toIdentityValue).filter(Boolean);
+        const userIdentities = [
+          user.userId,
+          user.id,
+          user.email
+        ].map(toIdentityValue).filter(Boolean);
+        return requestIdentities.some((identity) => userIdentities.includes(identity));
+      }) || null;
+
+      const profileUserId =
+        fallbackUser?.userId ||
+        fallbackUser?.id ||
+        request.userId ||
+        request.email;
+
+      const requestedAgentDetails = request.agentDetails || {};
+      const requestedDocs = readRoleRequestDocuments(request);
+
+      if (roleToAssign === 'agent') {
+        try {
+          await operationsService.upsertAgentProfile(profileUserId, {
+            licenseNumber: requestedAgentDetails.licenseNumber || undefined,
+            aadharNumber: requestedAgentDetails.aadharNumber || undefined,
+            vehicleNumber: requestedAgentDetails.vehicleNumber || undefined,
+            rcBookNumber: requestedAgentDetails.rcBookNumber || undefined,
+            bloodType: requestedAgentDetails.bloodType || undefined,
+            organDonor: requestedAgentDetails.organDonor ?? false,
+            shiftTiming: requestedAgentDetails.shiftTiming || 'Day',
+            profileImage: requestedDocs.profilePhoto || undefined,
+            bankAccountHolder: requestedAgentDetails.bankAccountHolder || undefined,
+            bankAccountNumber: requestedAgentDetails.bankAccountNumber || undefined,
+            bankIfsc: requestedAgentDetails.bankIfsc || undefined,
+            bankName: requestedAgentDetails.bankName || undefined,
+            salaryBalance: 0,
+            totalSalaryCredited: 0,
+            totalSalaryDebited: 0,
+            verificationStatus: 'VERIFIED',
+            verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
+            verificationNotes: request.reason ? `Approved request: ${request.reason}` : 'Approved role request',
+            availabilityStatus: 'AVAILABLE',
+            deliveredCount: 0,
+            failedCount: 0,
+            inTransitCount: 0
+          });
+        } catch (error) {
+          console.warn('Failed to save agent profile during approval. Proceeding with role update.', error);
+        }
+      }
+
       // Call the backend service to update the user's role
       try {
           await authService.updateUserRole(userIdentifier, roleToAssign);
@@ -488,8 +635,19 @@ export function ShipmentProvider({ children }) {
 
       // Update the local state for role requests
       setRoleRequests(prev => prev.map(r =>
-        r.id === request.id ? { ...r, status: 'APPROVED', reviewedAt: new Date().toISOString() } : r
+        r.id === request.id
+          ? {
+            ...r,
+            status: 'APPROVED',
+            reviewedAt: new Date().toISOString(),
+            reviewedBy: currentUser?.email || currentUser?.userId || 'admin'
+          }
+          : r
       ));
+
+      if (roleToAssign === 'agent') {
+        persistRoleRequestDocuments(request, [profileUserId]);
+      }
 
       // This part seems overly complex and might be redundant if the backend is the source of truth.
       // Let's simplify it to just reload the user list from the DB.
@@ -505,9 +663,21 @@ export function ShipmentProvider({ children }) {
   };
 
   const rejectRoleRequest = (requestId) => {
-      setRoleRequests(prev => prev.map(r =>
-        r.id === requestId ? { ...r, status: 'REJECTED', reviewedAt: new Date().toISOString() } : r
-      ));
+      setRoleRequests(prev => prev.filter(r => r.id !== requestId));
+  };
+
+  const updatePricingConfig = (nextConfig = {}) => {
+      setPricingConfig((prev) => {
+        const profitCandidate = Number(nextConfig?.profitPercentage ?? prev?.profitPercentage ?? 20);
+        const normalizedProfit = Number.isFinite(profitCandidate)
+          ? Math.min(100, Math.max(0, profitCandidate))
+          : 20;
+        return {
+          ...prev,
+          ...nextConfig,
+          profitPercentage: normalizedProfit
+        };
+      });
   };
 
   const updateUserRole = async (targetUser, role) => {
@@ -856,6 +1026,7 @@ export function ShipmentProvider({ children }) {
       staff,
       notifications,
       reportSummary,
+      pricingConfig,
       lastDataSyncAt,
       isLoading,
       login,
@@ -899,6 +1070,7 @@ export function ShipmentProvider({ children }) {
       refreshUserNotifications,
       getRoleNotifications,
       notifyAdminFromAgent,
+      updatePricingConfig,
       calculateRate,
       clearAllData
     }}>

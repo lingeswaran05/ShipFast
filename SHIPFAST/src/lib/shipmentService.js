@@ -148,7 +148,7 @@ const mapShipment = (shipment = {}) => {
     type: shipment.serviceType || 'Standard',
     paymentMode,
     paymentStatus,
-    cost: shipment.cost || 0,
+    cost: Number(shipment.cost ?? shipment.totalCost ?? 0) || 0,
     date: createdAt.toISOString().split('T')[0],
     origin: originValue,
     destination: destinationValue,
@@ -319,7 +319,11 @@ export const shipmentService = {
         weight: Number(payload.weight || payload.package?.weight || 0),
         type: payload.package?.type || 'Standard',
         description: payload.package?.description || ''
-      }
+      },
+      quotedCost: (() => {
+        const value = Number(payload.cost ?? payload.totalCost ?? payload.quote);
+        return Number.isFinite(value) && value > 0 ? value : undefined;
+      })()
     };
 
     try {

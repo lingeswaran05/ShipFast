@@ -16,4 +16,5 @@ public class CreateShipmentRequest {
     private PackageDetails packageDetails;
     private String serviceType;
     private String paymentMethod;
+    private Double quotedCost;
 }

@@ -552,8 +552,9 @@ export function AgentDashboard({ view }) {
         }
     };
 
-    // Use contextual flag if user is actually onboarded
+    // Do not block dashboard access on first login; KYC comes from customer role-request flow.
     const isActuallyOnboarded = Boolean(agentOnboarding.verifiedAt || hasMandatoryProfile);
+    const shouldBlockForOnboarding = false;
 
     if (currentUser?.role === 'agent' && isAgentProfileLoading) {
         return (
@@ -563,7 +564,7 @@ export function AgentDashboard({ view }) {
         );
     }
 
-    if (currentUser?.role === 'agent' && !isActuallyOnboarded) {
+    if (shouldBlockForOnboarding && currentUser?.role === 'agent' && !isActuallyOnboarded) {
         return (
             <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6 animate-fade-in-up">
                 <div>
@@ -1421,6 +1422,10 @@ function CashCollectionView({ shipments }) {
         }, {});
 
     const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
+    const verifiedSubmittedTotal = submittedTransactions
+      .filter((transaction) => String(transaction.status || '').toUpperCase() === 'VERIFIED')
+      .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+    const totalVerifiedRevenue = totalCollected + verifiedSubmittedTotal;
 
     const handleDeposit = () => {
         toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
@@ -1433,7 +1438,7 @@ function CashCollectionView({ shipments }) {
             type: 'Deposit',
             status: 'Processing'
         };
-        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setSubmittedTransactions((prev) => [newTxn, ...prev]);
     };
 
     const handleSubmitCash = () => {
@@ -1448,7 +1453,7 @@ function CashCollectionView({ shipments }) {
              type: 'Cash Submission',
              status: 'Verified'
         };
-        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setSubmittedTransactions((prev) => [newTxn, ...prev]);
         setVerifyAmount('');
     };
 
@@ -1460,7 +1465,7 @@ function CashCollectionView({ shipments }) {
                 <div className="space-y-4">
                   <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
                      <div className="text-slate-400 text-sm font-medium mb-1">Total Verified Revenue</div>
-                     <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
+                     <div className="text-4xl font-bold">₹{totalVerifiedRevenue.toLocaleString()}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
                             onClick={handleDeposit}
