@@ -17,5 +17,9 @@ public class Vehicle {
     private String vehicleNumber;
     private String type;
     private String driverUserId;
+    private String driverName;
+    private Integer seats;
+    private String rcBook;
+    private String photo;
     private String status;
 }

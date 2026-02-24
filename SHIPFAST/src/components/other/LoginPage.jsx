@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, ShieldCheck, Globe, Shield, Zap, AlertCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Truck, Zap, AlertCircle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
 import { Logo } from '../ui/Logo';
@@ -145,7 +145,7 @@ export function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400"
-                    placeholder="••••••••"
+                    placeholder="********"
                     required
                   />
                   <button
@@ -163,8 +163,8 @@ export function LoginPage() {
                     <input type="checkbox" id="remember" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                     <label htmlFor="remember" className="text-sm text-slate-600">Remember me</label>
                 </div>
-                <Link to="/forgot-password" className="text-sm font-semibold text-indigo-600 hover:text-indigo-700">
-                    Forgot Password?
+                <Link to="/forgot-password" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors">
+                  Forgot Password?
                 </Link>
               </div>
 
@@ -188,39 +188,12 @@ export function LoginPage() {
 
               <div className="pt-6 border-t border-slate-100 text-center">
                 <p className="text-slate-500 text-sm mb-4">New to ShipFast?</p>
-                <Link to="/register" className="w-full block py-3 rounded-xl border-2 border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors">
+                <Link to="/signup" className="w-full block py-3 rounded-xl border-2 border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors">
                     Create New Account
                 </Link>
               </div>
             </form>
 
-            <div className="pt-6 border-t border-slate-200">
-              <div className="flex items-center gap-2 mb-3">
-                <Shield className="w-5 h-5 text-blue-600" />
-                <p className="text-slate-700 font-semibold">Demo Login Guide:</p>
-              </div>
-              <div className="space-y-3 bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-4 border border-slate-200">
-                <div className="text-sm space-y-2">
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">⚙️ Admin:</span>
-                    <code className="text-purple-600 font-mono bg-white px-2 py-1 rounded flex-1">Use your backend ADMIN account</code>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">🧑‍💼 Agent:</span>
-                    <code className="text-orange-600 font-mono bg-white px-2 py-1 rounded flex-1">Use agent created by admin</code>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-700 font-semibold min-w-[80px]">👤 Customer:</span>
-                    <code className="text-blue-600 font-mono bg-white px-2 py-1 rounded flex-1">Register a new account to login</code>
-                  </div>
-                </div>
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-800">
-                    <strong>Note:</strong> Role is loaded from backend profile and routed automatically after login.
-                  </p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

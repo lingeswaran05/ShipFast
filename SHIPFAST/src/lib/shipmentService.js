@@ -1,16 +1,51 @@
 import axios from 'axios';
 import { authStorage } from './authService';
-import { resolveServiceBaseUrl } from './apiConfig';
+import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
-const SHIPMENT_BASE_URL = resolveServiceBaseUrl(import.meta.env.VITE_SHIPMENT_BASE_URL);
-
+const SHIPMENT_BASE_CANDIDATES = resolveServiceBaseUrls(import.meta.env.VITE_SHIPMENT_BASE_URL, {
+  localDirectBase: 'http://localhost:8081'
+});
+const SHIPMENT_BASE_URLS = SHIPMENT_BASE_CANDIDATES
+  .map((base) => toServiceBaseUrl(base, '/api/v1/shipments'))
+  .filter((value, index, list) => list.indexOf(value) === index);
 const api = axios.create({
-  baseURL: `${SHIPMENT_BASE_URL}/api/v1/shipments`,
+  baseURL: SHIPMENT_BASE_URLS[0],
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json'
   }
 });
+
+let activeShipmentBaseIndex = 0;
+const setActiveShipmentBase = (index) => {
+  activeShipmentBaseIndex = index;
+  api.defaults.baseURL = SHIPMENT_BASE_URLS[index] || SHIPMENT_BASE_URLS[0];
+};
+
+const withShipmentBaseFallback = async (requestFactory, options = {}) => {
+  const { retryOnFailure = true } = options;
+  let lastError;
+  for (let offset = 0; offset < SHIPMENT_BASE_URLS.length; offset += 1) {
+    const index = (activeShipmentBaseIndex + offset) % SHIPMENT_BASE_URLS.length;
+    setActiveShipmentBase(index);
+    try {
+      return await requestFactory(api);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = retryOnFailure && shouldRetryWithFallback(error) && offset < SHIPMENT_BASE_URLS.length - 1;
+      if (!shouldRetry) throw error;
+    }
+  }
+  throw lastError;
+};
+
+const endpointAvailability = {
+  list: true,
+  mine: true,
+  create: true,
+  update: true,
+  rate: true
+};
 
 api.interceptors.request.use((config) => {
   const token = authStorage.getAccessToken();
@@ -70,6 +105,8 @@ const resolveUserIdentifier = (userId) => {
   return current.userId || current.id || current.email || '';
 };
 
+const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
+
 const mapShipment = (shipment = {}) => {
   const sender = shipment.sender || {};
   const receiver = shipment.recipient || shipment.receiver || {};
@@ -100,12 +137,18 @@ const mapShipment = (shipment = {}) => {
     trackingId: shipment.trackingNumber || shipment.id,
     trackingNumber: shipment.trackingNumber || shipment.id,
     customerId: shipment.customerId || shipment.userId || null,
+    userId: shipment.userId || shipment.customerId || null,
+    customerEmail: shipment.customerEmail || shipment.email || shipment.customer?.email || '',
+    customerName: shipment.customerName || shipment.customer?.name || '',
+    createdBy: shipment.createdBy || '',
+    ownerId: shipment.ownerId || '',
+    email: shipment.email || '',
     status: normalizedStatus,
     service: shipment.serviceType || 'Standard',
     type: shipment.serviceType || 'Standard',
     paymentMode,
     paymentStatus,
-    cost: shipment.cost || 0,
+    cost: Number(shipment.cost ?? shipment.totalCost ?? 0) || 0,
     date: createdAt.toISOString().split('T')[0],
     origin: originValue,
     destination: destinationValue,
@@ -142,10 +185,24 @@ const getErrorMessage = (error, fallback) => (
   fallback
 );
 
+const getStatusCode = (error) => Number(error?.response?.status || 0);
+const isUnavailableError = (error) => {
+  const status = getStatusCode(error);
+  return status === 404 || error?.message === 'Network Error';
+};
+
+const fallbackRate = ({ weight = 0, serviceType = 'Standard' } = {}) => {
+  const normalizedWeight = Number(weight || 0);
+  const base = String(serviceType || '').toLowerCase() === 'express' ? 100 : 50;
+  const totalCost = Math.max(0, (normalizedWeight * 50) + base);
+  return { totalCost };
+};
+
 export const shipmentService = {
   async getAllShipments(filters = {}) {
+    if (!endpointAvailability.list) return [];
     try {
-      const response = await api.get('', {
+      const response = await withShipmentBaseFallback((client) => client.get('', {
         params: {
           status: filters.status,
           branchId: filters.branchId,
@@ -154,35 +211,71 @@ export const shipmentService = {
           page: filters.page,
           limit: filters.limit
         }
-      });
+      }));
       const payload = response?.data;
       const list = Array.isArray(payload) ? payload : payload?.data || payload?.content || [];
       return list.map(mapShipment);
     } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.list = false;
+        return [];
+      }
       throw new Error(getErrorMessage(error, 'Failed to load all shipments'));
     }
   },
 
   async getShipments(userId) {
+    if (!endpointAvailability.mine) return [];
     try {
       const identifier = resolveUserIdentifier(userId);
       if (!identifier) return [];
-      const response = await api.get('/mine', {
-        headers: {
-          'X-User-Id': identifier
-        }
-      });
+      const response = await withShipmentBaseFallback((client) => client.get('/mine', {
+        params: { userId: identifier }
+      }));
       const payload = response?.data;
       const list = Array.isArray(payload) ? payload : payload?.data || [];
       return list.map(mapShipment);
     } catch (error) {
+      const identifier = resolveUserIdentifier(userId);
+
+      if (identifier) {
+        try {
+          const all = await this.getAllShipments();
+          const current = authStorage.getCurrentUser() || {};
+          const identities = [
+            identifier,
+            current.userId,
+            current.id,
+            current.email
+          ].map(toIdentityValue).filter(Boolean);
+          return all.filter((item) => {
+            const candidates = [
+              item.customerId,
+              item.userId,
+              item.createdBy,
+              item.ownerId,
+              item.customerEmail,
+              item.email,
+              item.customerName
+            ].map(toIdentityValue);
+            return identities.some((identity) => candidates.includes(identity));
+          });
+        } catch {
+          // Continue to error handling below
+        }
+      }
+
+      if (isUnavailableError(error)) {
+        endpointAvailability.mine = false;
+        return [];
+      }
       throw new Error(getErrorMessage(error, 'Failed to load shipments'));
     }
   },
 
   async getShipmentByTracking(id) {
     try {
-      const response = await api.get(`/track/${encodeURIComponent(id)}`);
+      const response = await withShipmentBaseFallback((client) => client.get(`/track/${encodeURIComponent(id)}`));
       return mapShipment(response?.data);
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to load shipment'));
@@ -195,7 +288,7 @@ export const shipmentService = {
       return await this.getShipmentByTracking(id);
     } catch {
       try {
-        const response = await api.get(`/${encodeURIComponent(id)}`);
+        const response = await withShipmentBaseFallback((client) => client.get(`/${encodeURIComponent(id)}`));
         return mapShipment(response?.data);
       } catch (error) {
         throw new Error(getErrorMessage(error, 'Failed to load shipment'));
@@ -204,8 +297,12 @@ export const shipmentService = {
   },
 
   async createShipment(payload, userId) {
+    if (!endpointAvailability.create) {
+      throw new Error('Shipment create endpoint is unavailable');
+    }
     const identifier = resolveUserIdentifier(userId);
     const request = {
+      customerId: identifier || undefined,
       serviceType: normalizeServiceType(payload.type || payload.service),
       paymentMethod: normalizePaymentMethod(payload.paymentMode),
       sender: {
@@ -222,22 +319,30 @@ export const shipmentService = {
         weight: Number(payload.weight || payload.package?.weight || 0),
         type: payload.package?.type || 'Standard',
         description: payload.package?.description || ''
-      }
+      },
+      quotedCost: (() => {
+        const value = Number(payload.cost ?? payload.totalCost ?? payload.quote);
+        return Number.isFinite(value) && value > 0 ? value : undefined;
+      })()
     };
 
     try {
-      const response = await api.post('', request, {
-        headers: {
-          'X-User-Id': identifier
-        }
-      });
+      const response = await withShipmentBaseFallback((client) => client.post('', request, {
+        params: identifier ? { userId: identifier } : undefined
+      }));
       return mapShipment(response?.data);
     } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.create = false;
+      }
       throw new Error(getErrorMessage(error, 'Failed to create shipment'));
     }
   },
 
   async updateStatus(id, status, userId, metadata = {}) {
+    if (!endpointAvailability.update) {
+      throw new Error('Shipment update endpoint is unavailable');
+    }
     const requestBody = {
       status: String(status || '').toUpperCase().replace(/ /g, '_')
     };
@@ -248,22 +353,23 @@ export const shipmentService = {
     if (metadata?.deliveredByAgentId) requestBody.deliveredByAgentId = metadata.deliveredByAgentId;
 
     try {
-      const response = await api.patch(`/${encodeURIComponent(id)}/status`, requestBody, {
-        headers: {
-          'X-User-Id': userId
-        }
-      });
+      const response = await withShipmentBaseFallback((client) => client.patch(`/${encodeURIComponent(id)}/status`, requestBody, {
+        params: userId ? { userId } : undefined
+      }));
       return mapShipment(response?.data);
     } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.update = false;
+      }
       throw new Error(getErrorMessage(error, 'Failed to update shipment status'));
     }
   },
 
   async assignShipment(idOrTracking, agentId) {
     try {
-      const response = await api.patch(`/${encodeURIComponent(idOrTracking)}/assign`, {
+      const response = await withShipmentBaseFallback((client) => client.patch(`/${encodeURIComponent(idOrTracking)}/assign`, {
         agentId
-      });
+      }));
       return mapShipment(response?.data);
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to assign shipment'));
@@ -272,10 +378,10 @@ export const shipmentService = {
 
   async addShipmentRating(idOrTracking, rating, comment = '') {
     try {
-      const response = await api.post(`/${encodeURIComponent(idOrTracking)}/rating`, {
+      const response = await withShipmentBaseFallback((client) => client.post(`/${encodeURIComponent(idOrTracking)}/rating`, {
         rating: Number(rating),
         comment
-      });
+      }));
       return mapShipment(response?.data);
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to submit shipment rating'));
@@ -284,7 +390,7 @@ export const shipmentService = {
 
   async deleteShipment(id) {
     try {
-      await api.delete(`/${encodeURIComponent(id)}`);
+      await withShipmentBaseFallback((client) => client.delete(`/${encodeURIComponent(id)}`));
       return true;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to delete shipment'));
@@ -292,15 +398,22 @@ export const shipmentService = {
   },
 
   async calculateRate(request) {
+    if (!endpointAvailability.rate) {
+      return fallbackRate(request);
+    }
     try {
-      const response = await api.post('/calculate-rate', {
+      const response = await withShipmentBaseFallback((client) => client.post('/calculate-rate', {
         weight: Number(request.weight || 0),
         serviceType: normalizeServiceType(request.serviceType),
         originPincode: request.originPincode,
         destinationPincode: request.destinationPincode
-      });
+      }));
       return response?.data;
     } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.rate = false;
+        return fallbackRate(request);
+      }
       throw new Error(getErrorMessage(error, 'Failed to calculate shipment rate'));
     }
   }

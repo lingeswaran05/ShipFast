@@ -33,4 +33,16 @@ public class AgentProfile {
     private Long totalRatings;
     private String profileImage;
     private String shiftTiming;
+    private String availabilityStatus;
+    private Long deliveredCount;
+    private Long failedCount;
+    private Long inTransitCount;
+
+    private String bankAccountHolder;
+    private String bankAccountNumber;
+    private String bankIfsc;
+    private String bankName;
+    private Double salaryBalance;
+    private Double totalSalaryCredited;
+    private Double totalSalaryDebited;
 }

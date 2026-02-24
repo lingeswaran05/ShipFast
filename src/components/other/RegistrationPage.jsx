@@ -28,7 +28,6 @@ export function RegistrationPage() {
     setError('');
     setIsLoading(true);
 
-    // Validation
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       setIsLoading(false);
@@ -48,7 +47,6 @@ export function RegistrationPage() {
     }
 
     try {
-      // Register user via context
       await register({
         name: formData.name,
         email: formData.email,

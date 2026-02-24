@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User, Printer, Download, History, CreditCard, Camera, Upload } from 'lucide-react';
+import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User, Printer, Download, History, CreditCard, Camera, Upload, Send, MessageSquare } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { toast } from 'sonner';
 import { SectionDownloader } from '../shared/SectionDownloader';
@@ -7,9 +7,38 @@ import { operationsService } from '../../lib/operationsService';
 import { BarcodeGenerator } from '../shared/BarcodeGenerator';
 import { printElementById } from '../../lib/printUtils';
 import Webcam from 'react-webcam';
+import { useNavigate } from 'react-router-dom';
 
 const normalizeStatus = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
 const isCodPayment = (shipment) => ['cash', 'cod'].includes(String(shipment?.paymentMode || shipment?.paymentMethod || '').toLowerCase());
+const STATUS_SEQUENCE = ['BOOKED', 'IN TRANSIT', 'OUT FOR DELIVERY', 'DELIVERED'];
+const AGENT_AVAILABILITY = ['AVAILABLE', 'IN_TRANSIT', 'OFFLINE'];
+const SCAN_STATUS_OPTIONS = ['Booked', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed'];
+const AGENT_SCAN_TARGET_KEY = 'sf_agent_scan_target';
+const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
+
+const toCanonicalStatus = (value) => {
+    const normalized = normalizeStatus(value).replace(/\s+/g, ' ').trim();
+    if (normalized === 'FAILED ATTEMPT') return 'FAILED';
+    return normalized;
+};
+
+const isForwardStatusChange = (current, next) => {
+    const currentStatus = toCanonicalStatus(current);
+    const nextStatus = toCanonicalStatus(next);
+
+    if (!nextStatus) return false;
+    if (!currentStatus) return true;
+
+    if (nextStatus === 'FAILED') {
+        return currentStatus !== 'DELIVERED' && currentStatus !== 'FAILED';
+    }
+
+    const currentIndex = STATUS_SEQUENCE.indexOf(currentStatus);
+    const nextIndex = STATUS_SEQUENCE.indexOf(nextStatus);
+    if (currentIndex === -1 || nextIndex === -1) return true;
+    return nextIndex > currentIndex;
+};
 
 const getPartyDetails = (shipment, type) => {
     const primary = type === 'sender' ? shipment?.sender : shipment?.receiver;
@@ -25,16 +54,20 @@ const getPartyDetails = (shipment, type) => {
 };
 
 export function AgentDashboard({ view }) {
-    const { shipments, updateShipmentStatus, currentUser, refreshShipments, lastDataSyncAt, getRoleNotifications } = useShipment();
+    const { shipments, updateShipmentStatus, currentUser, refreshShipments, lastDataSyncAt, getRoleNotifications, notifyAdminFromAgent } = useShipment();
+  const navigate = useNavigate();
   const [scanId, setScanId] = useState('');
   const [scanResult, setScanResult] = useState(null);
-  const [scanStatusMode, setScanStatusMode] = useState('Received at Hub'); // Default scan mode
+  const [scanStatusMode, setScanStatusMode] = useState('Booked'); // Default scan mode
   const [podImage, setPodImage] = useState('');
   const [showPodCamera, setShowPodCamera] = useState(false);
   const [activeTab, setActiveTab] = useState('deliveries'); 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterCity, setFilterCity] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [adminMessage, setAdminMessage] = useState('');
+    const [isSendingAdminMessage, setIsSendingAdminMessage] = useState(false);
+    const [availabilityStatus, setAvailabilityStatus] = useState('AVAILABLE');
     const agentNotifications = getRoleNotifications('agent');
     const podFileInputRef = useRef(null);
     const podWebcamRef = useRef(null);
@@ -94,6 +127,8 @@ export function AgentDashboard({ view }) {
             try {
                 const profile = await operationsService.getAgentProfile(userId);
                 if (profile) {
+                    const normalizedAvailability = String(profile.availabilityStatus || 'AVAILABLE').toUpperCase();
+                    setAvailabilityStatus(AGENT_AVAILABILITY.includes(normalizedAvailability) ? normalizedAvailability : 'AVAILABLE');
                     setAgentOnboarding(prev => ({
                         ...prev,
                         agentId: profile.agentId || prev.agentId || '',
@@ -124,65 +159,158 @@ export function AgentDashboard({ view }) {
         loadOnboarding();
     }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, onboardingStorageKey, legacyOnboardingStorageKey]);
 
-  // Derived state for stats
-  const stats = useMemo(() => {
-     return {
-         toDeliver: shipments.filter(s => ['In Transit', 'Out for Delivery', 'Received at Hub', 'Booked'].includes(s.status)).length,
-         completed: shipments.filter(s => ['Delivered', 'Cancelled', 'Failed'].includes(s.status)).length,
-         cashCollected: shipments
-            .filter(s => normalizeStatus(s.status) === 'DELIVERED' && isCodPayment(s))
-            .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0)
-     };
-  }, [shipments]);
+    useEffect(() => {
+      if (view !== 'scan') return;
+      const pendingScanId = localStorage.getItem(AGENT_SCAN_TARGET_KEY);
+      if (pendingScanId) {
+        setScanId(pendingScanId);
+        localStorage.removeItem(AGENT_SCAN_TARGET_KEY);
+      }
+    }, [view]);
 
-  // Dynamic Shipment List based on Tab & Filters
-  const shipmentList = useMemo(() => {
-    let list = [];
-    const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
-    
-    if (activeTab === 'deliveries') {
-        list = shipments.filter(s => {
-            const status = normalize(s.status);
-            return ['IN TRANSIT', 'OUT FOR DELIVERY', 'RECEIVED AT HUB', 'BOOKED'].includes(status);
-        });
-    } else if (activeTab === 'history') {
-        list = shipments.filter(s => {
-            const status = normalize(s.status);
-            return ['DELIVERED', 'CANCELLED', 'FAILED'].includes(status);
-        });
-    } else if (activeTab === 'pickups') {
-         list = shipments.filter(s => normalize(s.status) === 'BOOKED');
-    }
+    const agentIdentifiers = useMemo(() => {
+      return [
+        agentOnboarding.agentId,
+        currentUser?.userId,
+        currentUser?.id,
+        currentUser?.email
+      ].filter(Boolean);
+    }, [agentOnboarding.agentId, currentUser?.userId, currentUser?.id, currentUser?.email]);
 
-    if (filterStatus !== 'All') {
-        list = list.filter(s => normalize(s.status) === normalize(filterStatus));
-    }
-    
-    if (filterCity) {
-        const term = filterCity.toLowerCase();
-        list = list.filter(s => {
-            // Context-aware filtering
-            if (activeTab === 'pickups') {
-                return s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
-            } else if (activeTab === 'deliveries') {
-                return s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
-            } else {
-                // For history, check both
-                return (s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) || 
-                       (s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
-            }
-        });
-    }
-    return list;
-  }, [shipments, activeTab, filterStatus, filterCity]);
+    const agentIdentitySet = useMemo(() => {
+      return new Set(agentIdentifiers.map(toIdentityValue));
+    }, [agentIdentifiers]);
+
+    const isAgentShipment = useCallback((shipment) => {
+      const candidates = [
+        shipment?.assignedAgentId,
+        shipment?.assignedToAgentId,
+        shipment?.deliveredByAgentId,
+        shipment?.agentId
+      ].map(toIdentityValue).filter(Boolean);
+      if (candidates.length === 0) return false;
+      return candidates.some((candidate) => agentIdentitySet.has(candidate));
+    }, [agentIdentitySet]);
+
+    const agentShipments = useMemo(() => {
+      return (shipments || []).filter((shipment) => isAgentShipment(shipment));
+    }, [shipments, isAgentShipment]);
+
+    const computeAgentPerformance = useCallback((source = agentShipments) => {
+      const deliveredCount = source.filter((s) => normalizeStatus(s.status) === 'DELIVERED').length;
+      const failedCount = source.filter((s) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalizeStatus(s.status))).length;
+      const inTransitCount = source.filter((s) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalizeStatus(s.status))).length;
+      return { deliveredCount, failedCount, inTransitCount };
+    }, [agentShipments]);
+
+    const persistAgentProfileSnapshot = useCallback(async (override = {}) => {
+      const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+      if (!userId) return;
+      const metrics = computeAgentPerformance();
+      await operationsService.upsertAgentProfile(userId, {
+        licenseNumber: agentOnboarding.licenseNumber,
+        vehicleNumber: agentOnboarding.vehicleNumber,
+        rcBookNumber: agentOnboarding.rcBookNumber,
+        bloodType: agentOnboarding.bloodType,
+        organDonor: Boolean(agentOnboarding.organDonor),
+        profileImage: agentOnboarding.profilePhoto,
+        availabilityStatus: override.availabilityStatus || availabilityStatus,
+        deliveredCount: override.deliveredCount ?? metrics.deliveredCount,
+        failedCount: override.failedCount ?? metrics.failedCount,
+        inTransitCount: override.inTransitCount ?? metrics.inTransitCount
+      });
+    }, [
+      currentUser?.userId,
+      currentUser?.id,
+      currentUser?.email,
+      computeAgentPerformance,
+      agentOnboarding.licenseNumber,
+      agentOnboarding.vehicleNumber,
+      agentOnboarding.rcBookNumber,
+      agentOnboarding.bloodType,
+      agentOnboarding.organDonor,
+      agentOnboarding.profilePhoto,
+      availabilityStatus
+    ]);
+
+    // Derived state for stats
+    const stats = useMemo(() => {
+       return {
+           toDeliver: agentShipments.filter(s => ['IN TRANSIT', 'OUT FOR DELIVERY', 'BOOKED'].includes(normalizeStatus(s.status))).length,
+           completed: agentShipments.filter(s => ['DELIVERED', 'CANCELLED', 'FAILED'].includes(normalizeStatus(s.status))).length,
+           cashCollected: agentShipments
+              .filter(s => normalizeStatus(s.status) === 'DELIVERED' && isCodPayment(s))
+              .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0)
+       };
+    }, [agentShipments]);
+
+    // Dynamic Shipment List based on Tab & Filters
+    const shipmentList = useMemo(() => {
+      let list = [];
+      const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
+
+      if (activeTab === 'deliveries') {
+          list = agentShipments.filter((s) => normalize(s.status) === 'BOOKED');
+      } else if (activeTab === 'pickups') {
+          list = agentShipments.filter((s) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalize(s.status)));
+      } else if (activeTab === 'history') {
+          list = agentShipments.filter((s) => ['DELIVERED', 'CANCELLED', 'FAILED', 'FAILED ATTEMPT'].includes(normalize(s.status)));
+      }
+
+      if (filterStatus !== 'All') {
+          list = list.filter(s => normalize(s.status) === normalize(filterStatus));
+      }
+
+      if (filterCity) {
+          const term = filterCity.toLowerCase();
+          list = list.filter(s => {
+              if (activeTab === 'pickups') {
+                  return s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
+              }
+              if (activeTab === 'deliveries') {
+                  return s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
+              }
+              return (s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) ||
+                     (s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
+          });
+      }
+      return list;
+    }, [agentShipments, activeTab, filterStatus, filterCity]);
 
   const handleQuickStatusUpdate = async (id, newStatus) => {
       if (normalizeStatus(newStatus) === 'DELIVERED') {
           toast.info('Use Scan Parcels with Delivered status to upload proof of delivery.');
           return;
       }
+      const shipment = agentShipments.find((item) => item.id === id || item.trackingId === id || item.trackingNumber === id);
+      if (shipment && !isForwardStatusChange(shipment.status, newStatus)) {
+          toast.error(`Status can only move forward. Current: ${shipment.status}`);
+          return;
+      }
       try {
           await updateShipmentStatus(id, newStatus, 'Agent Update');
+          const normalizedNext = normalizeStatus(newStatus);
+          const updatedSnapshot = agentShipments.map((item) => (
+            item.id === id || item.trackingId === id || item.trackingNumber === id
+              ? { ...item, status: newStatus }
+              : item
+          ));
+          const metrics = computeAgentPerformance(updatedSnapshot);
+          const nextAvailability =
+            normalizedNext === 'IN TRANSIT' || normalizedNext === 'OUT FOR DELIVERY' || metrics.inTransitCount > 0
+              ? 'IN_TRANSIT'
+              : 'AVAILABLE';
+          setAvailabilityStatus(nextAvailability);
+          try {
+            await persistAgentProfileSnapshot({
+              availabilityStatus: nextAvailability,
+              deliveredCount: metrics.deliveredCount,
+              failedCount: metrics.failedCount,
+              inTransitCount: metrics.inTransitCount
+            });
+          } catch {
+            // non-blocking
+          }
           toast.success(`Shipment updated to ${newStatus}`);
       } catch (error) {
           toast.error(error.message || 'Failed to update shipment');
@@ -218,13 +346,23 @@ export function AgentDashboard({ view }) {
     }
 
     const normalizedScan = String(scanId || '').trim().toUpperCase();
-    const shipment = shipments.find(s =>
+    const shipment = agentShipments.find(s =>
         String(s.id || '').toUpperCase() === normalizedScan ||
         String(s.trackingId || '').toUpperCase() === normalizedScan ||
         String(s.trackingNumber || '').toUpperCase() === normalizedScan
     );
 
     if (shipment) {
+        if (!isForwardStatusChange(shipment.status, scanStatusMode)) {
+            toast.error(`Invalid transition: ${shipment.status} -> ${scanStatusMode}. Use forward flow or mark as Failed.`);
+            setScanResult({
+                id: shipment.trackingNumber || shipment.id,
+                status: `Invalid transition from ${shipment.status}`,
+                timestamp: new Date().toLocaleString(),
+                success: false
+            });
+            return;
+        }
         if (normalizeStatus(shipment.status) === normalizeStatus(scanStatusMode)) {
             setScanResult({
                 id: shipment.trackingNumber || shipment.id,
@@ -247,6 +385,28 @@ export function AgentDashboard({ view }) {
                     timestamp: new Date().toLocaleString(),
                     success: true
                 });
+                const updatedSnapshot = agentShipments.map((item) => (
+                  item.id === shipment.id || item.trackingId === shipment.trackingId || item.trackingNumber === shipment.trackingNumber
+                    ? { ...item, status: scanStatusMode }
+                    : item
+                ));
+                const metrics = computeAgentPerformance(updatedSnapshot);
+                const normalizedNext = normalizeStatus(scanStatusMode);
+                const nextAvailability =
+                  normalizedNext === 'IN TRANSIT' || normalizedNext === 'OUT FOR DELIVERY' || metrics.inTransitCount > 0
+                    ? 'IN_TRANSIT'
+                    : 'AVAILABLE';
+                setAvailabilityStatus(nextAvailability);
+                try {
+                  await persistAgentProfileSnapshot({
+                    availabilityStatus: nextAvailability,
+                    deliveredCount: metrics.deliveredCount,
+                    failedCount: metrics.failedCount,
+                    inTransitCount: metrics.inTransitCount
+                  });
+                } catch {
+                  // non-blocking
+                }
                 toast.success('Status Updated Successfully');
             } catch (error) {
                 toast.error(error.message || 'Failed to update shipment status');
@@ -266,6 +426,11 @@ export function AgentDashboard({ view }) {
                 timestamp: new Date().toLocaleString(),
                 success: true
             });
+            try {
+              await persistAgentProfileSnapshot();
+            } catch {
+              // non-blocking
+            }
             toast.success('Status Updated Successfully');
             refreshShipments();
         } catch {
@@ -328,13 +493,18 @@ export function AgentDashboard({ view }) {
 
         try {
             const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+            const metrics = computeAgentPerformance();
             const savedProfile = await operationsService.upsertAgentProfile(userId, {
                 licenseNumber: agentOnboarding.licenseNumber,
                 vehicleNumber: agentOnboarding.vehicleNumber,
                 rcBookNumber: agentOnboarding.rcBookNumber,
                 bloodType: agentOnboarding.bloodType,
                 organDonor: Boolean(agentOnboarding.organDonor),
-                profileImage: agentOnboarding.profilePhoto
+                profileImage: agentOnboarding.profilePhoto,
+                availabilityStatus,
+                deliveredCount: metrics.deliveredCount,
+                failedCount: metrics.failedCount,
+                inTransitCount: metrics.inTransitCount
             });
 
             localStorage.setItem(onboardingStorageKey, JSON.stringify({
@@ -367,8 +537,24 @@ export function AgentDashboard({ view }) {
         }
     };
 
-    // Use contextual flag if user is actually onboarded
+    const handleSendAdminMessage = async () => {
+        const text = String(adminMessage || '').trim();
+        if (!text) return;
+        try {
+            setIsSendingAdminMessage(true);
+            await notifyAdminFromAgent(text);
+            setAdminMessage('');
+            toast.success('Message sent to admin');
+        } catch (error) {
+            toast.error(error.message || 'Failed to send message to admin');
+        } finally {
+            setIsSendingAdminMessage(false);
+        }
+    };
+
+    // Do not block dashboard access on first login; KYC comes from customer role-request flow.
     const isActuallyOnboarded = Boolean(agentOnboarding.verifiedAt || hasMandatoryProfile);
+    const shouldBlockForOnboarding = false;
 
     if (currentUser?.role === 'agent' && isAgentProfileLoading) {
         return (
@@ -378,7 +564,7 @@ export function AgentDashboard({ view }) {
         );
     }
 
-    if (currentUser?.role === 'agent' && !isActuallyOnboarded) {
+    if (shouldBlockForOnboarding && currentUser?.role === 'agent' && !isActuallyOnboarded) {
         return (
             <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6 animate-fade-in-up">
                 <div>
@@ -535,20 +721,42 @@ export function AgentDashboard({ view }) {
                     <div className="font-semibold text-slate-900">Live Operations Feed</div>
                     <div className="text-xs text-slate-500">{lastDataSyncAt ? `Last sync: ${new Date(lastDataSyncAt).toLocaleTimeString()}` : 'No sync yet'}</div>
                 </div>
-                <button
-                    onClick={handleRefreshAgentData}
-                    disabled={isRefreshing}
-                    className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-70"
-                >
-                    {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
-                </button>
+                <div className="flex items-center gap-2">
+                    <select
+                      value={availabilityStatus}
+                      onChange={async (e) => {
+                        const nextAvailability = String(e.target.value || 'AVAILABLE').toUpperCase();
+                        setAvailabilityStatus(nextAvailability);
+                        try {
+                          await persistAgentProfileSnapshot({ availabilityStatus: nextAvailability });
+                          toast.success(`Status set to ${nextAvailability.replace(/_/g, ' ')}`);
+                        } catch {
+                          toast.warning('Status updated locally');
+                        }
+                      }}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-white"
+                    >
+                      {AGENT_AVAILABILITY.map((status) => (
+                        <option key={status} value={status}>
+                          {status.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                        onClick={handleRefreshAgentData}
+                        disabled={isRefreshing}
+                        className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-70"
+                    >
+                        {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
+                    </button>
+                </div>
             </div>
 
       {view === 'overview' && (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex gap-2 overflow-x-auto pb-2 w-full sm:w-auto">
-                    {['deliveries', 'pickups', 'history', 'profile'].map(tab => (
+                    {['deliveries', 'pickups', 'history'].map(tab => (
                         <button 
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -562,38 +770,31 @@ export function AgentDashboard({ view }) {
                         </button>
                     ))}
                 </div>
-                
-                {activeTab !== 'profile' && (
-                    <div className="flex gap-2 w-full sm:w-auto">
-                        <div className="relative flex-1 sm:flex-initial">
-                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                             <input 
-                                type="text" 
-                                placeholder="Filter city..." 
-                                className="pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
-                                value={filterCity}
-                                onChange={(e) => setFilterCity(e.target.value)}
-                             />
-                        </div>
-                        <select 
-                            className="pl-3 pr-8 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                            value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value)}
-                        >
-                            <option value="All">All Status</option>
-                            <option value="Booked">Booked</option>
-                            <option value="In Transit">In Transit</option>
-                            <option value="Out for Delivery">Out for Delivery</option>
-                        </select>
+                <div className="flex gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:flex-initial">
+                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                         <input 
+                            type="text" 
+                            placeholder="Filter city..." 
+                            className="pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+                            value={filterCity}
+                            onChange={(e) => setFilterCity(e.target.value)}
+                         />
                     </div>
-                )}
+                    <select 
+                        className="pl-3 pr-8 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                    >
+                        <option value="All">All Status</option>
+                        <option value="Booked">Booked</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Out for Delivery">Out for Delivery</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Failed">Failed</option>
+                    </select>
+                </div>
             </div>
-
-            {activeTab === 'profile' && (
-                <AgentProfileView currentUser={currentUser} />
-            )}
-
-            {activeTab !== 'profile' && (
                 <div className="space-y-4">
                     <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                         {activeTab === 'deliveries' && <Truck className="w-5 h-5 text-indigo-600" />}
@@ -656,13 +857,16 @@ export function AgentDashboard({ view }) {
                                     {activeTab === 'deliveries' && (
                                         <div className="grid grid-cols-2 gap-3">
                                             <button 
-                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Delivered')}
-                                                className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                                onClick={async () => {
+                                                  await handleQuickStatusUpdate(shipment.id, 'In Transit');
+                                                  setActiveTab('pickups');
+                                                }}
+                                                className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                             >
-                                                <CheckCircle className="w-4 h-4" /> Delivered
+                                                <Package className="w-4 h-4" /> Pick Up
                                             </button>
                                             <button 
-                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed Attempt')}
+                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed')}
                                                 className="py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                             >
                                                 <AlertTriangle className="w-4 h-4" /> Failed
@@ -670,19 +874,30 @@ export function AgentDashboard({ view }) {
                                         </div>
                                     )}
                                     {activeTab === 'pickups' && (
-                                        <button 
-                                            onClick={() => handleQuickStatusUpdate(shipment.id, 'Received at Hub')}
-                                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
-                                        >
-                                            <Package className="w-4 h-4" /> Confirm Pickup
-                                        </button>
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <button
+                                              onClick={() => {
+                                                const targetId = shipment.trackingNumber || shipment.trackingId || shipment.id;
+                                                localStorage.setItem(AGENT_SCAN_TARGET_KEY, targetId);
+                                                navigate('/agent/scan');
+                                              }}
+                                              className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                          >
+                                              <Scan className="w-4 h-4" /> Move To Scan
+                                          </button>
+                                          <button
+                                              onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed')}
+                                              className="py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                          >
+                                              <AlertTriangle className="w-4 h-4" /> Failed
+                                          </button>
+                                        </div>
                                     )}
                                 </div>
                             )})}
                         </div>
                     )}
                 </div>
-            )}
         </div>
       )}
 
@@ -701,12 +916,9 @@ export function AgentDashboard({ view }) {
                         onChange={(e) => setScanStatusMode(e.target.value)}
                         className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium"
                     >
-                        <option value="Booked">Booked</option>
-                        <option value="In Transit">In Transit</option>
-                        <option value="Received at Hub">Arrived at Hub</option>
-                        <option value="Out for Delivery">Out for Delivery</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Failed Attempt">Failed Attempt</option>
+                        {SCAN_STATUS_OPTIONS.map((statusOption) => (
+                          <option key={statusOption} value={statusOption}>{statusOption}</option>
+                        ))}
                     </select>
                 </div>
 
@@ -827,8 +1039,8 @@ export function AgentDashboard({ view }) {
 
       {view === 'runsheets' && (
         <RunSheetView
-            todaysDeliveries={shipments.filter(s => {
-                const allowed = ['RECEIVED AT HUB', 'BOOKED', 'OUT FOR DELIVERY'].includes(normalizeStatus(s.status));
+            todaysDeliveries={agentShipments.filter(s => {
+                const allowed = ['BOOKED', 'IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalizeStatus(s.status));
                 if (!allowed) return false;
                 const allowedAgentIds = [
                   agentOnboarding.agentId,
@@ -845,14 +1057,43 @@ export function AgentDashboard({ view }) {
       )}
 
       {view === 'cash' && (
-         <CashCollectionView shipments={shipments} />
+         <CashCollectionView shipments={agentShipments} />
       )}
 
             {view === 'notifications' && (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in-up">
                     <div className="p-6 border-b border-slate-100">
                         <h2 className="text-lg font-bold text-slate-900">Agent Notifications</h2>
-                        <p className="text-sm text-slate-500">Important delivery and operational alerts</p>
+                        <p className="text-sm text-slate-500">Important delivery alerts and direct communication with admin</p>
+                    </div>
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/60 space-y-3">
+                        <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4 text-indigo-600" />
+                            Send Message To Admin
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                value={adminMessage}
+                                onChange={(e) => setAdminMessage(e.target.value)}
+                                placeholder="Type an operational note for admin..."
+                                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleSendAdminMessage();
+                                    }
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleSendAdminMessage}
+                                disabled={isSendingAdminMessage || !adminMessage.trim()}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 inline-flex items-center gap-2"
+                            >
+                                <Send className="w-4 h-4" />
+                                {isSendingAdminMessage ? 'Sending...' : 'Send'}
+                            </button>
+                        </div>
                     </div>
                     <div className="divide-y divide-slate-100">
                         {agentNotifications.length > 0 ? agentNotifications.map((item) => (
@@ -1056,7 +1297,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
     };
     
     // Filtering for logic demo
-    const eligibleForRunSheet = todaysDeliveries.filter(s => ['RECEIVED AT HUB', 'BOOKED', 'OUT FOR DELIVERY'].includes(normalizeStatus(s.status)));
+    const eligibleForRunSheet = todaysDeliveries.filter(s => ['BOOKED', 'IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalizeStatus(s.status)));
 
     return (
          <div className="space-y-6">
@@ -1181,6 +1422,10 @@ function CashCollectionView({ shipments }) {
         }, {});
 
     const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
+    const verifiedSubmittedTotal = submittedTransactions
+      .filter((transaction) => String(transaction.status || '').toUpperCase() === 'VERIFIED')
+      .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+    const totalVerifiedRevenue = totalCollected + verifiedSubmittedTotal;
 
     const handleDeposit = () => {
         toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
@@ -1193,7 +1438,7 @@ function CashCollectionView({ shipments }) {
             type: 'Deposit',
             status: 'Processing'
         };
-        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setSubmittedTransactions((prev) => [newTxn, ...prev]);
     };
 
     const handleSubmitCash = () => {
@@ -1208,7 +1453,7 @@ function CashCollectionView({ shipments }) {
              type: 'Cash Submission',
              status: 'Verified'
         };
-        setSubmittedTransactions([newTxn, ...submittedTransactions]);
+        setSubmittedTransactions((prev) => [newTxn, ...prev]);
         setVerifyAmount('');
     };
 
@@ -1220,7 +1465,7 @@ function CashCollectionView({ shipments }) {
                 <div className="space-y-4">
                   <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
                      <div className="text-slate-400 text-sm font-medium mb-1">Total Verified Revenue</div>
-                     <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
+                     <div className="text-4xl font-bold">₹{totalVerifiedRevenue.toLocaleString()}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
                             onClick={handleDeposit}

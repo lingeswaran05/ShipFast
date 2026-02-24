@@ -53,6 +53,10 @@ export function ShipmentProvider({ children }) {
   const login = async (email, password) => {
     try {
       const user = await mockService.login(email, password);
+      // Normalize role to lowercase for consistent checks
+      if (user.role) {
+        user.role = user.role.toLowerCase();
+      }
       setCurrentUser(user);
       localStorage.setItem('currentUser', JSON.stringify(user));
       
@@ -69,10 +73,15 @@ export function ShipmentProvider({ children }) {
 
   const register = async (userData) => {
       try {
-          const user = await mockService.register(userData);
+          // Ensure new users have a default role of 'customer'
+          const user = await mockService.register({ ...userData, role: 'customer' });
+          // Normalize role to lowercase
+          if (user.role) {
+            user.role = user.role.toLowerCase();
+          }
           setCurrentUser(user);
           localStorage.setItem('currentUser', JSON.stringify(user));
-          addNotification(`Welcome to ShipFast, ${user.name}!`, 'customer');
+          addNotification(`Welcome to ShipFast, ${user.name}!`, user.role);
           return user;
       } catch (error) {
           console.error("Registration failed", error);
@@ -88,12 +97,7 @@ export function ShipmentProvider({ children }) {
 
   const addShipment = async (shipmentData) => {
       try {
-        // Ensure userId is attached
-        const shipmentWithUser = { 
-            ...shipmentData, 
-            userId: currentUser?.id 
-        };
-        const newShipment = await mockService.createShipment(shipmentWithUser);
+        const newShipment = await mockService.createShipment(shipmentData);
         setShipments(prev => [newShipment, ...prev]);
         return newShipment;
       } catch (error) {
@@ -114,10 +118,6 @@ export function ShipmentProvider({ children }) {
   };
 
   const deleteShipment = (id) => {
-      // Note: mockService.deleteShipment not implemented yet, using status 'Cancelled' usually
-      // But user asked for delete. UI might just remove locally or we should add deleteShipment to service.
-      // For now, let's keep it local as per original, OR implement delete if critical.
-      // Original code just filtered locally.
       setShipments(prev => prev.filter(s => s.id !== id));
       addNotification('Shipment deleted.', 'customer');
   };
@@ -131,99 +131,56 @@ export function ShipmentProvider({ children }) {
   };
 
   // Helper for admin/agent actions
-  const addBranch = async (branchData) => {
-      try {
-        const newBranch = await mockService.createBranch(branchData);
-        setBranches(prev => [...prev, newBranch]);
-        addNotification(`Branch "${branchData.name}" added successfully.`, 'admin');
-      } catch (error) {
-          console.error("Add branch failed", error);
-          addNotification('Failed to add branch', 'error');
-      }
+  const addBranch = (branchData) => {
+      const newBranch = { ...branchData, id: Date.now(), status: 'Active', capacity: '0%' };
+      setBranches(prev => [...prev, newBranch]);
+      addNotification(`Branch "${branchData.name}" added successfully.`, 'admin');
   };
   
-  const removeBranch = async (branchId) => {
-      try {
-        await mockService.deleteBranch(branchId);
-        setBranches(prev => prev.filter(b => b.id !== branchId));
-        addNotification('Branch removed successfully.', 'admin');
-      } catch (error) {
-          console.error("Remove branch failed", error);
-      }
+  const removeBranch = (branchId) => {
+      setBranches(prev => prev.filter(b => b.id !== branchId));
+      addNotification('Branch removed successfully.', 'admin');
   };
 
-  const updateBranch = async (updatedBranch) => {
-      try {
-          const result = await mockService.updateBranch(updatedBranch.id, updatedBranch);
-          setBranches(prev => prev.map(b => b.id === updatedBranch.id ? result : b));
-          addNotification(`Branch "${updatedBranch.name}" updated successfully.`, 'admin');
-      } catch (error) {
-          console.error("Update branch failed", error);
-      }
+  const updateBranch = (updatedBranch) => {
+      setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
+      addNotification(`Branch "${updatedBranch.name}" updated successfully.`, 'admin');
   };
 
-  const addVehicle = async (vehicleData) => {
-      try {
-        const newVehicle = await mockService.createVehicle(vehicleData);
-        setVehicles(prev => [...prev, newVehicle]);
-        addNotification(`Vehicle ${vehicleData.number} added to fleet.`, 'admin');
-      } catch (error) {
-          console.error("Add vehicle failed", error);
-      }
+  const addVehicle = (vehicleData) => {
+      const newVehicle = { id: vehicleData.number, ...vehicleData, status: 'Available' };
+      setVehicles(prev => [...prev, newVehicle]);
+      addNotification(`Vehicle ${vehicleData.number} added to fleet.`, 'admin');
   };
 
-  const updateVehicle = async (updatedVehicle) => {
-      try {
-          const result = await mockService.updateVehicle(updatedVehicle.id, updatedVehicle);
-          setVehicles(prev => prev.map(v => v.id === updatedVehicle.id ? result : v));
-          addNotification(`Vehicle ${updatedVehicle.number || updatedVehicle.id} updated successfully.`, 'admin');
-      } catch (error) {
-          console.error("Update vehicle failed", error);
-      }
+  const updateVehicle = (updatedVehicle) => {
+      setVehicles(prev => prev.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+      addNotification(`Vehicle ${updatedVehicle.number || updatedVehicle.id} updated successfully.`, 'admin');
   };
 
-  const addStaff = async (staffData) => {
-      try {
-          const newStaff = await mockService.createStaff(staffData);
-          setStaff(prev => [...prev, newStaff]);
-          addNotification(`Staff member "${staffData.name}" added successfully.`, 'admin');
-      } catch (error) {
-          console.error("Add staff failed", error);
-      }
+  const addStaff = (staffData) => {
+      const newStaff = { ...staffData, id: Date.now(), status: 'Active', performance: { deliveries: 0, rating: 5.0, shift: 'Day' } };
+      setStaff(prev => [...prev, newStaff]);
+      addNotification(`Staff member "${staffData.name}" added successfully.`, 'admin');
   };
 
-  const removeStaff = async (staffId) => {
-      try {
-          await mockService.deleteStaff(staffId);
-          setStaff(prev => prev.filter(s => s.id !== staffId));
-          addNotification('Staff member removed.', 'admin');
-      } catch (error) {
-          console.error("Remove staff failed", error);
-      }
+  const removeStaff = (staffId) => {
+      setStaff(prev => prev.filter(s => s.id !== staffId));
+      addNotification('Staff member removed.', 'admin');
   };
 
-  const updateStaff = async (updatedStaff) => {
-      try {
-          const result = await mockService.updateStaff(updatedStaff.id, updatedStaff);
-          setStaff(prev => prev.map(s => s.id === updatedStaff.id ? result : s));
-          addNotification(`Staff member "${updatedStaff.name}" updated successfully.`, 'admin');
-      } catch (error) {
-          console.error("Update staff failed", error);
-      }
+  const updateStaff = (updatedStaff) => {
+      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+      addNotification(`Staff member "${updatedStaff.name}" updated successfully.`, 'admin');
   };
   
-  const updateProfile = async (updatedData) => {
-      try {
-          if (!currentUser) return;
-          const newUser = await mockService.updateUser(currentUser.id, updatedData);
-          setCurrentUser(newUser);
-          localStorage.setItem('currentUser', JSON.stringify(newUser));
-          setUsers(currentUsers => currentUsers.map(u => u.id === currentUser.id ? newUser : u));
-          addNotification('Profile updated successfully.', 'all');
-      } catch (error) {
-          console.error("Update profile failed", error);
-          throw error;
-      }
+  const updateProfile = (updatedData) => {
+      setCurrentUser(prev => {
+          const newUser = { ...prev, ...updatedData };
+          setUsers(currentUsers => currentUsers.map(u => u.id === prev.id ? newUser : u));
+          return newUser;
+      });
+      addNotification('Profile updated successfully.', 'all');
   };
 
   const addNotification = (message, role) => {

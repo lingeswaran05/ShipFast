@@ -57,6 +57,9 @@ public class ShipmentServiceImpl implements ShipmentService {
                 extractPincode(request.getSender().getAddress()),
                 extractPincode(request.getRecipient().getAddress())
         );
+        double finalCost = request.getQuotedCost() != null && request.getQuotedCost() > 0
+                ? Math.round(request.getQuotedCost() * 100.0) / 100.0
+                : rate.getTotalCost();
 
         TrackingEvent initialEvent = TrackingEvent.builder()
                 .status("Booked")
@@ -73,7 +76,7 @@ public class ShipmentServiceImpl implements ShipmentService {
                 .status("Booked")
                 .serviceType(request.getServiceType())
                 .paymentMethod(request.getPaymentMethod())
-                .cost(rate.getTotalCost())
+                .cost(finalCost)
                 .createdAt(now)
                 .estimatedDelivery(now.plusDays(rate.getEstimatedDeliveryDays()))
                 .updatedAt(now)
@@ -324,6 +327,9 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
         if (request.getPackageDetails().getWeight() <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "packageDetails.weight must be greater than 0");
+        }
+        if (request.getQuotedCost() != null && request.getQuotedCost() < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quotedCost cannot be negative");
         }
     }
 

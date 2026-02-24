@@ -1,15 +1,42 @@
 import axios from 'axios';
-import { resolveServiceBaseUrl } from './apiConfig';
+import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
-const ADMIN_BASE_URL = resolveServiceBaseUrl(import.meta.env.VITE_ADMIN_BASE_URL);
+const ADMIN_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_ADMIN_BASE_URL, {
+  localDirectBase: 'http://localhost:8083'
+})
+  .map((base) => toServiceBaseUrl(base, '/api/admin'))
+  .filter((value, index, list) => list.indexOf(value) === index);
 
 const api = axios.create({
-  baseURL: `${ADMIN_BASE_URL}/api/admin`,
+  baseURL: ADMIN_BASE_URLS[0],
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json'
   }
 });
+
+let activeAdminBaseIndex = 0;
+const setActiveAdminBase = (index) => {
+  activeAdminBaseIndex = index;
+  api.defaults.baseURL = ADMIN_BASE_URLS[index] || ADMIN_BASE_URLS[0];
+};
+
+const withAdminFallback = async (requestFactory, options = {}) => {
+  const { retryOnFailure = true } = options;
+  let lastError;
+  for (let offset = 0; offset < ADMIN_BASE_URLS.length; offset += 1) {
+    const index = (activeAdminBaseIndex + offset) % ADMIN_BASE_URLS.length;
+    setActiveAdminBase(index);
+    try {
+      return await requestFactory(api);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = retryOnFailure && shouldRetryWithFallback(error) && offset < ADMIN_BASE_URLS.length - 1;
+      if (!shouldRetry) throw error;
+    }
+  }
+  throw lastError;
+};
 
 const getPayload = (response) => response?.data?.data ?? response?.data ?? {};
 
@@ -20,8 +47,10 @@ const mapBranch = (branch = {}) => ({
   type: branch.type || 'Branch',
   location: branch.address || branch.location || '',
   state: branch.state || '',
-  manager: branch.manager || branch.managerName || '',
+  manager: branch.managerName || branch.manager || branch.managerUserId || '',
+  managerUserId: branch.managerUserId || '',
   contact: branch.contact || '',
+  description: branch.description || '',
   status: branch.status || 'Active',
   staffCount: Number(branch.staffCount || 0),
   stats: {
@@ -39,7 +68,10 @@ const mapVehicle = (vehicle = {}) => ({
   vehicleNumber: vehicle.vehicleNumber || vehicle.number || '',
   type: vehicle.type || 'Van',
   capacity: vehicle.capacity || 0,
-  driver: vehicle.driverUserId || vehicle.driver || 'N/A',
+  driverUserId: vehicle.driverUserId || '',
+  driverName: vehicle.driverName || '',
+  driver: vehicle.driverName || vehicle.driverUserId || vehicle.driver || 'N/A',
+  seats: Number(vehicle.seats || 0),
   rcBook: vehicle.rcBook || '',
   photo: vehicle.photo || null,
   status: vehicle.status || 'Available'
@@ -55,13 +87,18 @@ const getErrorMessage = (error, fallback) => (
 export const adminService = {
   async createBranch(branchData) {
     try {
-      const response = await api.post('/branches', {
+      const response = await withAdminFallback((client) => client.post('/branches', {
         name: branchData.name,
         type: branchData.type,
-        address: branchData.location || branchData.address || branchData.state,
+        address: branchData.location || branchData.address || '',
+        state: branchData.state || '',
+        managerName: branchData.manager || branchData.managerName || '',
+        managerUserId: branchData.managerUserId || '',
+        contact: branchData.contact || '',
         staffCount: Number(branchData.staffCount || 0),
-        status: branchData.status || 'Active'
-      });
+        status: branchData.status || 'Active',
+        description: branchData.description || ''
+      }));
       return mapBranch(getPayload(response));
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to create branch'));
@@ -70,7 +107,7 @@ export const adminService = {
 
   async getBranches() {
     try {
-      const response = await api.get('/branches');
+      const response = await withAdminFallback((client) => client.get('/branches'));
       const payload = getPayload(response);
       const list = Array.isArray(payload) ? payload : payload.content || [];
       return list.map(mapBranch);
@@ -81,22 +118,36 @@ export const adminService = {
 
   async updateBranch(branchId, branchData) {
     try {
-      const response = await api.put(`/branches/${encodeURIComponent(branchId)}`, {
+      const response = await withAdminFallback((client) => client.put(`/branches/${encodeURIComponent(branchId)}`, {
         name: branchData.name,
         type: branchData.type,
-        address: branchData.location || branchData.address || branchData.state,
-        staffCount: Number(branchData.staffCount || 0),
-        status: branchData.status || 'Active'
-      });
+        address: branchData.location ?? branchData.address,
+        state: branchData.state,
+        managerName: branchData.manager ?? branchData.managerName,
+        managerUserId: branchData.managerUserId,
+        contact: branchData.contact,
+        staffCount:
+          branchData.staffCount === undefined || branchData.staffCount === null
+            ? undefined
+            : Number(branchData.staffCount),
+        status: branchData.status,
+        description: branchData.description
+      }));
       return mapBranch(getPayload(response));
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to update branch'));
     }
   },
 
+  async updateBranchStatus(branchId, status) {
+    const branches = await this.getBranches();
+    const current = branches.find((branch) => branch.id === branchId || branch.branchId === branchId) || {};
+    return this.updateBranch(branchId, { ...current, status });
+  },
+
   async deleteBranch(branchId) {
     try {
-      await api.delete(`/branches/${encodeURIComponent(branchId)}`);
+      await withAdminFallback((client) => client.delete(`/branches/${encodeURIComponent(branchId)}`));
       return true;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to delete branch'));
@@ -105,12 +156,16 @@ export const adminService = {
 
   async createVehicle(vehicleData) {
     try {
-      const response = await api.post('/vehicles', {
+      const response = await withAdminFallback((client) => client.post('/vehicles', {
         vehicleNumber: vehicleData.number || vehicleData.vehicleNumber,
         type: vehicleData.type || 'Van',
-        driverUserId: vehicleData.driver || vehicleData.driverName || 'N/A',
+        driverUserId: vehicleData.driverUserId || vehicleData.driver || '',
+        driverName: vehicleData.driverName || '',
+        seats: Number(vehicleData.seats || 0),
+        rcBook: vehicleData.rcBook || '',
+        photo: vehicleData.photo || null,
         status: vehicleData.status || 'Available'
-      });
+      }));
       return mapVehicle(getPayload(response));
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to create vehicle'));
@@ -119,7 +174,7 @@ export const adminService = {
 
   async getVehicles() {
     try {
-      const response = await api.get('/vehicles');
+      const response = await withAdminFallback((client) => client.get('/vehicles'));
       const payload = getPayload(response);
       const list = Array.isArray(payload) ? payload : payload.content || [];
       return list.map(mapVehicle);
@@ -130,21 +185,34 @@ export const adminService = {
 
   async updateVehicle(vehicleId, vehicleData) {
     try {
-      const response = await api.put(`/vehicles/${encodeURIComponent(vehicleId)}`, {
-        vehicleNumber: vehicleData.number || vehicleData.vehicleNumber,
-        type: vehicleData.type || 'Van',
-        driverUserId: vehicleData.driver || vehicleData.driverName || 'N/A',
-        status: vehicleData.status || 'Available'
-      });
+      const response = await withAdminFallback((client) => client.put(`/vehicles/${encodeURIComponent(vehicleId)}`, {
+        vehicleNumber: vehicleData.number ?? vehicleData.vehicleNumber,
+        type: vehicleData.type,
+        driverUserId: vehicleData.driverUserId ?? vehicleData.driver,
+        driverName: vehicleData.driverName,
+        seats:
+          vehicleData.seats === undefined || vehicleData.seats === null
+            ? undefined
+            : Number(vehicleData.seats),
+        rcBook: vehicleData.rcBook,
+        photo: vehicleData.photo,
+        status: vehicleData.status
+      }));
       return mapVehicle(getPayload(response));
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to update vehicle'));
     }
   },
 
+  async updateVehicleStatus(vehicleId, status) {
+    const vehicles = await this.getVehicles();
+    const current = vehicles.find((vehicle) => vehicle.id === vehicleId || vehicle.vehicleId === vehicleId) || {};
+    return this.updateVehicle(vehicleId, { ...current, status });
+  },
+
   async deleteVehicle(vehicleId) {
     try {
-      await api.delete(`/vehicles/${encodeURIComponent(vehicleId)}`);
+      await withAdminFallback((client) => client.delete(`/vehicles/${encodeURIComponent(vehicleId)}`));
       return true;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to delete vehicle'));

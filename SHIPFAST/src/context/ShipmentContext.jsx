@@ -5,11 +5,13 @@ import { adminService } from '../lib/adminService';
 import { communicationService } from '../lib/communicationService';
 import { shipmentService } from '../lib/shipmentService';
 import { reportingService } from '../lib/reportingService';
+import { operationsService } from '../lib/operationsService';
 
 const ShipmentContext = createContext();
 const ROLE_REQUESTS_KEY = 'sf_role_requests';
 const ROLE_OVERRIDES_KEY = 'sf_role_overrides';
 const USERS_DIRECTORY_KEY = 'sf_users_directory';
+const PRICING_CONFIG_KEY = 'sf_pricing_config';
 
 const parseStored = (key, fallback = []) => {
   try {
@@ -25,6 +27,8 @@ const normalizeRole = (value) => {
   if (['driver', 'manager', 'sorter'].includes(normalized)) return 'agent';
   return normalized;
 };
+
+const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
 
 const isProtectedAdmin = (user) => normalizeRole(user?.role) === 'admin';
 
@@ -44,7 +48,32 @@ export function ShipmentProvider({ children }) {
   const [lastDataSyncAt, setLastDataSyncAt] = useState(null);
   const [roleRequests, setRoleRequests] = useState(parseStored(ROLE_REQUESTS_KEY, []));
   const [roleOverrides, setRoleOverrides] = useState(parseStored(ROLE_OVERRIDES_KEY, []));
+  const [pricingConfig, setPricingConfig] = useState(parseStored(PRICING_CONFIG_KEY, { profitPercentage: 20 }));
   const [isLoading, setIsLoading] = useState(true);
+
+  const readRoleRequestDocuments = (request = {}) => ({
+    profilePhoto: request?.documents?.profilePhoto || request?.agentDetails?.profilePhoto || null,
+    aadharCopy: request?.documents?.aadharCopy || null,
+    licenseCopy: request?.documents?.licenseCopy || null,
+    rcBookCopy: request?.documents?.rcBookCopy || null
+  });
+
+  const persistRoleRequestDocuments = (request = {}, fallbackIdentifiers = []) => {
+    const docs = readRoleRequestDocuments(request);
+    const hasAnyDoc = Object.values(docs).some(Boolean);
+    if (!hasAnyDoc) return;
+
+    const identities = [
+      request?.userId,
+      request?.email,
+      ...fallbackIdentifiers
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const unique = [...new Set(identities)];
+    unique.forEach((identity) => {
+      localStorage.setItem(`sf_agent_onboarding_${identity}`, JSON.stringify(docs));
+      localStorage.setItem(`agent_onboarding_${identity}`, JSON.stringify(docs));
+    });
+  };
 
   useEffect(() => {
     localStorage.setItem(USERS_DIRECTORY_KEY, JSON.stringify(users));
@@ -57,6 +86,10 @@ export function ShipmentProvider({ children }) {
   useEffect(() => {
     localStorage.setItem(ROLE_OVERRIDES_KEY, JSON.stringify(roleOverrides));
   }, [roleOverrides]);
+
+  useEffect(() => {
+    localStorage.setItem(PRICING_CONFIG_KEY, JSON.stringify(pricingConfig));
+  }, [pricingConfig]);
 
   const syncUserDirectory = (user) => {
     if (!user?.email) return;
@@ -310,9 +343,16 @@ export function ShipmentProvider({ children }) {
           });
 
           const user = applyRoleOverride(baseUser);
+          syncUserDirectory(user);
+
+          // Some auth providers return only registration confirmation without login tokens.
+          if (baseUser?.requiresLogin) {
+            addNotification('Registration successful. Please login to continue.', 'customer');
+            return user;
+          }
+
           setCurrentUser(user);
           authStorage.setCurrentUser(user);
-          syncUserDirectory(user);
 
           let userShipments = [];
           try {
@@ -424,14 +464,16 @@ export function ShipmentProvider({ children }) {
       return shipments.find(s => s.id === id || s.trackingId === id || s.trackingNumber === id);
   };
 
-  const requestRoleUpgrade = (requestedRole, reason = '') => {
+  const requestRoleUpgrade = async (requestedRole, reason = '', details = {}) => {
       if (!currentUser) throw new Error('Please login first');
       if (normalizeRole(currentUser.role) !== 'customer') {
         throw new Error('Only customers can request role upgrade');
       }
 
       const existingPending = roleRequests.find(
-        request => request.email === currentUser.email && request.status === 'PENDING'
+        request =>
+          request.email === currentUser.email &&
+          String(request.status || '').toUpperCase() === 'PENDING'
       );
 
       if (existingPending) {
@@ -445,10 +487,69 @@ export function ShipmentProvider({ children }) {
         name: currentUser.name,
         currentRole: normalizeRole(currentUser.role),
         requestedRole: normalizeRole(requestedRole || 'agent'),
-        reason,
+        reason: String(reason || '').trim(),
+        agentDetails: {
+          licenseNumber: String(details?.licenseNumber || '').trim(),
+          aadharNumber: String(details?.aadharNumber || '').trim(),
+          vehicleNumber: String(details?.vehicleNumber || '').trim(),
+          rcBookNumber: String(details?.rcBookNumber || '').trim(),
+          bloodType: String(details?.bloodType || '').trim(),
+          organDonor: Boolean(details?.organDonor),
+          bankAccountHolder: String(details?.bankAccountHolder || '').trim(),
+          bankAccountNumber: String(details?.bankAccountNumber || '').trim(),
+          bankIfsc: String(details?.bankIfsc || '').trim().toUpperCase(),
+          bankName: String(details?.bankName || '').trim(),
+          shiftTiming: String(details?.shiftTiming || 'Day').trim(),
+          profilePhoto: details?.profilePhoto || null
+        },
+        documents: {
+          profilePhoto: details?.profilePhoto || null,
+          aadharCopy: details?.aadharCopy || null,
+          licenseCopy: details?.licenseCopy || null,
+          rcBookCopy: details?.rcBookCopy || null
+        },
         status: 'PENDING',
         createdAt: new Date().toISOString()
       };
+
+      const profileUserId = request.userId || request.email;
+      const backendExistingProfile = profileUserId
+        ? await operationsService.getAgentProfile(profileUserId)
+        : null;
+      if (backendExistingProfile && String(backendExistingProfile.verificationStatus || '').toUpperCase() === 'PENDING') {
+        throw new Error('You already have a pending request');
+      }
+
+      try {
+        if (profileUserId) {
+          await operationsService.upsertAgentProfile(profileUserId, {
+            licenseNumber: request.agentDetails.licenseNumber || undefined,
+            aadharNumber: request.agentDetails.aadharNumber || undefined,
+            vehicleNumber: request.agentDetails.vehicleNumber || undefined,
+            rcBookNumber: request.agentDetails.rcBookNumber || undefined,
+            bloodType: request.agentDetails.bloodType || undefined,
+            organDonor: request.agentDetails.organDonor ?? false,
+            shiftTiming: request.agentDetails.shiftTiming || 'Day',
+            profileImage: request.documents.profilePhoto || undefined,
+            bankAccountHolder: request.agentDetails.bankAccountHolder || undefined,
+            bankAccountNumber: request.agentDetails.bankAccountNumber || undefined,
+            bankIfsc: request.agentDetails.bankIfsc || undefined,
+            bankName: request.agentDetails.bankName || undefined,
+            salaryBalance: 0,
+            totalSalaryCredited: 0,
+            totalSalaryDebited: 0,
+            verificationStatus: 'PENDING',
+            verificationNotes: request.reason || 'Role upgrade request submitted by customer',
+            availabilityStatus: 'OFFLINE',
+            deliveredCount: 0,
+            failedCount: 0,
+            inTransitCount: 0
+          });
+        }
+      } catch (error) {
+        // Keep local role-request flow available even when operations service is down.
+        console.warn('Failed to persist role request in operations profile store', error);
+      }
 
       setRoleRequests(prev => [request, ...prev]);
       addNotification('Role upgrade request submitted to admin.', 'customer');
@@ -468,6 +569,59 @@ export function ShipmentProvider({ children }) {
       
       const roleToAssign = request.requestedRole || 'agent';
 
+      const fallbackUser = users.find((user) => {
+        const requestIdentities = [
+          request.userId,
+          request.email
+        ].map(toIdentityValue).filter(Boolean);
+        const userIdentities = [
+          user.userId,
+          user.id,
+          user.email
+        ].map(toIdentityValue).filter(Boolean);
+        return requestIdentities.some((identity) => userIdentities.includes(identity));
+      }) || null;
+
+      const profileUserId =
+        fallbackUser?.userId ||
+        fallbackUser?.id ||
+        request.userId ||
+        request.email;
+
+      const requestedAgentDetails = request.agentDetails || {};
+      const requestedDocs = readRoleRequestDocuments(request);
+
+      if (roleToAssign === 'agent') {
+        try {
+          await operationsService.upsertAgentProfile(profileUserId, {
+            licenseNumber: requestedAgentDetails.licenseNumber || undefined,
+            aadharNumber: requestedAgentDetails.aadharNumber || undefined,
+            vehicleNumber: requestedAgentDetails.vehicleNumber || undefined,
+            rcBookNumber: requestedAgentDetails.rcBookNumber || undefined,
+            bloodType: requestedAgentDetails.bloodType || undefined,
+            organDonor: requestedAgentDetails.organDonor ?? false,
+            shiftTiming: requestedAgentDetails.shiftTiming || 'Day',
+            profileImage: requestedDocs.profilePhoto || undefined,
+            bankAccountHolder: requestedAgentDetails.bankAccountHolder || undefined,
+            bankAccountNumber: requestedAgentDetails.bankAccountNumber || undefined,
+            bankIfsc: requestedAgentDetails.bankIfsc || undefined,
+            bankName: requestedAgentDetails.bankName || undefined,
+            salaryBalance: 0,
+            totalSalaryCredited: 0,
+            totalSalaryDebited: 0,
+            verificationStatus: 'VERIFIED',
+            verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
+            verificationNotes: request.reason ? `Approved request: ${request.reason}` : 'Approved role request',
+            availabilityStatus: 'AVAILABLE',
+            deliveredCount: 0,
+            failedCount: 0,
+            inTransitCount: 0
+          });
+        } catch (error) {
+          console.warn('Failed to save agent profile during approval. Proceeding with role update.', error);
+        }
+      }
+
       // Call the backend service to update the user's role
       try {
           await authService.updateUserRole(userIdentifier, roleToAssign);
@@ -481,8 +635,19 @@ export function ShipmentProvider({ children }) {
 
       // Update the local state for role requests
       setRoleRequests(prev => prev.map(r =>
-        r.id === request.id ? { ...r, status: 'APPROVED', reviewedAt: new Date().toISOString() } : r
+        r.id === request.id
+          ? {
+            ...r,
+            status: 'APPROVED',
+            reviewedAt: new Date().toISOString(),
+            reviewedBy: currentUser?.email || currentUser?.userId || 'admin'
+          }
+          : r
       ));
+
+      if (roleToAssign === 'agent') {
+        persistRoleRequestDocuments(request, [profileUserId]);
+      }
 
       // This part seems overly complex and might be redundant if the backend is the source of truth.
       // Let's simplify it to just reload the user list from the DB.
@@ -498,9 +663,21 @@ export function ShipmentProvider({ children }) {
   };
 
   const rejectRoleRequest = (requestId) => {
-      setRoleRequests(prev => prev.map(r =>
-        r.id === requestId ? { ...r, status: 'REJECTED', reviewedAt: new Date().toISOString() } : r
-      ));
+      setRoleRequests(prev => prev.filter(r => r.id !== requestId));
+  };
+
+  const updatePricingConfig = (nextConfig = {}) => {
+      setPricingConfig((prev) => {
+        const profitCandidate = Number(nextConfig?.profitPercentage ?? prev?.profitPercentage ?? 20);
+        const normalizedProfit = Number.isFinite(profitCandidate)
+          ? Math.min(100, Math.max(0, profitCandidate))
+          : 20;
+        return {
+          ...prev,
+          ...nextConfig,
+          profitPercentage: normalizedProfit
+        };
+      });
   };
 
   const updateUserRole = async (targetUser, role) => {
@@ -578,7 +755,7 @@ export function ShipmentProvider({ children }) {
       return newBranch;
   };
   
-    const removeBranch = async (branchId) => {
+  const removeBranch = async (branchId) => {
       await adminService.deleteBranch(branchId);
       setBranches(prev => prev.filter(b => b.id !== branchId && b.branchId !== branchId));
       addNotification('Branch removed successfully.', 'admin');
@@ -593,7 +770,7 @@ export function ShipmentProvider({ children }) {
       return savedBranch;
   };
 
-    const addVehicle = async (vehicleData) => {
+  const addVehicle = async (vehicleData) => {
       const newVehicle = await adminService.createVehicle(vehicleData);
       setVehicles(prev => [newVehicle, ...prev]);
       addNotification(`Vehicle ${vehicleData.number || vehicleData.vehicleNumber} added to fleet.`, 'admin');
@@ -601,10 +778,45 @@ export function ShipmentProvider({ children }) {
       return newVehicle;
   };
 
-    const updateVehicle = async (updatedVehicle) => {
+  const updateVehicle = async (updatedVehicle) => {
       const savedVehicle = await adminService.updateVehicle(updatedVehicle.id || updatedVehicle.vehicleId || updatedVehicle.number, updatedVehicle);
       setVehicles(prev => prev.map(v => (v.id === savedVehicle.id || v.vehicleId === savedVehicle.vehicleId) ? savedVehicle : v));
       addNotification(`Vehicle ${savedVehicle.number || savedVehicle.id} updated successfully.`, 'admin');
+      setLastDataSyncAt(new Date().toISOString());
+      return savedVehicle;
+  };
+
+  const removeVehicle = async (vehicleId) => {
+      await adminService.deleteVehicle(vehicleId);
+      setVehicles(prev => prev.filter(v => v.id !== vehicleId && v.vehicleId !== vehicleId));
+      addNotification('Vehicle removed successfully.', 'admin');
+      setLastDataSyncAt(new Date().toISOString());
+  };
+
+  const updateBranchStatus = async (branchId, status) => {
+      const existing = branches.find((b) => b.id === branchId || b.branchId === branchId);
+      if (!existing) {
+        throw new Error('Branch not found');
+      }
+      const savedBranch = await adminService.updateBranch(branchId, {
+        ...existing,
+        status
+      });
+      setBranches(prev => prev.map(b => (b.id === savedBranch.id || b.branchId === savedBranch.branchId) ? savedBranch : b));
+      setLastDataSyncAt(new Date().toISOString());
+      return savedBranch;
+  };
+
+  const updateVehicleStatus = async (vehicleId, status) => {
+      const existing = vehicles.find((v) => v.id === vehicleId || v.vehicleId === vehicleId);
+      if (!existing) {
+        throw new Error('Vehicle not found');
+      }
+      const savedVehicle = await adminService.updateVehicle(vehicleId, {
+        ...existing,
+        status
+      });
+      setVehicles(prev => prev.map(v => (v.id === savedVehicle.id || v.vehicleId === savedVehicle.vehicleId) ? savedVehicle : v));
       setLastDataSyncAt(new Date().toISOString());
       return savedVehicle;
   };
@@ -688,6 +900,23 @@ export function ShipmentProvider({ children }) {
 
   const getRoleNotifications = (role) => {
       return notifications.filter(n => !n.role || n.role === role || n.role === 'all');
+  };
+
+  const notifyAdminFromAgent = async (message) => {
+      const text = String(message || '').trim();
+      if (!text) throw new Error('Message is required');
+
+      const sender = currentUser?.name || currentUser?.email || currentUser?.userId || 'Agent';
+      const composed = `Agent message from ${sender}: ${text}`;
+
+      try {
+        await communicationService.sendNotification('ADMIN', 'IN_APP', composed);
+      } catch {
+        // Non-blocking: fallback to in-app notification state
+      }
+
+      addNotification(composed, 'admin', 'INFO');
+      return true;
   };
 
     const getSupportTickets = async (userId = null) => {
@@ -797,6 +1026,7 @@ export function ShipmentProvider({ children }) {
       staff,
       notifications,
       reportSummary,
+      pricingConfig,
       lastDataSyncAt,
       isLoading,
       login,
@@ -815,6 +1045,9 @@ export function ShipmentProvider({ children }) {
       updateBranch,
       addVehicle,
       updateVehicle,
+      removeVehicle,
+      updateBranchStatus,
+      updateVehicleStatus,
       addStaff,
       removeStaff,
       updateStaff,
@@ -836,6 +1069,8 @@ export function ShipmentProvider({ children }) {
       deleteSupportTicket,
       refreshUserNotifications,
       getRoleNotifications,
+      notifyAdminFromAgent,
+      updatePricingConfig,
       calculateRate,
       clearAllData
     }}>

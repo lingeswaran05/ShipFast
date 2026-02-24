@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Package, Calendar, MoreHorizontal, Search, Filter, Ban, ThumbsUp, FileText, ChevronRight, Trash2, X, Download, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
@@ -19,6 +19,7 @@ export function MyShipments() {
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(5);
 
   // Helper to format status for display and comparison
   const formatStatus = (status) => {
@@ -113,6 +114,12 @@ export function MyShipments() {
       return matchesSearch && matchesStatus;
   });
 
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [filter, statusFilter]);
+
+  const visibleShipments = filteredShipments.slice(0, visibleCount);
+
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -188,7 +195,7 @@ export function MyShipments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredShipments.map((shipment) => (
+              {visibleShipments.map((shipment) => (
                 <tr key={shipment.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4">
                     <button 
@@ -295,7 +302,7 @@ export function MyShipments() {
                                 {shipmentsToDisplay.length === 0 ? "You haven't made any shipments yet." : "No shipments found matching your search."}
                              </p>
                              {shipmentsToDisplay.length === 0 && (
-                                 <button onClick={() => navigate('/dashboard')} className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                                 <button onClick={() => navigate('/dashboard/book')} className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
                                     Book Your First Shipment
                                  </button>
                              )}
@@ -306,6 +313,17 @@ export function MyShipments() {
             </tbody>
           </table>
         </div>
+        {filteredShipments.length > 5 && (
+          <div className="p-4 border-t border-slate-100 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((prev) => (prev >= filteredShipments.length ? 5 : filteredShipments.length))}
+              className="px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white hover:bg-slate-50"
+            >
+              {visibleCount >= filteredShipments.length ? 'Show Less' : `Show More (${filteredShipments.length - visibleCount})`}
+            </button>
+          </div>
+        )}
       </div>
 
       <RateShipmentModal 

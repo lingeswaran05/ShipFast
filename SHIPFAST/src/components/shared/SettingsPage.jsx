@@ -1,24 +1,62 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { User, Mail, Phone, MapPin, Save, Shield, Camera, X, Edit2, Upload, Trash2, Check, Smartphone } from 'lucide-react';
+import { User, Mail, Phone, MapPin, Save, Shield, Camera, X, Edit2, Upload, Trash2 } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import Webcam from 'react-webcam';
 import { toast } from 'sonner';
 import { operationsService } from '../../lib/operationsService';
 
 export function SettingsPage() {
-   const { currentUser, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
+   const { currentUser, shipments, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
    const [requestedRole, setRequestedRole] = useState('agent');
    const [requestReason, setRequestReason] = useState('');
    const [isRequestingRole, setIsRequestingRole] = useState(false);
+   const [requestDetails, setRequestDetails] = useState({
+     licenseNumber: '',
+     aadharNumber: '',
+     vehicleNumber: '',
+     rcBookNumber: '',
+     bloodType: '',
+     organDonor: false,
+     bankAccountHolder: '',
+     bankAccountNumber: '',
+     bankIfsc: '',
+     bankName: ''
+   });
+   const [requestDocs, setRequestDocs] = useState({
+     profilePhoto: null,
+     aadharCopy: null,
+     licenseCopy: null,
+     rcBookCopy: null
+   });
   const [agentProfile, setAgentProfile] = useState({
     licenseNumber: '',
     vehicleNumber: '',
     rcBookNumber: '',
     bloodType: '',
-    organDonor: false
+    organDonor: false,
+    bankAccountHolder: '',
+    bankAccountNumber: '',
+    bankIfsc: '',
+    bankName: '',
+    salaryBalance: 0,
+    totalSalaryCredited: 0,
+    totalSalaryDebited: 0
   });
+  const [salaryDebitAmount, setSalaryDebitAmount] = useState('');
+  const [isDebitingSalary, setIsDebitingSalary] = useState(false);
+  const [agentInsights, setAgentInsights] = useState({
+    agentId: '',
+    availabilityStatus: 'AVAILABLE',
+    deliveredCount: 0,
+    failedCount: 0,
+    inTransitCount: 0,
+    averageRating: 0,
+    totalRatings: 0,
+    successRate: 0
+  });
+  const [agentDocs, setAgentDocs] = useState({});
   
   // Profile Picture State
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -44,13 +82,101 @@ export function SettingsPage() {
         vehicleNumber: profile.vehicleNumber || '',
         rcBookNumber: profile.rcBookNumber || '',
         bloodType: profile.bloodType || '',
-        organDonor: Boolean(profile.organDonor)
+        organDonor: Boolean(profile.organDonor),
+        bankAccountHolder: profile.bankAccountHolder || '',
+        bankAccountNumber: profile.bankAccountNumber || '',
+        bankIfsc: profile.bankIfsc || '',
+        bankName: profile.bankName || '',
+        salaryBalance: Number(profile.salaryBalance || 0),
+        totalSalaryCredited: Number(profile.totalSalaryCredited || 0),
+        totalSalaryDebited: Number(profile.totalSalaryDebited || 0)
+      });
+      setAgentInsights({
+        agentId: profile.agentId || '',
+        availabilityStatus: String(profile.availabilityStatus || 'AVAILABLE').toUpperCase(),
+        deliveredCount: Number(profile.deliveredCount || 0),
+        failedCount: Number(profile.failedCount || 0),
+        inTransitCount: Number(profile.inTransitCount || 0),
+        averageRating: Number(profile.averageRating || 0),
+        totalRatings: Number(profile.totalRatings || 0),
+        successRate: Number(profile.successRate || 0)
       });
     });
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
 
+  useEffect(() => {
+    if (currentUser?.role !== 'agent') return;
+    const userKey = currentUser?.userId || currentUser?.id || currentUser?.email || 'default';
+    const possibleKeys = [`sf_agent_onboarding_${userKey}`, `agent_onboarding_${userKey}`];
+    let docs = {};
+    for (const key of possibleKeys) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+        if (parsed && Object.keys(parsed).length > 0) {
+          docs = parsed;
+          break;
+        }
+      } catch {
+        docs = {};
+      }
+    }
+    setAgentDocs(docs);
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'agent') return;
+    const normalize = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
+    const identityValues = new Set([
+      currentUser?.userId,
+      currentUser?.id,
+      currentUser?.email,
+      agentInsights.agentId
+    ].filter(Boolean).map((value) => String(value).toLowerCase()));
+
+    const myShipments = (shipments || []).filter((shipment) => {
+      const candidates = [
+        shipment.assignedAgentId,
+        shipment.assignedToAgentId,
+        shipment.deliveredByAgentId,
+        shipment.agentId
+      ].filter(Boolean).map((value) => String(value).toLowerCase());
+      return candidates.some((candidate) => identityValues.has(candidate));
+    });
+
+    const deliveredCount = myShipments.filter((shipment) => normalize(shipment.status) === 'DELIVERED').length;
+    const failedCount = myShipments.filter((shipment) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalize(shipment.status))).length;
+    const inTransitCount = myShipments.filter((shipment) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalize(shipment.status))).length;
+    const totalClosed = deliveredCount + failedCount;
+    const successRate = totalClosed > 0 ? (deliveredCount / totalClosed) * 100 : 0;
+
+    setAgentInsights((prev) => ({
+      ...prev,
+      deliveredCount: Math.max(prev.deliveredCount || 0, deliveredCount),
+      failedCount: Math.max(prev.failedCount || 0, failedCount),
+      inTransitCount: Math.max(prev.inTransitCount || 0, inTransitCount),
+      successRate: prev.successRate > 0 ? prev.successRate : successRate
+    }));
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, agentInsights.agentId, shipments]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const convertFileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleRequestDocumentUpload = async (field, file) => {
+    if (!file) return;
+    try {
+      const base64 = await convertFileToBase64(file);
+      setRequestDocs((prev) => ({ ...prev, [field]: base64 }));
+    } catch (error) {
+      toast.error(error.message || 'Failed to upload file');
+    }
   };
 
   const toggleEdit = () => {
@@ -79,7 +205,13 @@ export function SettingsPage() {
          });
          if (currentUser?.role === 'agent') {
            const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
-           await operationsService.upsertAgentProfile(userId, agentProfile);
+           await operationsService.upsertAgentProfile(userId, {
+             ...agentProfile,
+             availabilityStatus: agentInsights.availabilityStatus,
+             deliveredCount: agentInsights.deliveredCount,
+             failedCount: agentInsights.failedCount,
+             inTransitCount: agentInsights.inTransitCount
+           });
          }
          setIsEditing(false);
          toast.success("Details updated successfully");
@@ -119,19 +251,109 @@ export function SettingsPage() {
   };
 
    const myPendingRoleRequest = roleRequests.find(
-      request => request.email === currentUser?.email && request.status === 'PENDING'
+      request =>
+        request.email === currentUser?.email &&
+        String(request.status || '').toUpperCase() === 'PENDING'
    );
 
    const handleRoleRequest = async () => {
+      const hasMandatoryDetails = Boolean(
+        requestDetails.licenseNumber &&
+        requestDetails.aadharNumber &&
+        requestDetails.vehicleNumber &&
+        requestDetails.rcBookNumber &&
+        requestDetails.bloodType &&
+        requestDetails.bankAccountHolder &&
+        requestDetails.bankAccountNumber &&
+        requestDetails.bankIfsc &&
+        requestDetails.bankName
+      );
+      const hasMandatoryDocs = Boolean(
+        requestDocs.profilePhoto &&
+        requestDocs.aadharCopy &&
+        requestDocs.licenseCopy &&
+        requestDocs.rcBookCopy
+      );
+      if (!hasMandatoryDetails) {
+        toast.error('Please complete all mandatory details before submitting request');
+        return;
+      }
+      if (!hasMandatoryDocs) {
+        toast.error('Please upload Profile, Aadhaar, License and RC Book documents');
+        return;
+      }
       setIsRequestingRole(true);
       try {
-         await requestRoleUpgrade(requestedRole, requestReason);
-         toast.success('Agent role request submitted to admin');
-         setRequestReason('');
+         await requestRoleUpgrade(requestedRole, requestReason, {
+           ...requestDetails,
+           ...requestDocs,
+           shiftTiming: 'Day'
+         });
+          toast.success('Agent role request submitted to admin');
+          setRequestReason('');
+          setRequestDetails({
+            licenseNumber: '',
+            aadharNumber: '',
+            vehicleNumber: '',
+            rcBookNumber: '',
+            bloodType: '',
+            organDonor: false,
+            bankAccountHolder: '',
+            bankAccountNumber: '',
+            bankIfsc: '',
+            bankName: ''
+          });
+          setRequestDocs({
+            profilePhoto: null,
+            aadharCopy: null,
+            licenseCopy: null,
+            rcBookCopy: null
+          });
       } catch (error) {
          toast.error(error.message || 'Failed to submit request');
       } finally {
          setIsRequestingRole(false);
+      }
+   };
+
+   const handleDebitSalary = async () => {
+      const amount = Number(salaryDebitAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast.error('Enter a valid debit amount');
+        return;
+      }
+      const currentBalance = Number(agentProfile.salaryBalance || 0);
+      if (amount > currentBalance) {
+        toast.error('Debit amount exceeds salary balance');
+        return;
+      }
+      const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+      if (!userId) {
+        toast.error('Agent id not found');
+        return;
+      }
+
+      const nextPayload = {
+        salaryBalance: currentBalance - amount,
+        totalSalaryCredited: Number(agentProfile.totalSalaryCredited || 0),
+        totalSalaryDebited: Number(agentProfile.totalSalaryDebited || 0) + amount
+      };
+
+      try {
+        setIsDebitingSalary(true);
+        const updated = await operationsService.upsertAgentProfile(userId, nextPayload);
+        setAgentProfile((prev) => ({
+          ...prev,
+          salaryBalance: Number(updated?.salaryBalance ?? nextPayload.salaryBalance),
+          totalSalaryCredited: Number(updated?.totalSalaryCredited ?? nextPayload.totalSalaryCredited),
+          totalSalaryDebited: Number(updated?.totalSalaryDebited ?? nextPayload.totalSalaryDebited)
+        }));
+        setSalaryDebitAmount('');
+        toast.success(`Salary debited: ₹${amount.toLocaleString()}`);
+      } catch (error) {
+        toast.error(error.message || 'Failed to debit salary');
+      } finally {
+        setIsDebitingSalary(false);
       }
    };
 
@@ -307,6 +529,42 @@ export function SettingsPage() {
       </div>
 
       {currentUser?.role === 'agent' && (
+        <>
+        <div className="grid md:grid-cols-4 lg:grid-cols-8 gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Agent ID</div>
+            <div className="text-lg font-bold text-slate-900 mt-1">{agentInsights.agentId || 'N/A'}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Availability</div>
+            <div className="text-lg font-bold text-indigo-600 mt-1">{String(agentInsights.availabilityStatus || 'AVAILABLE').replace(/_/g, ' ')}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Rating</div>
+            <div className="text-lg font-bold text-emerald-600 mt-1">{agentInsights.averageRating.toFixed(1)} / 5.0</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Delivered / Failed</div>
+            <div className="text-lg font-bold text-slate-900 mt-1">{agentInsights.deliveredCount} / {agentInsights.failedCount}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">In Transit</div>
+            <div className="text-lg font-bold text-amber-600 mt-1">{agentInsights.inTransitCount}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Salary Balance</div>
+            <div className="text-lg font-bold text-emerald-600 mt-1">₹{Number(agentProfile.salaryBalance || 0).toLocaleString()}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Total Credited</div>
+            <div className="text-lg font-bold text-indigo-600 mt-1">₹{Number(agentProfile.totalSalaryCredited || 0).toLocaleString()}</div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="text-xs uppercase text-slate-500 font-semibold">Total Debited</div>
+            <div className="text-lg font-bold text-orange-600 mt-1">₹{Number(agentProfile.totalSalaryDebited || 0).toLocaleString()}</div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 bg-slate-50">
             <h3 className="font-bold text-slate-900">Agent Verification Details</h3>
@@ -371,8 +629,96 @@ export function SettingsPage() {
                 <option value="yes">Yes</option>
               </select>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Bank Account Holder</label>
+              <input
+                value={agentProfile.bankAccountHolder}
+                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankAccountHolder: e.target.value }))}
+                disabled={!isEditing}
+                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Bank Name</label>
+              <input
+                value={agentProfile.bankName}
+                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankName: e.target.value }))}
+                disabled={!isEditing}
+                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Account Number</label>
+              <input
+                value={agentProfile.bankAccountNumber}
+                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankAccountNumber: e.target.value }))}
+                disabled={!isEditing}
+                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">IFSC</label>
+              <input
+                value={agentProfile.bankIfsc}
+                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankIfsc: e.target.value.toUpperCase() }))}
+                disabled={!isEditing}
+                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+              />
+            </div>
+            </div>
           </div>
-        </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-slate-900">Salary Wallet</h3>
+              <p className="text-sm text-slate-500 mt-1">Admin credited salary can be debited from here.</p>
+            </div>
+            <div className="p-6 flex flex-col md:flex-row gap-3 md:items-end">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-slate-700">Debit Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={salaryDebitAmount}
+                  onChange={(e) => setSalaryDebitAmount(e.target.value)}
+                  className="w-full mt-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Enter amount to debit"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleDebitSalary}
+                disabled={isDebitingSalary}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70"
+              >
+                {isDebitingSalary ? 'Processing...' : 'Debit Salary'}
+              </button>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-slate-900">Uploaded Verification Documents</h3>
+              <p className="text-sm text-slate-500 mt-1">Stored in browser local storage for admin verification.</p>
+            </div>
+            <div className="p-6 grid md:grid-cols-4 gap-4">
+              {[
+                { label: 'Profile', key: 'profilePhoto' },
+                { label: 'Aadhaar', key: 'aadharCopy' },
+                { label: 'License', key: 'licenseCopy' },
+                { label: 'RC Book', key: 'rcBookCopy' }
+              ].map((doc) => (
+                <div key={doc.key} className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">{doc.label}</div>
+                  {agentDocs?.[doc.key] ? (
+                    <img src={agentDocs[doc.key]} alt={doc.label} className="w-full h-28 object-cover" />
+                  ) : (
+                    <div className="h-28 flex items-center justify-center text-xs text-slate-400">Not uploaded</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
          {currentUser?.role === 'customer' && (
@@ -400,6 +746,144 @@ export function SettingsPage() {
                                  <option value="driver">Driver</option>
                                  <option value="manager">Manager</option>
                               </select>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">License Number</label>
+                              <input
+                                 value={requestDetails.licenseNumber}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, licenseNumber: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Driving license number"
+                              />
+                           </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Aadhaar Number</label>
+                              <input
+                                 value={requestDetails.aadharNumber}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, aadharNumber: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Aadhaar number"
+                              />
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Vehicle Number</label>
+                              <input
+                                 value={requestDetails.vehicleNumber}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, vehicleNumber: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Vehicle registration number"
+                              />
+                           </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-3 gap-4">
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">RC Book Number</label>
+                              <input
+                                 value={requestDetails.rcBookNumber}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, rcBookNumber: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="RC book number"
+                              />
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Blood Type</label>
+                              <select
+                                 value={requestDetails.bloodType}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bloodType: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              >
+                                 <option value="">Select</option>
+                                 <option value="A+">A+</option>
+                                 <option value="A-">A-</option>
+                                 <option value="B+">B+</option>
+                                 <option value="B-">B-</option>
+                                 <option value="AB+">AB+</option>
+                                 <option value="AB-">AB-</option>
+                                 <option value="O+">O+</option>
+                                 <option value="O-">O-</option>
+                              </select>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Organ Donor</label>
+                              <select
+                                 value={requestDetails.organDonor ? 'yes' : 'no'}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, organDonor: e.target.value === 'yes' }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              >
+                                 <option value="no">No</option>
+                                 <option value="yes">Yes</option>
+                              </select>
+                           </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Bank Account Holder</label>
+                              <input
+                                 value={requestDetails.bankAccountHolder}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankAccountHolder: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Account holder name"
+                              />
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Bank Name</label>
+                              <input
+                                 value={requestDetails.bankName}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankName: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Bank name"
+                              />
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">Account Number</label>
+                              <input
+                                 value={requestDetails.bankAccountNumber}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankAccountNumber: e.target.value }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="Bank account number"
+                              />
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-sm font-medium text-slate-700">IFSC</label>
+                              <input
+                                 value={requestDetails.bankIfsc}
+                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankIfsc: e.target.value.toUpperCase() }))}
+                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                 placeholder="IFSC code"
+                              />
+                           </div>
+                        </div>
+
+                        <div className="space-y-3">
+                           <label className="text-sm font-medium text-slate-700">Upload Verification Documents</label>
+                           <div className="grid md:grid-cols-4 gap-3">
+                              {[
+                                { key: 'profilePhoto', label: 'Profile' },
+                                { key: 'aadharCopy', label: 'Aadhaar' },
+                                { key: 'licenseCopy', label: 'License' },
+                                { key: 'rcBookCopy', label: 'RC Book' }
+                              ].map((doc) => (
+                                <label key={doc.key} className="border border-slate-200 rounded-lg p-3 bg-slate-50 text-center cursor-pointer hover:border-indigo-300 transition-colors">
+                                  <div className="text-xs font-semibold text-slate-600 mb-2">{doc.label}</div>
+                                  {requestDocs[doc.key] ? (
+                                    <img src={requestDocs[doc.key]} alt={doc.label} className="h-16 w-full object-cover rounded-md border border-slate-200 mb-2" />
+                                  ) : (
+                                    <div className="h-16 rounded-md border-2 border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 mb-2">Not uploaded</div>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => handleRequestDocumentUpload(doc.key, e.target.files?.[0])}
+                                  />
+                                  <span className="text-[11px] font-semibold text-indigo-600">Upload</span>
+                                </label>
+                              ))}
                            </div>
                         </div>
 

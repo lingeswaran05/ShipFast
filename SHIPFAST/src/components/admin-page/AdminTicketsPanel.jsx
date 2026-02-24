@@ -228,15 +228,15 @@ export function AdminTicketsPanel() {
                 {(selectedTicket.messages || []).length > 0 ? (
                   selectedTicket.messages.map((message) => {
                     const senderRole = normalize(message.senderRole, 'ADMIN');
-                    const isStaff = senderRole === 'ADMIN' || senderRole === 'AGENT';
+                    const isMine = senderRole === normalize(currentUser?.role, 'ADMIN');
                     return (
-                      <div key={message.id} className={`flex ${isStaff ? 'justify-start' : 'justify-end'}`}>
-                        <div className={`max-w-[78%] rounded-2xl px-4 py-3 border ${isStaff ? 'bg-slate-50 text-slate-800 border-slate-200' : 'bg-indigo-600 text-white border-indigo-600'}`}>
-                          <div className={`text-xs mb-1 ${isStaff ? 'text-slate-500' : 'text-indigo-100'}`}>
+                      <div key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[78%] rounded-2xl px-4 py-3 border ${isMine ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-800 border-slate-200'}`}>
+                          <div className={`text-xs mb-1 ${isMine ? 'text-indigo-100' : 'text-slate-500'}`}>
                             {message.senderName} ({senderRole})
                           </div>
                           <p className="text-sm whitespace-pre-wrap">{message.message}</p>
-                          <div className={`text-[11px] mt-2 ${isStaff ? 'text-slate-500' : 'text-indigo-100'}`}>{message.createdLabel}</div>
+                          <div className={`text-[11px] mt-2 ${isMine ? 'text-indigo-100' : 'text-slate-500'}`}>{message.createdLabel}</div>
                         </div>
                       </div>
                     );

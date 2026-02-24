@@ -17,7 +17,11 @@ public class Branch {
     private String name;
     private String type;
     private String address;
+    private String state;
     private String managerUserId;
-    private int staffCount;
+    private String managerName;
+    private String contact;
+    private Integer staffCount;
     private String status;
+    private String description;
 }
