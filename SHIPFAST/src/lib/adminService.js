@@ -2,7 +2,7 @@ import axios from 'axios';
 import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
 const ADMIN_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_ADMIN_BASE_URL, {
-  localDirectBase: 'http://localhost:8083'
+  localDirectBase: 'http://localhost:8088'
 })
   .map((base) => toServiceBaseUrl(base, '/api/admin'))
   .filter((value, index, list) => list.indexOf(value) === index);

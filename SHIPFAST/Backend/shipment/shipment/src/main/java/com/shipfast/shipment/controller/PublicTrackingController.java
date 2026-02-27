@@ -14,7 +14,7 @@ import com.shipfast.shipment.service.TrackingService;
 
 @RestController
 @RequestMapping("/api/public")
-@CrossOrigin(originPatterns = "*")
+
 public class PublicTrackingController {
 
     private final TrackingService trackingService;

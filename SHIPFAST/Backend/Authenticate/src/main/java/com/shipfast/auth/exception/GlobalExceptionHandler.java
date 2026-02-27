@@ -43,11 +43,22 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Object>> handleNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        ApiResponse<Object> response =
+                new ApiResponse<>(false, "Required request body is missing or malformed", null);
+
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleGenericException(Exception ex) {
 
-        // You can log full stack trace internally
-        ex.printStackTrace();
+        // Temporarily log to System.out to capture in run.log
+        System.out.println("CAUGHT EXCEPTION: " + ex.toString());
+        for(StackTraceElement el : ex.getStackTrace()) {
+            System.out.println("\tat " + el.toString());
+        }
 
         ApiResponse<Object> response =
                 new ApiResponse<>(false, "Something went wrong. Please try again.", null);

@@ -3,7 +3,7 @@ import { authStorage } from './authService';
 import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
 const SHIPMENT_BASE_CANDIDATES = resolveServiceBaseUrls(import.meta.env.VITE_SHIPMENT_BASE_URL, {
-  localDirectBase: 'http://localhost:8081'
+  localDirectBase: 'http://localhost:8088'
 });
 const SHIPMENT_BASE_URLS = SHIPMENT_BASE_CANDIDATES
   .map((base) => toServiceBaseUrl(base, '/api/v1/shipments'))
@@ -115,12 +115,16 @@ const mapShipment = (shipment = {}) => {
   const createdAt = shipment.createdAt ? new Date(shipment.createdAt) : new Date();
   const deliveredAt = shipment.deliveredAt ? new Date(shipment.deliveredAt) : null;
   const paymentMode = shipment.paymentMethod || shipment.paymentMode || 'ONLINE';
-  const paymentStatus = shipment.paymentStatus || (String(paymentMode).toUpperCase() === 'COD' ? 'PENDING' : 'SUCCESS');
+  const normalizedStatus = normalizeShipmentStatus(shipment.status);
+  const hasCollectedAt = Boolean(shipment.paymentCollectedAt);
+  const inferredPaymentStatus = String(paymentMode).toUpperCase() === 'COD'
+    ? (hasCollectedAt ? 'SUCCESS' : 'PENDING')
+    : 'SUCCESS';
+  const paymentStatus = shipment.paymentStatus || inferredPaymentStatus;
   const originCity = sender.city || senderParsed.city || shipment.originCity || '';
   const destinationCity = receiver.city || receiverParsed.city || shipment.destinationCity || '';
   const senderAddress = senderParsed.address || sender.address || sender.addressLine || '';
   const receiverAddress = receiverParsed.address || receiver.address || receiver.addressLine || '';
-  const normalizedStatus = normalizeShipmentStatus(shipment.status);
   const mappedHistory = Array.isArray(shipment.history)
     ? shipment.history.map((event) => ({
       status: normalizeShipmentStatus(event.status),
@@ -131,11 +135,15 @@ const mapShipment = (shipment = {}) => {
     : [];
   const originValue = shipment.origin || [senderAddress, originCity].filter(Boolean).join(', ');
   const destinationValue = shipment.destination || [receiverAddress, destinationCity].filter(Boolean).join(', ');
+  const databaseId = shipment.id || shipment.shipmentId || null;
+  const trackingValue = shipment.trackingNumber || shipment.trackingId || databaseId;
+  const runSheetId = shipment.runSheetId || shipment.runsheetId || shipment.runSheetNumber || shipment.sheetId || null;
 
   return {
-    id: shipment.id || shipment.trackingNumber,
-    trackingId: shipment.trackingNumber || shipment.id,
-    trackingNumber: shipment.trackingNumber || shipment.id,
+    id: trackingValue,
+    shipmentId: databaseId || trackingValue,
+    trackingId: trackingValue,
+    trackingNumber: trackingValue,
     customerId: shipment.customerId || shipment.userId || null,
     userId: shipment.userId || shipment.customerId || null,
     customerEmail: shipment.customerEmail || shipment.email || shipment.customer?.email || '',
@@ -148,10 +156,14 @@ const mapShipment = (shipment = {}) => {
     type: shipment.serviceType || 'Standard',
     paymentMode,
     paymentStatus,
+    paymentCollectedAt: shipment.paymentCollectedAt || null,
     cost: Number(shipment.cost ?? shipment.totalCost ?? 0) || 0,
     date: createdAt.toISOString().split('T')[0],
+    createdAt: shipment.createdAt || createdAt.toISOString(),
+    updatedAt: shipment.updatedAt || shipment.createdAt || createdAt.toISOString(),
     origin: originValue,
     destination: destinationValue,
+    runSheetId,
     assignedAgentId: shipment.assignedAgentId || null,
     proofOfDeliveryImage: shipment.proofOfDeliveryImage || shipment.podImage || null,
     deliveredBy: shipment.deliveredBy || null,
@@ -351,6 +363,8 @@ export const shipmentService = {
     if (metadata?.proofOfDeliveryImage) requestBody.proofOfDeliveryImage = metadata.proofOfDeliveryImage;
     if (metadata?.deliveredBy) requestBody.deliveredBy = metadata.deliveredBy;
     if (metadata?.deliveredByAgentId) requestBody.deliveredByAgentId = metadata.deliveredByAgentId;
+    if (metadata?.paymentStatus) requestBody.paymentStatus = metadata.paymentStatus;
+    if (metadata?.paymentCollectedAt) requestBody.paymentCollectedAt = metadata.paymentCollectedAt;
 
     try {
       const response = await withShipmentBaseFallback((client) => client.patch(`/${encodeURIComponent(id)}/status`, requestBody, {
@@ -365,10 +379,11 @@ export const shipmentService = {
     }
   },
 
-  async assignShipment(idOrTracking, agentId) {
+  async assignShipment(idOrTracking, agentId, runSheetId = null) {
     try {
       const response = await withShipmentBaseFallback((client) => client.patch(`/${encodeURIComponent(idOrTracking)}/assign`, {
-        agentId
+        agentId,
+        ...(runSheetId ? { runSheetId } : {})
       }));
       return mapShipment(response?.data);
     } catch (error) {

@@ -72,6 +72,7 @@ const buildFallbackTimeline = (shipmentData) => {
 export function TrackingPortal() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const queryTrackingId = searchParams.get('id');
   const [trackingNumber, setTrackingNumber] = useState('');
   const [shipmentData, setShipmentData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -103,12 +104,10 @@ export function TrackingPortal() {
   };
 
   useEffect(() => {
-    const id = searchParams.get('id');
-    if (id) {
-      setTrackingNumber(id);
-      fetchShipment(id, { silent: false });
-    }
-  }, [searchParams]);
+    if (!queryTrackingId) return;
+    setTrackingNumber(queryTrackingId);
+    fetchShipment(queryTrackingId, { silent: false });
+  }, [queryTrackingId]);
 
   useEffect(() => {
     if (!trackingNumber) return;
@@ -123,8 +122,7 @@ export function TrackingPortal() {
     if (!trackingNumber.trim()) return;
     const trimmed = trackingNumber.trim();
     fetchShipment(trimmed, { silent: false });
-    const newUrl = `${window.location.pathname}?id=${trimmed}`;
-    window.history.pushState({ path: newUrl }, '', newUrl);
+    navigate(`/track?id=${encodeURIComponent(trimmed)}`, { replace: false });
   };
 
   const timeline = useMemo(() => {

@@ -12,6 +12,10 @@ const ROLE_REQUESTS_KEY = 'sf_role_requests';
 const ROLE_OVERRIDES_KEY = 'sf_role_overrides';
 const USERS_DIRECTORY_KEY = 'sf_users_directory';
 const PRICING_CONFIG_KEY = 'sf_pricing_config';
+const DISMISSED_NOTIFICATIONS_KEY = 'sf_dismissed_notifications';
+const MAX_ROLE_REQUESTS = 200;
+const AGENT_ONBOARDING_KEY_PREFIX = 'sf_agent_onboarding_';
+const LEGACY_AGENT_ONBOARDING_KEY_PREFIX = 'agent_onboarding_';
 
 const parseStored = (key, fallback = []) => {
   try {
@@ -29,6 +33,109 @@ const normalizeRole = (value) => {
 };
 
 const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
+const normalizeRoleRequestStatus = (value) => String(value || 'PENDING').toUpperCase();
+const isPendingRoleRequestStatus = (value) => ['PENDING', 'PENDING_VERIFICATION'].includes(normalizeRoleRequestStatus(value));
+const getRoleRequestIdentityValues = (request = {}) => (
+  [request?.userId, request?.email, request?.id]
+    .map(toIdentityValue)
+    .filter(Boolean)
+);
+const roleRequestMatchesAnyIdentity = (request = {}, identities = []) => {
+  const requestIdentities = getRoleRequestIdentityValues(request);
+  return requestIdentities.some((identity) => identities.includes(identity));
+};
+const buildIdentityCandidates = (...values) => (
+  [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+);
+const toStorageSafeDocValue = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  // Avoid persisting large inline base64 data in role-request index storage.
+  if (text.startsWith('data:')) return null;
+  return text;
+};
+
+const isQuotaExceededError = (error) => (
+  error?.name === 'QuotaExceededError' ||
+  error?.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+  error?.code === 22 ||
+  error?.code === 1014
+);
+
+const safeSetLocalStorage = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      console.warn(`Storage quota exceeded while saving ${key}`);
+    } else {
+      console.warn(`Failed to save ${key} in localStorage`, error);
+    }
+    return false;
+  }
+};
+
+const readRoleRequestDocuments = (request = {}) => ({
+  profilePhoto: request?.documents?.profilePhoto || request?.agentDetails?.profilePhoto || null,
+  aadharCopy: request?.documents?.aadharCopy || null,
+  licenseCopy: request?.documents?.licenseCopy || null,
+  rcBookCopy: request?.documents?.rcBookCopy || null
+});
+
+const prepareRoleRequestsForStorage = (requests = []) => (
+  Array.isArray(requests)
+    ? requests.slice(0, MAX_ROLE_REQUESTS).map((request = {}) => {
+      const docs = readRoleRequestDocuments(request);
+      const documentFlags = {
+        profilePhoto: Boolean(docs.profilePhoto),
+        aadharCopy: Boolean(docs.aadharCopy),
+        licenseCopy: Boolean(docs.licenseCopy),
+        rcBookCopy: Boolean(docs.rcBookCopy)
+      };
+      return {
+        ...request,
+        currentRole: normalizeRole(request?.currentRole || 'customer'),
+        requestedRole: normalizeRole(request?.requestedRole || 'agent'),
+        agentDetails: {
+          ...(request?.agentDetails || {}),
+          profilePhoto: null
+        },
+        documents: {
+          profilePhoto: toStorageSafeDocValue(docs.profilePhoto),
+          aadharCopy: toStorageSafeDocValue(docs.aadharCopy),
+          licenseCopy: toStorageSafeDocValue(docs.licenseCopy),
+          rcBookCopy: toStorageSafeDocValue(docs.rcBookCopy)
+        },
+        documentFlags
+      };
+    })
+    : []
+);
+
+const clearLegacyOnboardingCopies = () => {
+  try {
+    const keysToRemove = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith(LEGACY_AGENT_ONBOARDING_KEY_PREFIX)) continue;
+      const identity = key.slice(LEGACY_AGENT_ONBOARDING_KEY_PREFIX.length);
+      const primaryKey = `${AGENT_ONBOARDING_KEY_PREFIX}${identity}`;
+      if (localStorage.getItem(primaryKey)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // non-blocking cleanup
+      }
+    });
+  } catch {
+    // non-blocking cleanup
+  }
+};
 
 const isProtectedAdmin = (user) => normalizeRole(user?.role) === 'admin';
 
@@ -44,19 +151,48 @@ export function ShipmentProvider({ children }) {
   const [vehicles, setVehicles] = useState([]);
   const [staff, setStaff] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState(
+    parseStored(DISMISSED_NOTIFICATIONS_KEY, []).map((value) => String(value).trim()).filter(Boolean)
+  );
   const [reportSummary, setReportSummary] = useState(null);
   const [lastDataSyncAt, setLastDataSyncAt] = useState(null);
-  const [roleRequests, setRoleRequests] = useState(parseStored(ROLE_REQUESTS_KEY, []));
+  const [roleRequests, setRoleRequests] = useState(() => {
+    const stored = parseStored(ROLE_REQUESTS_KEY, []);
+    return Array.isArray(stored) ? stored.slice(0, MAX_ROLE_REQUESTS) : [];
+  });
   const [roleOverrides, setRoleOverrides] = useState(parseStored(ROLE_OVERRIDES_KEY, []));
   const [pricingConfig, setPricingConfig] = useState(parseStored(PRICING_CONFIG_KEY, { profitPercentage: 20 }));
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const readRoleRequestDocuments = (request = {}) => ({
-    profilePhoto: request?.documents?.profilePhoto || request?.agentDetails?.profilePhoto || null,
-    aadharCopy: request?.documents?.aadharCopy || null,
-    licenseCopy: request?.documents?.licenseCopy || null,
-    rcBookCopy: request?.documents?.rcBookCopy || null
-  });
+  const normalizeNotification = (notification = {}) => {
+    const id = String(notification?.id ?? `${Date.now()}-${Math.random()}`).trim();
+    const createdAt = notification?.createdAt || new Date().toISOString();
+    const role = String(notification?.role || 'all').toLowerCase();
+    return {
+      ...notification,
+      id,
+      role,
+      createdAt,
+      timestamp: notification?.timestamp || new Date(createdAt).toLocaleString()
+    };
+  };
+
+  const mergeNotifications = (...collections) => {
+    const seen = new Set();
+    const merged = [];
+    collections.flat().forEach((item) => {
+      if (!item) return;
+      const normalized = normalizeNotification(item);
+      const dedupeKey = normalized.id || `${normalized.message}|${normalized.timestamp}|${normalized.role}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      merged.push(normalized);
+    });
+    return merged
+      .sort((a, b) => new Date(b.createdAt || b.timestamp || 0).getTime() - new Date(a.createdAt || a.timestamp || 0).getTime())
+      .slice(0, 200);
+  };
 
   const persistRoleRequestDocuments = (request = {}, fallbackIdentifiers = []) => {
     const docs = readRoleRequestDocuments(request);
@@ -70,26 +206,45 @@ export function ShipmentProvider({ children }) {
     ].map((value) => String(value || '').trim()).filter(Boolean);
     const unique = [...new Set(identities)];
     unique.forEach((identity) => {
-      localStorage.setItem(`sf_agent_onboarding_${identity}`, JSON.stringify(docs));
-      localStorage.setItem(`agent_onboarding_${identity}`, JSON.stringify(docs));
+      const primaryKey = `${AGENT_ONBOARDING_KEY_PREFIX}${identity}`;
+      const legacyKey = `${LEGACY_AGENT_ONBOARDING_KEY_PREFIX}${identity}`;
+      const payload = JSON.stringify(docs);
+      const saved = safeSetLocalStorage(primaryKey, payload);
+      if (saved) {
+        try {
+          localStorage.removeItem(legacyKey);
+        } catch {
+          // non-blocking cleanup
+        }
+      } else {
+        safeSetLocalStorage(legacyKey, payload);
+      }
     });
   };
 
   useEffect(() => {
-    localStorage.setItem(USERS_DIRECTORY_KEY, JSON.stringify(users));
+    safeSetLocalStorage(USERS_DIRECTORY_KEY, JSON.stringify(users));
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem(ROLE_REQUESTS_KEY, JSON.stringify(roleRequests));
+    safeSetLocalStorage(ROLE_REQUESTS_KEY, JSON.stringify(prepareRoleRequestsForStorage(roleRequests)));
   }, [roleRequests]);
 
   useEffect(() => {
-    localStorage.setItem(ROLE_OVERRIDES_KEY, JSON.stringify(roleOverrides));
+    safeSetLocalStorage(ROLE_OVERRIDES_KEY, JSON.stringify(roleOverrides));
   }, [roleOverrides]);
 
   useEffect(() => {
-    localStorage.setItem(PRICING_CONFIG_KEY, JSON.stringify(pricingConfig));
+    safeSetLocalStorage(PRICING_CONFIG_KEY, JSON.stringify(pricingConfig));
   }, [pricingConfig]);
+
+  useEffect(() => {
+    safeSetLocalStorage(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify(dismissedNotificationIds));
+  }, [dismissedNotificationIds]);
+
+  useEffect(() => {
+    clearLegacyOnboardingCopies();
+  }, []);
 
   const syncUserDirectory = (user) => {
     if (!user?.email) return;
@@ -169,6 +324,7 @@ export function ShipmentProvider({ children }) {
     if (!currentUser) return [];
     let userShipments = [];
     try {
+      setIsRefreshing(true);
       const role = normalizeRole(currentUser.role);
       if (role === 'admin' || role === 'agent') {
         userShipments = await shipmentService.getAllShipments();
@@ -178,6 +334,8 @@ export function ShipmentProvider({ children }) {
     } catch (error) {
       console.warn('Failed to load shipments from backend, using empty fallback', error);
       userShipments = [];
+    } finally {
+      setIsRefreshing(false);
     }
     setShipments(userShipments || []);
     setLastDataSyncAt(new Date().toISOString());
@@ -185,17 +343,22 @@ export function ShipmentProvider({ children }) {
   };
 
   const refreshOperationalData = async () => {
-    if (currentUser?.role === 'admin') {
-      await loadAdminOperationalData();
-      await loadUsersFromDb();
-      try {
-        const summary = await reportingService.getSummary();
-        setReportSummary(summary);
-      } catch {
-        // non-blocking
+    setIsRefreshing(true);
+    try {
+      if (currentUser?.role === 'admin') {
+        await loadAdminOperationalData();
+        await loadUsersFromDb();
+        try {
+          const summary = await reportingService.getSummary();
+          setReportSummary(summary);
+        } catch {
+          // non-blocking
+        }
       }
+      await refreshShipments();
+    } finally {
+      setIsRefreshing(false);
     }
-    await refreshShipments();
   };
 
   const refreshUserNotifications = async (userId = null) => {
@@ -203,8 +366,10 @@ export function ShipmentProvider({ children }) {
     if (!effectiveUserId) return [];
     try {
       const latestNotifications = await communicationService.getUserNotifications(effectiveUserId);
-      setNotifications(latestNotifications);
-      return latestNotifications;
+      const dismissed = new Set(dismissedNotificationIds.map((value) => String(value).trim()));
+      const filteredLatest = (latestNotifications || []).filter((item) => !dismissed.has(String(item?.id || '').trim()));
+      setNotifications((prev) => mergeNotifications(filteredLatest, prev));
+      return filteredLatest;
     } catch (error) {
       console.error('Failed to fetch notifications from backend', error);
       return notifications;
@@ -407,23 +572,39 @@ export function ShipmentProvider({ children }) {
   const updateShipmentStatus = async (id, status, metadata = {}) => {
       try {
           const normalizedMeta = typeof metadata === 'string' ? { remarks: metadata } : (metadata || {});
+          const idValue = String(id || '').trim();
+          const targetShipment = shipments.find((shipment) => (
+            [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+              .filter(Boolean)
+              .map((value) => String(value))
+              .includes(idValue)
+          ));
+          const mutationId = targetShipment?.shipmentId || idValue;
           let updatedShipment;
-          try {
-            updatedShipment = await shipmentService.updateStatus(
-              id,
-              status,
-              currentUser?.userId || currentUser?.id || currentUser?.email,
-              normalizedMeta
-            );
-          } catch {
-            updatedShipment = await mockService.updateShipmentStatus(id, status);
-          }
+          updatedShipment = await shipmentService.updateStatus(
+            mutationId,
+            status,
+            currentUser?.userId || currentUser?.id || currentUser?.email,
+            normalizedMeta
+          );
+          const mergedShipment = {
+            ...(updatedShipment || {}),
+            ...(normalizedMeta.paymentStatus ? { paymentStatus: normalizedMeta.paymentStatus } : {}),
+            ...(normalizedMeta.paymentCollectedAt ? { paymentCollectedAt: normalizedMeta.paymentCollectedAt } : {}),
+            ...(Object.prototype.hasOwnProperty.call(normalizedMeta, 'assignedAgentId') ? { assignedAgentId: normalizedMeta.assignedAgentId || null } : {}),
+            ...(Object.prototype.hasOwnProperty.call(normalizedMeta, 'reassignedToAgentId') ? { assignedAgentId: normalizedMeta.reassignedToAgentId || null } : {})
+          };
           setShipments(prev => prev.map(s => (
-            s.id === id || s.trackingId === id || s.trackingNumber === id || s.id === updatedShipment?.id
-              ? updatedShipment
+            s.shipmentId === idValue ||
+            s.id === idValue ||
+            s.trackingId === idValue ||
+            s.trackingNumber === idValue ||
+            s.shipmentId === updatedShipment?.shipmentId ||
+            s.id === updatedShipment?.id
+              ? mergedShipment
               : s
           )));
-          return updatedShipment;
+          return mergedShipment;
       } catch (error) {
           console.error("Update status failed", error);
           throw error;
@@ -431,13 +612,52 @@ export function ShipmentProvider({ children }) {
   };
 
   const deleteShipment = async (id) => {
-      try {
-        await shipmentService.deleteShipment(id);
-      } catch {
-        // fallback to local delete if backend unavailable
+      const requestedId = String(id || '').trim();
+      if (!requestedId) {
+        throw new Error('Shipment id is required');
       }
-      setShipments(prev => prev.filter(s => s.id !== id));
+
+      const targetShipment = shipments.find((shipment) => (
+        [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+          .filter(Boolean)
+          .map((value) => String(value))
+          .includes(requestedId)
+      ));
+
+      const candidateIds = [...new Set([
+        targetShipment?.shipmentId,
+        requestedId,
+        targetShipment?.id,
+        targetShipment?.trackingId,
+        targetShipment?.trackingNumber
+      ].filter(Boolean).map((value) => String(value)))];
+
+      let deleted = false;
+      let lastError = null;
+      for (const candidateId of candidateIds) {
+        try {
+          await shipmentService.deleteShipment(candidateId);
+          deleted = true;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!deleted) {
+        throw lastError || new Error('Failed to delete shipment from database');
+      }
+
+      const removedIds = new Set(candidateIds);
+      setShipments((prev) => prev.filter((shipment) => {
+        const identifiers = [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+          .filter(Boolean)
+          .map((value) => String(value));
+        return !identifiers.some((value) => removedIds.has(value));
+      }));
       addNotification('Shipment deleted.', 'customer');
+      await refreshShipments();
+      return true;
   };
 
   const rateShipment = async (id, rating, comment = '') => {
@@ -470,19 +690,38 @@ export function ShipmentProvider({ children }) {
         throw new Error('Only customers can request role upgrade');
       }
 
+      const customerIdentities = [
+        currentUser?.userId,
+        currentUser?.id,
+        currentUser?.email
+      ].map(toIdentityValue).filter(Boolean);
+
       const existingPending = roleRequests.find(
-        request =>
-          request.email === currentUser.email &&
-          String(request.status || '').toUpperCase() === 'PENDING'
+        (request) => isPendingRoleRequestStatus(request?.status) && roleRequestMatchesAnyIdentity(request, customerIdentities)
       );
 
       if (existingPending) {
         throw new Error('You already have a pending request');
       }
 
+      const existingApproved = roleRequests.find((request) => {
+        if (normalizeRoleRequestStatus(request?.status) !== 'APPROVED') return false;
+        return roleRequestMatchesAnyIdentity(request, customerIdentities);
+      });
+      if (existingApproved) {
+        throw new Error('Your previous request was approved. Please login again.');
+      }
+
+      const customerIdentityCandidates = buildIdentityCandidates(
+        currentUser?.userId,
+        currentUser?.id,
+        currentUser?.email
+      );
+      const primaryProfileUserId = customerIdentityCandidates[0] || '';
+
       const request = {
         id: `rr-${Date.now()}`,
-        userId: currentUser.userId || currentUser.id,
+        userId: primaryProfileUserId || currentUser.userId || currentUser.id,
         email: currentUser.email,
         name: currentUser.name,
         currentRole: normalizeRole(currentUser.role),
@@ -512,17 +751,27 @@ export function ShipmentProvider({ children }) {
         createdAt: new Date().toISOString()
       };
 
-      const profileUserId = request.userId || request.email;
-      const backendExistingProfile = profileUserId
-        ? await operationsService.getAgentProfile(profileUserId)
-        : null;
-      if (backendExistingProfile && String(backendExistingProfile.verificationStatus || '').toUpperCase() === 'PENDING') {
-        throw new Error('You already have a pending request');
+      const backendProfiles = [];
+      for (const identity of customerIdentityCandidates) {
+        const profile = await operationsService.getAgentProfile(identity);
+        if (profile) {
+          backendProfiles.push({ identity, profile });
+        }
+      }
+      const backendStatuses = backendProfiles.map((item) => normalizeRoleRequestStatus(item.profile?.verificationStatus || 'PENDING'));
+      if (backendStatuses.some((status) => ['VERIFIED', 'APPROVED'].includes(status))) {
+        throw new Error('Your previous request was approved. Please login again.');
+      }
+      if (
+        backendStatuses.some((status) => ['PENDING', 'PENDING_VERIFICATION'].includes(status)) &&
+        !backendStatuses.some((status) => status === 'REJECTED')
+      ) {
+          throw new Error('You already have a pending request');
       }
 
       try {
-        if (profileUserId) {
-          await operationsService.upsertAgentProfile(profileUserId, {
+        if (primaryProfileUserId) {
+          await operationsService.upsertAgentProfile(primaryProfileUserId, {
             licenseNumber: request.agentDetails.licenseNumber || undefined,
             aadharNumber: request.agentDetails.aadharNumber || undefined,
             vehicleNumber: request.agentDetails.vehicleNumber || undefined,
@@ -531,6 +780,9 @@ export function ShipmentProvider({ children }) {
             organDonor: request.agentDetails.organDonor ?? false,
             shiftTiming: request.agentDetails.shiftTiming || 'Day',
             profileImage: request.documents.profilePhoto || undefined,
+            aadharCopy: request.documents.aadharCopy || undefined,
+            licenseCopy: request.documents.licenseCopy || undefined,
+            rcBookCopy: request.documents.rcBookCopy || undefined,
             bankAccountHolder: request.agentDetails.bankAccountHolder || undefined,
             bankAccountNumber: request.agentDetails.bankAccountNumber || undefined,
             bankIfsc: request.agentDetails.bankIfsc || undefined,
@@ -551,28 +803,135 @@ export function ShipmentProvider({ children }) {
         console.warn('Failed to persist role request in operations profile store', error);
       }
 
-      setRoleRequests(prev => [request, ...prev]);
+      setRoleRequests(prev => [request, ...prev].slice(0, MAX_ROLE_REQUESTS));
+      persistRoleRequestDocuments(request, [primaryProfileUserId]);
       addNotification('Role upgrade request submitted to admin.', 'customer');
+      addNotification(`New agent access request from ${request.name || request.email}.`, 'admin');
       return request;
   };
 
-    const approveRoleRequest = async (request) => {
-      if (!request || !request.id) {
-          throw new Error("Invalid request object provided.");
+  const markRoleRequestPending = async (requestInput) => {
+      const inputRequest = typeof requestInput === 'object' ? requestInput : null;
+      const inputId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
+      const inputIdentity = toIdentityValue(
+        inputRequest?.userId ||
+        inputRequest?.email ||
+        inputId
+      );
+      const inputIdentitySet = [...new Set([
+        ...getRoleRequestIdentityValues(inputRequest || {}),
+        inputIdentity
+      ].filter(Boolean))];
+
+      const existingRequest = (roleRequests || []).find((request) => {
+        if (inputId && request.id === inputId) return true;
+        return inputIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, inputIdentitySet);
+      }) || null;
+
+      const source = inputRequest || existingRequest;
+      if (!source) {
+        throw new Error('Role request not found');
+      }
+
+      const now = new Date().toISOString();
+      const normalizedRequest = {
+        id: source.id || `rr-${Date.now()}`,
+        userId: source.userId || source.id || source.email || '',
+        email: source.email || '',
+        name: source.name || source.fullName || source.email || 'User',
+        currentRole: normalizeRole(source.currentRole || 'customer'),
+        requestedRole: normalizeRole(source.requestedRole || 'agent'),
+        reason: source.reason || '',
+        agentDetails: source.agentDetails || {},
+        documents: source.documents || {},
+        status: 'PENDING_VERIFICATION',
+        createdAt: source.createdAt || now,
+        reviewedAt: now,
+        reviewedBy: currentUser?.email || currentUser?.userId || 'admin'
+      };
+
+      setRoleRequests((prev) => {
+        const next = [...prev];
+        const existingIndex = next.findIndex((request) => {
+          if (normalizedRequest.id && request.id === normalizedRequest.id) return true;
+          const requestIdentity = toIdentityValue(request.userId || request.email || request.id);
+          const normalizedIdentity = toIdentityValue(
+            normalizedRequest.userId ||
+            normalizedRequest.email ||
+            normalizedRequest.id
+          );
+          return Boolean(normalizedIdentity) && requestIdentity === normalizedIdentity;
+        });
+
+        if (existingIndex >= 0) {
+          next[existingIndex] = { ...next[existingIndex], ...normalizedRequest };
+        } else {
+          next.unshift(normalizedRequest);
+        }
+        return next.slice(0, MAX_ROLE_REQUESTS);
+      });
+
+      const profileUserId = normalizedRequest.userId || normalizedRequest.email;
+      if (profileUserId) {
+        try {
+          await operationsService.upsertAgentProfile(profileUserId, {
+            licenseNumber: normalizedRequest.agentDetails?.licenseNumber || undefined,
+            aadharNumber: normalizedRequest.agentDetails?.aadharNumber || undefined,
+            vehicleNumber: normalizedRequest.agentDetails?.vehicleNumber || undefined,
+            rcBookNumber: normalizedRequest.agentDetails?.rcBookNumber || undefined,
+            bloodType: normalizedRequest.agentDetails?.bloodType || undefined,
+            organDonor: normalizedRequest.agentDetails?.organDonor ?? false,
+            profileImage: normalizedRequest.documents?.profilePhoto || undefined,
+            aadharCopy: normalizedRequest.documents?.aadharCopy || undefined,
+            licenseCopy: normalizedRequest.documents?.licenseCopy || undefined,
+            rcBookCopy: normalizedRequest.documents?.rcBookCopy || undefined,
+            verificationStatus: 'PENDING',
+            verificationNotes: 'Moved to admin document verification queue'
+          });
+        } catch (error) {
+          console.warn('Failed to persist pending verification state', error);
+        }
+      }
+
+      addNotification('Agent request moved to verification queue.', 'admin');
+      return normalizedRequest;
+  };
+
+    const approveRoleRequest = async (requestInput) => {
+      const requestId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
+      const requestIdentity = toIdentityValue(
+        requestInput?.userId ||
+        requestInput?.email ||
+        requestId
+      );
+      const requestIdentitySet = [...new Set([
+        ...getRoleRequestIdentityValues(requestInput || {}),
+        requestIdentity
+      ].filter(Boolean))];
+      const requestRecord = typeof requestInput === 'object'
+        ? requestInput
+        : (roleRequests || []).find((request) => {
+          const sameId = requestId && String(request?.id || '') === String(requestId);
+          const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
+          return sameId || sameIdentity;
+        });
+
+      if (!requestRecord) {
+        throw new Error("Invalid request object provided.");
       }
 
       // Use the user ID from the request, fallback to email if not present
-      const userIdentifier = request.userId || request.email;
+      const userIdentifier = requestRecord.userId || requestRecord.email;
       if (!userIdentifier) {
           throw new Error("No user identifier found in the request.");
       }
       
-      const roleToAssign = request.requestedRole || 'agent';
+      const roleToAssign = requestRecord.requestedRole || 'agent';
 
       const fallbackUser = users.find((user) => {
         const requestIdentities = [
-          request.userId,
-          request.email
+          requestRecord.userId,
+          requestRecord.email
         ].map(toIdentityValue).filter(Boolean);
         const userIdentities = [
           user.userId,
@@ -585,11 +944,11 @@ export function ShipmentProvider({ children }) {
       const profileUserId =
         fallbackUser?.userId ||
         fallbackUser?.id ||
-        request.userId ||
-        request.email;
+        requestRecord.userId ||
+        requestRecord.email;
 
-      const requestedAgentDetails = request.agentDetails || {};
-      const requestedDocs = readRoleRequestDocuments(request);
+      const requestedAgentDetails = requestRecord.agentDetails || {};
+      const requestedDocs = readRoleRequestDocuments(requestRecord);
 
       if (roleToAssign === 'agent') {
         try {
@@ -602,6 +961,9 @@ export function ShipmentProvider({ children }) {
             organDonor: requestedAgentDetails.organDonor ?? false,
             shiftTiming: requestedAgentDetails.shiftTiming || 'Day',
             profileImage: requestedDocs.profilePhoto || undefined,
+            aadharCopy: requestedDocs.aadharCopy || undefined,
+            licenseCopy: requestedDocs.licenseCopy || undefined,
+            rcBookCopy: requestedDocs.rcBookCopy || undefined,
             bankAccountHolder: requestedAgentDetails.bankAccountHolder || undefined,
             bankAccountNumber: requestedAgentDetails.bankAccountNumber || undefined,
             bankIfsc: requestedAgentDetails.bankIfsc || undefined,
@@ -611,7 +973,7 @@ export function ShipmentProvider({ children }) {
             totalSalaryDebited: 0,
             verificationStatus: 'VERIFIED',
             verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
-            verificationNotes: request.reason ? `Approved request: ${request.reason}` : 'Approved role request',
+            verificationNotes: requestRecord.reason ? `Approved request: ${requestRecord.reason}` : 'Approved role request',
             availabilityStatus: 'AVAILABLE',
             deliveredCount: 0,
             failedCount: 0,
@@ -634,36 +996,154 @@ export function ShipmentProvider({ children }) {
       }
 
       // Update the local state for role requests
-      setRoleRequests(prev => prev.map(r =>
-        r.id === request.id
-          ? {
-            ...r,
+      const reviewedAt = new Date().toISOString();
+      const reviewedBy = currentUser?.email || currentUser?.userId || 'admin';
+      setRoleRequests((prev) => {
+        let matched = false;
+        const next = prev.map((item) => {
+          const sameId = requestId && String(item?.id || '') === String(requestId);
+          const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(item, requestIdentitySet);
+          if (!sameId && !sameIdentity) return item;
+          matched = true;
+          return {
+            ...item,
             status: 'APPROVED',
-            reviewedAt: new Date().toISOString(),
-            reviewedBy: currentUser?.email || currentUser?.userId || 'admin'
-          }
-          : r
-      ));
+            reviewedAt,
+            reviewedBy
+          };
+        });
+        if (matched) return next;
+        return [{
+          ...requestRecord,
+          id: requestRecord.id || requestId || `rr-${Date.now()}`,
+          status: 'APPROVED',
+          reviewedAt,
+          reviewedBy
+        }, ...next].slice(0, MAX_ROLE_REQUESTS);
+      });
 
       if (roleToAssign === 'agent') {
-        persistRoleRequestDocuments(request, [profileUserId]);
+        persistRoleRequestDocuments(requestRecord, [profileUserId]);
       }
 
-      // This part seems overly complex and might be redundant if the backend is the source of truth.
-      // Let's simplify it to just reload the user list from the DB.
       await loadUsersFromDb();
 
+      const targetUserId = requestRecord.userId || requestRecord.email;
+      if (targetUserId) {
+        try {
+          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was approved by admin.');
+        } catch {
+          // non-blocking notification
+        }
+      }
+      addNotification('Agent request approved successfully.', 'admin');
+
       // If the approved user is the one currently logged in, refresh their session data.
-      if (currentUser?.email === request.email) {
-        const baseUser = await authService.getProfile();
-        const user = applyRoleOverride(baseUser);
-        setCurrentUser(user);
-        authStorage.setCurrentUser(user);
+      if (toIdentityValue(currentUser?.email || currentUser?.userId || currentUser?.id) === toIdentityValue(targetUserId)) {
+        try {
+          const baseUser = await authService.getProfile();
+          const user = applyRoleOverride(baseUser);
+          setCurrentUser(user);
+          authStorage.setCurrentUser(user);
+        } catch {
+          // best-effort session refresh
+        }
       }
   };
 
-  const rejectRoleRequest = (requestId) => {
-      setRoleRequests(prev => prev.filter(r => r.id !== requestId));
+  const rejectRoleRequest = async (requestInput) => {
+      const requestId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
+      const requestIdentity = toIdentityValue(
+        requestInput?.userId ||
+        requestInput?.email ||
+        requestId
+      );
+      const requestIdentitySet = [...new Set([
+        ...getRoleRequestIdentityValues(requestInput || {}),
+        requestIdentity
+      ].filter(Boolean))];
+      const requestRecord = typeof requestInput === 'object'
+        ? requestInput
+        : (roleRequests || []).find((request) => {
+          const sameId = requestId && String(request?.id || '') === String(requestId);
+          const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
+          return sameId || sameIdentity;
+        });
+      if (!requestRecord) {
+        throw new Error('Role request not found');
+      }
+
+      const matchedUser = (users || []).find((user) => {
+        const requestIdentities = getRoleRequestIdentityValues(requestRecord);
+        const userIdentities = [user?.userId, user?.id, user?.email].map(toIdentityValue).filter(Boolean);
+        return requestIdentities.some((identity) => userIdentities.includes(identity));
+      }) || null;
+      const targetIdentityCandidates = buildIdentityCandidates(
+        requestRecord?.userId,
+        requestRecord?.email,
+        requestRecord?.id,
+        matchedUser?.userId,
+        matchedUser?.id,
+        matchedUser?.email
+      );
+
+      for (const identity of targetIdentityCandidates) {
+        try {
+          await authService.updateUserRole(identity, 'customer');
+          break;
+        } catch {
+          // try next identity
+        }
+      }
+
+      for (const identity of targetIdentityCandidates) {
+        try {
+          await operationsService.verifyAgentProfile(identity, {
+            verified: false,
+            verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
+            verificationNotes: 'Rejected by admin'
+          });
+        } catch {
+          // non-blocking backend verification update
+        }
+      }
+
+      const reviewedAt = new Date().toISOString();
+      const reviewedBy = currentUser?.email || currentUser?.userId || 'admin';
+      setRoleRequests((prev) => {
+        let matched = false;
+        const next = prev.map((request) => {
+          const sameId = requestId && String(request?.id || '') === String(requestId);
+          const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
+          if (!sameId && !sameIdentity) return request;
+          matched = true;
+          return {
+            ...request,
+            status: 'REJECTED',
+            reviewedAt,
+            reviewedBy
+          };
+        });
+        if (matched) return next;
+        if (!requestRecord) return next;
+        return [{
+          ...requestRecord,
+          id: requestRecord.id || requestId || `rr-${Date.now()}`,
+          status: 'REJECTED',
+          reviewedAt,
+          reviewedBy
+        }, ...next].slice(0, MAX_ROLE_REQUESTS);
+      });
+
+      const targetUserId = targetIdentityCandidates[0] || requestRecord?.userId || requestRecord?.email;
+      if (targetUserId) {
+        try {
+          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was rejected by admin.');
+        } catch {
+          // non-blocking notification
+        }
+      }
+      addNotification('Agent request rejected. User remains customer.', 'admin');
   };
 
   const updatePricingConfig = (nextConfig = {}) => {
@@ -692,7 +1172,15 @@ export function ShipmentProvider({ children }) {
 
       const nextRole = normalizeRole(role);
 
-      await authService.updateUserRole(target.userId || target.id || target.email, nextRole);
+      try {
+        await authService.updateUserRole(target.userId || target.id || target.email, nextRole);
+      } catch (error) {
+        if (String(error.message).includes('found') || String(error.message).includes('Failed to update') || String(error.message).includes('404')) {
+          console.warn("Backend update failed (likely mock user). Applying locally:", error.message);
+        } else {
+          throw error;
+        }
+      }
 
       setRoleOverrides(prev => {
         const next = prev.filter(o => !(o.email === target.email || (o.userId && o.userId === target.userId)));
@@ -891,23 +1379,59 @@ export function ShipmentProvider({ children }) {
   };
 
   const addNotification = (message, role = 'all', status = 'INFO') => {
-      const id = Date.now();
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const createdAt = new Date().toISOString();
       setNotifications(prev => {
-        const next = [{ id, message, role, status, timestamp: new Date().toLocaleTimeString() }, ...prev];
+        const next = mergeNotifications([
+          {
+            id,
+            message,
+            role: String(role || 'all').toLowerCase(),
+            status,
+            createdAt,
+            timestamp: new Date(createdAt).toLocaleString()
+          }
+        ], prev);
         return next.slice(0, 100);
       });
   };
 
   const getRoleNotifications = (role) => {
-      return notifications.filter(n => !n.role || n.role === role || n.role === 'all');
+      const dismissed = new Set(dismissedNotificationIds.map((value) => String(value).trim()));
+      return notifications.filter((n) => {
+        const roleName = String(n?.role || 'all').toLowerCase();
+        const notificationId = String(n?.id || '').trim();
+        if (notificationId && dismissed.has(notificationId)) return false;
+        return !roleName || roleName === String(role || '').toLowerCase() || roleName === 'all';
+      });
+  };
+
+  const dismissNotification = (notificationId) => {
+    const normalizedId = String(notificationId || '').trim();
+    if (!normalizedId) return;
+    setDismissedNotificationIds((prev) => (
+      prev.includes(normalizedId) ? prev : [normalizedId, ...prev].slice(0, 500)
+    ));
+    setNotifications((prev) => prev.filter((item) => String(item?.id || '').trim() !== normalizedId));
   };
 
   const notifyAdminFromAgent = async (message) => {
       const text = String(message || '').trim();
       if (!text) throw new Error('Message is required');
 
-      const sender = currentUser?.name || currentUser?.email || currentUser?.userId || 'Agent';
-      const composed = `Agent message from ${sender}: ${text}`;
+      const senderName = currentUser?.name || currentUser?.email || currentUser?.userId || 'Agent';
+      const senderId = currentUser?.userId || currentUser?.id || currentUser?.email || senderName;
+      const composed = `Agent message from ${senderName}: ${text}`;
+
+      const ticket = await communicationService.createTicket({
+        userId: senderId,
+        subject: `Agent Operational Message - ${senderName}`,
+        category: 'Operations',
+        priority: 'Medium',
+        message: text,
+        senderName,
+        senderRole: 'agent'
+      });
 
       try {
         await communicationService.sendNotification('ADMIN', 'IN_APP', composed);
@@ -916,7 +1440,7 @@ export function ShipmentProvider({ children }) {
       }
 
       addNotification(composed, 'admin', 'INFO');
-      return true;
+      return ticket;
   };
 
     const getSupportTickets = async (userId = null) => {
@@ -936,29 +1460,57 @@ export function ShipmentProvider({ children }) {
         senderName: currentUser?.name || ticketData.senderName || 'Customer',
         senderRole: currentUser?.role || ticketData.senderRole || 'customer'
       });
+      const actorName = currentUser?.name || currentUser?.email || 'User';
+      const ticketRef = created?.id || 'Ticket';
+      addNotification(`${ticketRef} created by ${actorName}: ${created?.subject || ticketData?.subject || 'Support Ticket'}`, 'all', 'INFO');
       try {
-      await communicationService.sendNotification(effectiveUserId, 'EMAIL', `Ticket created: ${created.subject}`);
+        await Promise.allSettled([
+          communicationService.sendNotification(effectiveUserId, 'IN_APP', `Ticket created: ${created.subject}`),
+          communicationService.sendNotification('ADMIN', 'IN_APP', `Ticket ${ticketRef} created by ${actorName}`)
+        ]);
       } catch {
-      // Non-blocking notification call
+        // Non-blocking notification call
       }
       return created;
     };
 
     const replySupportTicket = async (ticketId, message) => {
-      return communicationService.replyTicket(ticketId, {
+      const updated = await communicationService.replyTicket(ticketId, {
         senderId: currentUser?.userId || currentUser?.id || currentUser?.email,
         senderName: currentUser?.name || currentUser?.email || 'Support',
         senderRole: currentUser?.role || 'customer',
         message
       });
+      const actorName = currentUser?.name || currentUser?.email || 'User';
+      const ticketRef = updated?.id || ticketId;
+      addNotification(`${ticketRef} replied by ${actorName}`, 'all', 'INFO');
+      try {
+        if (updated?.userId) {
+          await communicationService.sendNotification(updated.userId, 'IN_APP', `New reply on ${ticketRef}`);
+        }
+      } catch {
+        // Non-blocking notification call
+      }
+      return updated;
     };
 
     const updateSupportTicketStatus = async (ticketId, status, assignment = {}) => {
-      return communicationService.updateTicketStatus(ticketId, {
+      const updated = await communicationService.updateTicketStatus(ticketId, {
         status,
         assignedToRole: assignment.assignedToRole,
         assignedToUserId: assignment.assignedToUserId
       });
+      const readableStatus = String(updated?.status || status || '').replace(/_/g, ' ').trim();
+      const ticketRef = updated?.id || ticketId;
+      addNotification(`${ticketRef} status updated to ${readableStatus}`, 'all', 'INFO');
+      try {
+        if (updated?.userId) {
+          await communicationService.sendNotification(updated.userId, 'IN_APP', `${ticketRef} status: ${readableStatus}`);
+        }
+      } catch {
+        // Non-blocking notification call
+      }
+      return updated;
     };
 
     const closeSupportTicket = async (ticketId) => {
@@ -966,7 +1518,9 @@ export function ShipmentProvider({ children }) {
     };
 
     const deleteSupportTicket = async (ticketId) => {
-      return communicationService.deleteTicket(ticketId);
+      const deleted = await communicationService.deleteTicket(ticketId);
+      addNotification(`${ticketId} was deleted`, 'all', 'INFO');
+      return deleted;
     };
   
   const calculateRate = (weight, serviceType) => {
@@ -982,6 +1536,7 @@ export function ShipmentProvider({ children }) {
     setVehicles([]);
     setStaff([]);
     setNotifications([]);
+    setDismissedNotificationIds([]);
   };
 
   useEffect(() => {
@@ -993,7 +1548,7 @@ export function ShipmentProvider({ children }) {
     }, 20000);
 
     return () => clearInterval(interval);
-  }, [currentUser?.userId, currentUser?.id]);
+  }, [currentUser?.userId, currentUser?.id, dismissedNotificationIds]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -1029,6 +1584,7 @@ export function ShipmentProvider({ children }) {
       pricingConfig,
       lastDataSyncAt,
       isLoading,
+      isRefreshing,
       login,
       logout,
       register,
@@ -1053,6 +1609,7 @@ export function ShipmentProvider({ children }) {
       updateStaff,
       updateProfile,
       requestRoleUpgrade,
+      markRoleRequestPending,
       approveRoleRequest,
       rejectRoleRequest,
       updateUserRole,
@@ -1069,6 +1626,7 @@ export function ShipmentProvider({ children }) {
       deleteSupportTicket,
       refreshUserNotifications,
       getRoleNotifications,
+      dismissNotification,
       notifyAdminFromAgent,
       updatePricingConfig,
       calculateRate,
@@ -1078,5 +1636,3 @@ export function ShipmentProvider({ children }) {
     </ShipmentContext.Provider>
   );
 }
-
-

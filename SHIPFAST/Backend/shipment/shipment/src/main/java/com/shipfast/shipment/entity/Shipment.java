@@ -29,12 +29,14 @@ public class Shipment {
     private String status;
     private String serviceType;
     private String paymentMethod;
+    private String paymentStatus;
 
     private Double cost;
 
     private LocalDateTime createdAt;
     private LocalDateTime estimatedDelivery;
     private LocalDateTime updatedAt;
+    private LocalDateTime paymentCollectedAt;
 
     private Address sender;
     private Address recipient;
@@ -51,4 +53,5 @@ public class Shipment {
     private LocalDateTime deliveredAt;
     private String deliveredBy;
     private String deliveredByAgentId;
+    private String runSheetId;
 }

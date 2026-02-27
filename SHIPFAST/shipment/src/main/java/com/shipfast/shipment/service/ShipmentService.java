@@ -14,5 +14,5 @@ public interface ShipmentService {
 
     List<Shipment> getByCustomerId(Long customerId);
 
-    Shipment updateStatus(String trackingNumber, ShipmentStatus status);
+    Shipment updateStatus(String trackingNumber, ShipmentStatus status, Boolean paymentSuccess);
 }
