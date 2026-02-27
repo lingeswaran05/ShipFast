@@ -26,15 +26,11 @@ public class AgentProfileResponse {
     private Double averageRating;
     private Long totalRatings;
     private String profileImage;
+    private String aadharCopy;
+    private String licenseCopy;
+    private String rcBookCopy;
     private String availabilityStatus;
     private Long deliveredCount;
     private Long failedCount;
     private Long inTransitCount;
-    private String bankAccountHolder;
-    private String bankAccountNumber;
-    private String bankIfsc;
-    private String bankName;
-    private Double salaryBalance;
-    private Double totalSalaryCredited;
-    private Double totalSalaryDebited;
 }

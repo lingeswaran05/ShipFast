@@ -4,6 +4,7 @@ import com.shipfast.shipment.dto.CreateShipmentRequest;
 import com.shipfast.shipment.entity.PriceBreakdown;
 import com.shipfast.shipment.entity.Shipment;
 import com.shipfast.shipment.entity.enums.PaymentStatus;
+import com.shipfast.shipment.entity.enums.ServiceType;
 import com.shipfast.shipment.entity.enums.ShipmentStatus;
 import com.shipfast.shipment.repository.ShipmentRepository;
 import com.shipfast.shipment.service.ShipmentService;
@@ -76,7 +77,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     }
 
     @Override
-    public Shipment updateStatus(String trackingNumber, ShipmentStatus status) {
+    public Shipment updateStatus(String trackingNumber, ShipmentStatus status, Boolean paymentSuccess) {
 
         Shipment shipment = getByTrackingNumber(trackingNumber);
 
@@ -84,7 +85,24 @@ public class ShipmentServiceImpl implements ShipmentService {
 
         if (status == ShipmentStatus.DELIVERED) {
             shipment.setActualDeliveryDate(LocalDateTime.now());
-            shipment.setPaymentStatus(PaymentStatus.PAID);
+            if (shipment.getServiceType() == ServiceType.COD) {
+                if (paymentSuccess != null && paymentSuccess) {
+                    shipment.setPaymentStatus(PaymentStatus.PAID);
+                } else {
+                    shipment.setPaymentStatus(PaymentStatus.FAILED);
+                    // Create a return shipment
+                    CreateShipmentRequest returnRequest = new CreateShipmentRequest();
+                    returnRequest.setCustomerId(shipment.getCustomerId());
+                    returnRequest.setServiceType(ServiceType.STANDARD);
+                    returnRequest.setZoneType(shipment.getZoneType());
+                    returnRequest.setSenderAddress(shipment.getReceiverAddress());
+                    returnRequest.setReceiverAddress(shipment.getSenderAddress());
+                    returnRequest.setPackageDetails(shipment.getPackageDetails());
+                    createShipment(returnRequest);
+                }
+            } else {
+                shipment.setPaymentStatus(PaymentStatus.PAID);
+            }
         }
 
         Shipment updated = shipmentRepository.save(shipment);

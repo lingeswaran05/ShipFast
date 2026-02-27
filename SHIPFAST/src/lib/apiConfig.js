@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = 'http://localhost:8085';
+const DEFAULT_API_BASE_URL = 'http://localhost:8088';
 
 const stripTrailingSlash = (value = '') => String(value || '').replace(/\/+$/, '');
 const toLower = (value = '') => String(value || '').trim().toLowerCase();

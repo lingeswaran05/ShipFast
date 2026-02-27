@@ -76,6 +76,7 @@ public class ShipmentServiceImpl implements ShipmentService {
                 .status("Booked")
                 .serviceType(request.getServiceType())
                 .paymentMethod(request.getPaymentMethod())
+                .paymentStatus(resolveInitialPaymentStatus(request.getPaymentMethod()))
                 .cost(finalCost)
                 .createdAt(now)
                 .estimatedDelivery(now.plusDays(rate.getEstimatedDeliveryDays()))
@@ -183,10 +184,8 @@ public class ShipmentServiceImpl implements ShipmentService {
 
     @Override
     public void deleteShipment(String shipmentId) {
-        if (!shipmentRepository.existsById(shipmentId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Shipment not found");
-        }
-        shipmentRepository.deleteById(shipmentId);
+        Shipment shipment = getById(shipmentId);
+        shipmentRepository.deleteById(shipment.getId());
     }
 
     @Override
@@ -221,6 +220,22 @@ public class ShipmentServiceImpl implements ShipmentService {
             if (!hasText(shipment.getAssignedAgentId()) && hasText(shipment.getDeliveredByAgentId())) {
                 shipment.setAssignedAgentId(shipment.getDeliveredByAgentId());
             }
+            if (!hasText(request.getPaymentStatus()) && !"COD".equalsIgnoreCase(shipment.getPaymentMethod())) {
+                shipment.setPaymentStatus("SUCCESS");
+            }
+        }
+        if (hasText(request.getPaymentStatus())) {
+            shipment.setPaymentStatus(normalizePaymentStatus(request.getPaymentStatus()));
+        }
+        if (hasText(request.getPaymentCollectedAt())) {
+            try {
+                shipment.setPaymentCollectedAt(LocalDateTime.parse(request.getPaymentCollectedAt().trim()));
+            } catch (RuntimeException ignored) {
+                // Keep status update successful even if incoming timestamp format is invalid.
+            }
+        }
+        if ("SUCCESS".equalsIgnoreCase(shipment.getPaymentStatus()) && shipment.getPaymentCollectedAt() == null) {
+            shipment.setPaymentCollectedAt(LocalDateTime.now());
         }
 
         TrackingEvent event = TrackingEvent.builder()
@@ -245,6 +260,9 @@ public class ShipmentServiceImpl implements ShipmentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "agentId is required");
         }
         shipment.setAssignedAgentId(request.getAgentId());
+        if (hasText(request.getRunSheetId())) {
+            shipment.setRunSheetId(request.getRunSheetId().trim());
+        }
         shipment.setUpdatedAt(LocalDateTime.now());
         return shipmentRepository.save(shipment);
     }
@@ -343,6 +361,22 @@ public class ShipmentServiceImpl implements ShipmentService {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String resolveInitialPaymentStatus(String paymentMethod) {
+        if ("COD".equalsIgnoreCase(paymentMethod) || "CASH".equalsIgnoreCase(paymentMethod)) {
+            return "PENDING";
+        }
+        return "SUCCESS";
+    }
+
+    private String normalizePaymentStatus(String paymentStatus) {
+        if (!hasText(paymentStatus)) return paymentStatus;
+        String normalized = paymentStatus.trim().toUpperCase();
+        if ("PAID".equals(normalized) || "COMPLETED".equals(normalized)) {
+            return "SUCCESS";
+        }
+        return normalized;
     }
 
     private String normalizeStatus(String status) {

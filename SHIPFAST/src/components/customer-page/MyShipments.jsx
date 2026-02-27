@@ -20,6 +20,7 @@ export function MyShipments() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCount, setVisibleCount] = useState(5);
+  const getShipmentIdentifier = (shipment) => shipment?.trackingNumber || shipment?.trackingId || shipment?.id;
 
   // Helper to format status for display and comparison
   const formatStatus = (status) => {
@@ -51,10 +52,11 @@ export function MyShipments() {
   };
 
   const handleCancel = async () => {
-      if (!selectedShipment?.id) return;
-      setCancellingId(selectedShipment.id);
+      const shipmentId = getShipmentIdentifier(selectedShipment);
+      if (!shipmentId) return;
+      setCancellingId(shipmentId);
       try {
-        await cancelShipment(selectedShipment.id);
+        await cancelShipment(shipmentId);
         toast.success('Shipment request cancelled.');
       } catch (error) {
         toast.error(error?.message || 'Unable to cancel shipment');
@@ -72,15 +74,17 @@ export function MyShipments() {
 
   const handleDelete = async () => {
       if (!shipmentToDelete) return;
-      setDeletingId(shipmentToDelete.id);
+      const shipmentId = getShipmentIdentifier(shipmentToDelete);
+      setDeletingId(shipmentId);
       try {
-        await deleteShipment(shipmentToDelete.id);
+        await deleteShipment(shipmentId);
         toast.success('Shipment removed from history.');
       } catch (error) {
         toast.error(error?.message || 'Unable to delete shipment');
       } finally {
         setDeletingId(null);
         setShipmentToDelete(null);
+        setShowDeleteConfirm(false);
       }
   };
 
@@ -98,13 +102,18 @@ export function MyShipments() {
   };
 
   const handleTrack = (id) => {
-    navigate(`/track?id=${id}`);
+    navigate(`/track?id=${encodeURIComponent(id)}`);
   };
+
+  const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(value) || 0);
 
   const shipmentsToDisplay = shipments;
 
   const filteredShipments = shipmentsToDisplay.filter(s => {
-      const matchesSearch = (s.id && s.id.toLowerCase().includes(filter.toLowerCase())) || 
+      const query = filter.toLowerCase();
+      const matchesSearch = (s.id && s.id.toLowerCase().includes(query)) || 
+                            (s.trackingId && String(s.trackingId).toLowerCase().includes(query)) ||
+                            (s.trackingNumber && String(s.trackingNumber).toLowerCase().includes(query)) ||
                             (s.receiver?.city && s.receiver.city.toLowerCase().includes(filter.toLowerCase())) ||
                             (s.sender?.city && s.sender.city.toLowerCase().includes(filter.toLowerCase()));
       
@@ -195,17 +204,19 @@ export function MyShipments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {visibleShipments.map((shipment) => (
-                <tr key={shipment.id} className="hover:bg-slate-50 transition-colors group">
+              {visibleShipments.map((shipment) => {
+                const stableId = shipment.trackingNumber || shipment.trackingId || shipment.id;
+                return (
+                <tr key={stableId} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4">
                     <button 
-                      onClick={() => handleTrack(shipment.trackingNumber || shipment.trackingId || shipment.id)}
+                      onClick={() => handleTrack(stableId)}
                       className="flex items-center gap-3 hover:opacity-80 transition-opacity text-left"
                     >
                       <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
                         <Package className="w-4 h-4" />
                       </div>
-                      <span className="font-medium text-purple-600 group-hover:text-purple-700 transition-colors underline decoration-purple-200 underline-offset-2">{shipment.trackingNumber || shipment.trackingId || shipment.id}</span>
+                      <span className="font-medium text-purple-600 group-hover:text-purple-700 transition-colors underline decoration-purple-200 underline-offset-2">{stableId}</span>
                     </button>
                   </td>
                   <td className="px-6 py-4">
@@ -239,15 +250,15 @@ export function MyShipments() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="font-medium text-slate-900">₹{shipment.cost}</div>
-                    <div className="text-xs text-slate-400">Paid</div>
+                    <div className="font-medium text-slate-900">{formatCurrency(shipment.cost)}</div>
+                    <div className="text-xs text-slate-400">{String(shipment.paymentStatus || 'Paid')}</div>
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                        {/* Link to Invoice - Available for most statuses except maybe cancelled/pending if unpaid */}
                        {['delivered', 'in transit', 'out for delivery', 'booked'].includes(formatStatus(shipment.status).toLowerCase()) && (
                            <button 
-                              onClick={() => navigate(`/dashboard/invoice/${shipment.id}`)}
+                              onClick={() => navigate(`/dashboard/invoice/${stableId}`)}
                               className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
                               title="View Invoice"
                            >
@@ -270,7 +281,7 @@ export function MyShipments() {
                        {['pending', 'booked'].includes(formatStatus(shipment.status).toLowerCase()) && (
                           <button 
                             onClick={() => handleAction('cancel', shipment)}
-                            disabled={cancellingId === shipment.id}
+                            disabled={cancellingId === stableId}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Cancel Shipment"
                           >
@@ -282,7 +293,7 @@ export function MyShipments() {
                        {['cancelled', 'delivered'].includes(formatStatus(shipment.status).toLowerCase()) && (
                            <button 
                               onClick={() => confirmDelete(shipment)}
-                              disabled={deletingId === shipment.id}
+                              disabled={deletingId === stableId}
                               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete from History"
                            >
@@ -292,7 +303,8 @@ export function MyShipments() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {filteredShipments.length === 0 && (
                   <tr>
                       <td colSpan="7" className="px-6 py-12 text-center text-slate-500">

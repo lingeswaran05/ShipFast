@@ -8,7 +8,7 @@ const toAuthBaseUrl = (base = '') => {
 };
 
 const AUTH_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_AUTH_BASE_URL, {
-  localDirectBase: 'http://localhost:8085'
+  localDirectBase: 'http://localhost:8088'
 })
   .map(toAuthBaseUrl)
   .filter((value, index, list) => list.indexOf(value) === index);

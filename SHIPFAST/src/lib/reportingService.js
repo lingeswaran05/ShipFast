@@ -2,7 +2,7 @@ import axios from 'axios';
 import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
 const REPORTING_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_REPORTING_BASE_URL, {
-  localDirectBase: 'http://localhost:8087'
+  localDirectBase: 'http://localhost:8088'
 })
   .filter((value, index, list) => list.indexOf(value) === index);
 const REPORTING_API_BASE_URLS = REPORTING_BASE_URLS.map((base) => toServiceBaseUrl(base, '/api/reports'));

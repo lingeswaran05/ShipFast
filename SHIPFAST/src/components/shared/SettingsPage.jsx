@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { User, Mail, Phone, MapPin, Save, Shield, Camera, X, Edit2, Upload, Trash2 } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import Webcam from 'react-webcam';
@@ -7,6 +7,13 @@ import { operationsService } from '../../lib/operationsService';
 
 export function SettingsPage() {
    const { currentUser, shipments, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
+  const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
+  const normalizeRequestStatus = (value) => {
+    const status = String(value || 'PENDING').toUpperCase();
+    if (status === 'VERIFIED') return 'APPROVED';
+    return status;
+  };
+  const isPendingRequestStatus = (value) => ['PENDING', 'PENDING_VERIFICATION'].includes(normalizeRequestStatus(value));
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
    const [requestedRole, setRequestedRole] = useState('agent');
@@ -36,16 +43,8 @@ export function SettingsPage() {
     rcBookNumber: '',
     bloodType: '',
     organDonor: false,
-    bankAccountHolder: '',
-    bankAccountNumber: '',
-    bankIfsc: '',
-    bankName: '',
-    salaryBalance: 0,
-    totalSalaryCredited: 0,
-    totalSalaryDebited: 0
+    verificationStatus: 'PENDING'
   });
-  const [salaryDebitAmount, setSalaryDebitAmount] = useState('');
-  const [isDebitingSalary, setIsDebitingSalary] = useState(false);
   const [agentInsights, setAgentInsights] = useState({
     agentId: '',
     availabilityStatus: 'AVAILABLE',
@@ -57,6 +56,7 @@ export function SettingsPage() {
     successRate: 0
   });
   const [agentDocs, setAgentDocs] = useState({});
+  const [backendRoleRequest, setBackendRoleRequest] = useState(null);
   
   // Profile Picture State
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -83,13 +83,7 @@ export function SettingsPage() {
         rcBookNumber: profile.rcBookNumber || '',
         bloodType: profile.bloodType || '',
         organDonor: Boolean(profile.organDonor),
-        bankAccountHolder: profile.bankAccountHolder || '',
-        bankAccountNumber: profile.bankAccountNumber || '',
-        bankIfsc: profile.bankIfsc || '',
-        bankName: profile.bankName || '',
-        salaryBalance: Number(profile.salaryBalance || 0),
-        totalSalaryCredited: Number(profile.totalSalaryCredited || 0),
-        totalSalaryDebited: Number(profile.totalSalaryDebited || 0)
+        verificationStatus: String(profile.verificationStatus || 'PENDING').toUpperCase()
       });
       setAgentInsights({
         agentId: profile.agentId || '',
@@ -157,6 +151,82 @@ export function SettingsPage() {
       successRate: prev.successRate > 0 ? prev.successRate : successRate
     }));
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, agentInsights.agentId, shipments]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'customer') {
+      setBackendRoleRequest(null);
+      return;
+    }
+    const identityCandidates = [...new Set([
+      currentUser?.userId,
+      currentUser?.id,
+      currentUser?.email
+    ].map((value) => String(value || '').trim()).filter(Boolean))];
+    if (identityCandidates.length === 0) {
+      setBackendRoleRequest(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadRoleRequestStatus = async () => {
+      try {
+        const profileResults = await Promise.all(
+          identityCandidates.map(async (identity) => {
+            const profile = await operationsService.getAgentProfile(identity);
+            return profile ? { identity, profile } : null;
+          })
+        );
+        if (cancelled) return;
+
+        const availableProfiles = profileResults.filter(Boolean);
+        if (availableProfiles.length === 0) {
+          setBackendRoleRequest(null);
+          return;
+        }
+
+        const normalizeProfileStatus = (profile) => normalizeRequestStatus(profile?.verificationStatus || 'PENDING');
+        const byUpdatedAtDesc = (a, b) => (
+          new Date(b?.profile?.verifiedAt || b?.profile?.updatedAt || b?.profile?.joinDate || 0).getTime() -
+          new Date(a?.profile?.verifiedAt || a?.profile?.updatedAt || a?.profile?.joinDate || 0).getTime()
+        );
+
+        const preferredByStatus = ['REJECTED', 'APPROVED', 'PENDING', 'PENDING_VERIFICATION'];
+        let selected = null;
+        for (const status of preferredByStatus) {
+          const sameStatus = availableProfiles
+            .filter((item) => normalizeProfileStatus(item.profile) === status)
+            .sort(byUpdatedAtDesc);
+          if (sameStatus.length > 0) {
+            selected = sameStatus[0];
+            break;
+          }
+        }
+        if (!selected) selected = [...availableProfiles].sort(byUpdatedAtDesc)[0];
+
+        const profile = selected.profile;
+        const status = normalizeProfileStatus(profile);
+        setBackendRoleRequest({
+          id: `backend-${profile.userId || selected.identity}`,
+          userId: profile.userId || selected.identity,
+          email: currentUser?.email || '',
+          name: currentUser?.name || currentUser?.email || selected.identity,
+          requestedRole: 'agent',
+          status,
+          reason: profile.verificationNotes || '',
+          createdAt: profile.joinDate || profile.updatedAt || profile.verifiedAt || new Date().toISOString(),
+          reviewedAt: profile.verifiedAt || profile.updatedAt || null,
+          reviewedBy: profile.verifiedBy || null
+        });
+      } catch {
+        if (!cancelled) setBackendRoleRequest(null);
+      }
+    };
+
+    loadRoleRequestStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, currentUser?.name]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -250,11 +320,56 @@ export function SettingsPage() {
     setShowPhotoOptions(false);
   };
 
-   const myPendingRoleRequest = roleRequests.find(
-      request =>
-        request.email === currentUser?.email &&
-        String(request.status || '').toUpperCase() === 'PENDING'
+   const customerIdentityValues = useMemo(
+      () => [
+        currentUser?.userId,
+        currentUser?.id,
+        currentUser?.email
+      ].map(toIdentityValue).filter(Boolean),
+      [currentUser?.userId, currentUser?.id, currentUser?.email]
    );
+
+   const myLocalRoleRequests = useMemo(() => (
+      (roleRequests || [])
+        .filter((request) => {
+          const requestIdentities = [
+            request?.userId,
+            request?.email,
+            request?.id
+          ].map(toIdentityValue).filter(Boolean);
+          return requestIdentities.some((identity) => customerIdentityValues.includes(identity));
+        })
+        .sort((a, b) => {
+          const aTime = new Date(a?.reviewedAt || a?.createdAt || 0).getTime();
+          const bTime = new Date(b?.reviewedAt || b?.createdAt || 0).getTime();
+          return bTime - aTime;
+        })
+   ), [roleRequests, customerIdentityValues]);
+
+   const latestLocalRoleRequest = myLocalRoleRequests[0] || null;
+   const latestRoleRequest = useMemo(() => {
+      if (!latestLocalRoleRequest) return backendRoleRequest;
+      if (!backendRoleRequest) return latestLocalRoleRequest;
+
+      const localStatus = normalizeRequestStatus(latestLocalRoleRequest?.status);
+      const backendStatus = normalizeRequestStatus(backendRoleRequest?.status);
+      const localTime = new Date(latestLocalRoleRequest?.reviewedAt || latestLocalRoleRequest?.createdAt || 0).getTime();
+      const backendTime = new Date(backendRoleRequest?.reviewedAt || backendRoleRequest?.createdAt || 0).getTime();
+
+      if (['REJECTED', 'APPROVED'].includes(backendStatus) && isPendingRequestStatus(localStatus)) {
+        return { ...latestLocalRoleRequest, ...backendRoleRequest };
+      }
+
+      if (backendTime >= localTime) {
+        return { ...latestLocalRoleRequest, ...backendRoleRequest };
+      }
+
+      return latestLocalRoleRequest;
+   }, [latestLocalRoleRequest, backendRoleRequest]);
+
+   const latestRoleRequestStatus = normalizeRequestStatus(latestRoleRequest?.status || '');
+   const myPendingRoleRequest = latestRoleRequest && isPendingRequestStatus(latestRoleRequestStatus) ? latestRoleRequest : null;
+   const canSubmitRoleRequest = latestRoleRequestStatus !== 'APPROVED' && !myPendingRoleRequest;
 
    const handleRoleRequest = async () => {
       const hasMandatoryDetails = Boolean(
@@ -262,11 +377,7 @@ export function SettingsPage() {
         requestDetails.aadharNumber &&
         requestDetails.vehicleNumber &&
         requestDetails.rcBookNumber &&
-        requestDetails.bloodType &&
-        requestDetails.bankAccountHolder &&
-        requestDetails.bankAccountNumber &&
-        requestDetails.bankIfsc &&
-        requestDetails.bankName
+        requestDetails.bloodType
       );
       const hasMandatoryDocs = Boolean(
         requestDocs.profilePhoto &&
@@ -315,47 +426,8 @@ export function SettingsPage() {
          setIsRequestingRole(false);
       }
    };
+   const isVerifiedAgent = currentUser?.role === 'agent' && String(agentProfile.verificationStatus || '').toUpperCase() === 'VERIFIED';
 
-   const handleDebitSalary = async () => {
-      const amount = Number(salaryDebitAmount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        toast.error('Enter a valid debit amount');
-        return;
-      }
-      const currentBalance = Number(agentProfile.salaryBalance || 0);
-      if (amount > currentBalance) {
-        toast.error('Debit amount exceeds salary balance');
-        return;
-      }
-      const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
-      if (!userId) {
-        toast.error('Agent id not found');
-        return;
-      }
-
-      const nextPayload = {
-        salaryBalance: currentBalance - amount,
-        totalSalaryCredited: Number(agentProfile.totalSalaryCredited || 0),
-        totalSalaryDebited: Number(agentProfile.totalSalaryDebited || 0) + amount
-      };
-
-      try {
-        setIsDebitingSalary(true);
-        const updated = await operationsService.upsertAgentProfile(userId, nextPayload);
-        setAgentProfile((prev) => ({
-          ...prev,
-          salaryBalance: Number(updated?.salaryBalance ?? nextPayload.salaryBalance),
-          totalSalaryCredited: Number(updated?.totalSalaryCredited ?? nextPayload.totalSalaryCredited),
-          totalSalaryDebited: Number(updated?.totalSalaryDebited ?? nextPayload.totalSalaryDebited)
-        }));
-        setSalaryDebitAmount('');
-        toast.success(`Salary debited: ₹${amount.toLocaleString()}`);
-      } catch (error) {
-        toast.error(error.message || 'Failed to debit salary');
-      } finally {
-        setIsDebitingSalary(false);
-      }
-   };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in-up pb-10">
@@ -414,12 +486,14 @@ export function SettingsPage() {
                   <h3 className="font-bold text-lg text-slate-900">{currentUser?.name}</h3>
                   <p className="text-slate-500 text-sm capitalize">{currentUser?.role}</p>
                </div>
-               <div className="pt-4 border-t border-slate-100 flex justify-center">
-                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
-                     <Shield className="w-3 h-3" />
-                     Verified Account
-                  </span>
-               </div>
+               {isVerifiedAgent && (
+                 <div className="pt-4 border-t border-slate-100 flex justify-center">
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
+                       <Shield className="w-3 h-3" />
+                       Verified Account
+                    </span>
+                 </div>
+               )}
             </div>
          </div>
 
@@ -530,7 +604,7 @@ export function SettingsPage() {
 
       {currentUser?.role === 'agent' && (
         <>
-        <div className="grid md:grid-cols-4 lg:grid-cols-8 gap-4">
+        <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <div className="text-xs uppercase text-slate-500 font-semibold">Agent ID</div>
             <div className="text-lg font-bold text-slate-900 mt-1">{agentInsights.agentId || 'N/A'}</div>
@@ -550,18 +624,6 @@ export function SettingsPage() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <div className="text-xs uppercase text-slate-500 font-semibold">In Transit</div>
             <div className="text-lg font-bold text-amber-600 mt-1">{agentInsights.inTransitCount}</div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <div className="text-xs uppercase text-slate-500 font-semibold">Salary Balance</div>
-            <div className="text-lg font-bold text-emerald-600 mt-1">₹{Number(agentProfile.salaryBalance || 0).toLocaleString()}</div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <div className="text-xs uppercase text-slate-500 font-semibold">Total Credited</div>
-            <div className="text-lg font-bold text-indigo-600 mt-1">₹{Number(agentProfile.totalSalaryCredited || 0).toLocaleString()}</div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <div className="text-xs uppercase text-slate-500 font-semibold">Total Debited</div>
-            <div className="text-lg font-bold text-orange-600 mt-1">₹{Number(agentProfile.totalSalaryDebited || 0).toLocaleString()}</div>
           </div>
         </div>
 
@@ -629,70 +691,6 @@ export function SettingsPage() {
                 <option value="yes">Yes</option>
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Bank Account Holder</label>
-              <input
-                value={agentProfile.bankAccountHolder}
-                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankAccountHolder: e.target.value }))}
-                disabled={!isEditing}
-                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Bank Name</label>
-              <input
-                value={agentProfile.bankName}
-                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankName: e.target.value }))}
-                disabled={!isEditing}
-                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Account Number</label>
-              <input
-                value={agentProfile.bankAccountNumber}
-                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankAccountNumber: e.target.value }))}
-                disabled={!isEditing}
-                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">IFSC</label>
-              <input
-                value={agentProfile.bankIfsc}
-                onChange={(e) => setAgentProfile(prev => ({ ...prev, bankIfsc: e.target.value.toUpperCase() }))}
-                disabled={!isEditing}
-                className={`w-full px-4 py-2 border rounded-lg ${isEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-              />
-            </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-slate-900">Salary Wallet</h3>
-              <p className="text-sm text-slate-500 mt-1">Admin credited salary can be debited from here.</p>
-            </div>
-            <div className="p-6 flex flex-col md:flex-row gap-3 md:items-end">
-              <div className="flex-1">
-                <label className="text-sm font-medium text-slate-700">Debit Amount</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={salaryDebitAmount}
-                  onChange={(e) => setSalaryDebitAmount(e.target.value)}
-                  className="w-full mt-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="Enter amount to debit"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleDebitSalary}
-                disabled={isDebitingSalary}
-                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70"
-              >
-                {isDebitingSalary ? 'Processing...' : 'Debit Salary'}
-              </button>
             </div>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -728,11 +726,40 @@ export function SettingsPage() {
                   <p className="text-sm text-slate-500 mt-1">Request admin approval to work as an agent (driver/manager).</p>
                </div>
                <div className="p-6 space-y-4">
-                  {myPendingRoleRequest ? (
-                     <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm">
-                        Your request is pending admin approval.
+                  {latestRoleRequest && (
+                     <div className={`p-4 rounded-lg border text-sm ${
+                       myPendingRoleRequest
+                         ? 'border-amber-200 bg-amber-50 text-amber-800'
+                         : latestRoleRequestStatus === 'REJECTED'
+                           ? 'border-red-200 bg-red-50 text-red-700'
+                           : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                     }`}>
+                        <div className="font-semibold">
+                          {myPendingRoleRequest
+                            ? 'Your request is pending admin approval.'
+                            : latestRoleRequestStatus === 'REJECTED'
+                              ? 'Your request was rejected by admin.'
+                              : 'Your request was approved by admin.'}
+                        </div>
+                        {latestRoleRequest?.reviewedAt && !myPendingRoleRequest && (
+                          <div className="mt-1 text-xs opacity-90">
+                            Reviewed on {new Date(latestRoleRequest.reviewedAt).toLocaleString()}
+                          </div>
+                        )}
+                        {latestRoleRequestStatus === 'REJECTED' && (
+                          <div className="mt-1 text-xs opacity-90">
+                            You can update details and submit a new request.
+                          </div>
+                        )}
+                        {latestRoleRequestStatus === 'APPROVED' && (
+                          <div className="mt-1 text-xs opacity-90">
+                            Please logout and login again to access the agent dashboard.
+                          </div>
+                        )}
                      </div>
-                  ) : (
+                  )}
+
+                  {canSubmitRoleRequest ? (
                      <>
                         <div className="grid md:grid-cols-2 gap-4">
                            <div className="space-y-2">
@@ -820,45 +847,6 @@ export function SettingsPage() {
                            </div>
                         </div>
 
-                        <div className="grid md:grid-cols-2 gap-4">
-                           <div className="space-y-2">
-                              <label className="text-sm font-medium text-slate-700">Bank Account Holder</label>
-                              <input
-                                 value={requestDetails.bankAccountHolder}
-                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankAccountHolder: e.target.value }))}
-                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                 placeholder="Account holder name"
-                              />
-                           </div>
-                           <div className="space-y-2">
-                              <label className="text-sm font-medium text-slate-700">Bank Name</label>
-                              <input
-                                 value={requestDetails.bankName}
-                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankName: e.target.value }))}
-                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                 placeholder="Bank name"
-                              />
-                           </div>
-                           <div className="space-y-2">
-                              <label className="text-sm font-medium text-slate-700">Account Number</label>
-                              <input
-                                 value={requestDetails.bankAccountNumber}
-                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankAccountNumber: e.target.value }))}
-                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                 placeholder="Bank account number"
-                              />
-                           </div>
-                           <div className="space-y-2">
-                              <label className="text-sm font-medium text-slate-700">IFSC</label>
-                              <input
-                                 value={requestDetails.bankIfsc}
-                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, bankIfsc: e.target.value.toUpperCase() }))}
-                                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                 placeholder="IFSC code"
-                              />
-                           </div>
-                        </div>
-
                         <div className="space-y-3">
                            <label className="text-sm font-medium text-slate-700">Upload Verification Documents</label>
                            <div className="grid md:grid-cols-4 gap-3">
@@ -907,15 +895,15 @@ export function SettingsPage() {
                            {isRequestingRole ? 'Submitting...' : 'Request Agent Access'}
                         </button>
                      </>
-                  )}
+                  ) : null}
                </div>
             </div>
          )}
 
       {/* Webcam Modal */}
       {showWebcam && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-           <div className="bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowWebcam(false)}>
+           <div className="bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                  <h3 className="font-bold text-slate-800">Take Photo</h3>
                  <button onClick={() => setShowWebcam(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-500" /></button>
@@ -943,5 +931,3 @@ export function SettingsPage() {
     </div>
   );
 }
-
-

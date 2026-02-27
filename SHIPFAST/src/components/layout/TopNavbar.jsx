@@ -1,15 +1,47 @@
-import { Bell } from 'lucide-react';
-import { useState } from 'react';
+import { Bell, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useShipment } from '../../context/ShipmentContext';
 import { useNavigate } from 'react-router-dom';
 
 import logoImage from '../../assets/logo.png';
 
 export function TopNavbar({ user, isSidebarOpen }) {
-  const { getRoleNotifications } = useShipment();
+  const { getRoleNotifications, dismissNotification } = useShipment();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAllNotifications, setShowAllNotifications] = useState(false);
+  const notificationsDropdownRef = useRef(null);
   const notifications = getRoleNotifications(user?.role);
+  const visibleNotifications = showAllNotifications ? notifications : notifications.slice(0, 5);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handlePointerDown = (event) => {
+      if (!notificationsDropdownRef.current?.contains(event.target)) {
+        setShowNotifications(false);
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showNotifications]);
+
+  useEffect(() => {
+    if (!showNotifications) {
+      setShowAllNotifications(false);
+    }
+  }, [showNotifications]);
 
   const handleProfileClick = () => {
     if (user?.role === 'admin') navigate('/admin/settings');
@@ -32,10 +64,11 @@ export function TopNavbar({ user, isSidebarOpen }) {
 
       {/* Right side - Notifications & Profile */}
        <div className="flex items-center gap-4 ml-auto">
-          <div className="relative">
+          <div className="relative" ref={notificationsDropdownRef}>
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
               className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-full transition-all relative"
+              aria-label="Open notifications"
             >
               <Bell className="w-5 h-5" />
               {notifications.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
@@ -45,15 +78,36 @@ export function TopNavbar({ user, isSidebarOpen }) {
                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden animate-fade-in-up z-50">
                   <div className="p-3 bg-slate-50 border-b border-slate-100 font-bold text-slate-700">Notifications</div>
                   <div className="max-h-64 overflow-y-auto">
-                     {notifications.length > 0 ? notifications.map(n => (
+                     {visibleNotifications.length > 0 ? visibleNotifications.map((n) => (
                         <div key={n.id} className="p-3 border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                           <p className="text-sm text-slate-800">{n.message}</p>
+                           <div className="flex items-start justify-between gap-3">
+                             <p className="text-sm text-slate-800">{n.message}</p>
+                             <button
+                               type="button"
+                               onClick={() => dismissNotification(n.id)}
+                               className="text-slate-400 hover:text-red-500 transition-colors"
+                               aria-label="Delete notification"
+                             >
+                               <X className="w-3.5 h-3.5" />
+                             </button>
+                           </div>
                            <span className="text-xs text-slate-400 mt-1 block">{n.timestamp}</span>
                         </div>
                      )) : (
                         <div className="p-8 text-center text-slate-500 text-sm">No new notifications</div>
                      )}
                   </div>
+                  {notifications.length > 5 && (
+                    <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllNotifications((prev) => !prev)}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+                      >
+                        {showAllNotifications ? 'View Less' : 'View More'}
+                      </button>
+                    </div>
+                  )}
                </div>
             )}
           </div>
@@ -84,5 +138,3 @@ export function TopNavbar({ user, isSidebarOpen }) {
     </header>
   );
 }
-
-

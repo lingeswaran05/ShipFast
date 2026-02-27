@@ -9,7 +9,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/operations/runsheets")
-@CrossOrigin(originPatterns = "*")
+
 public class RunSheetController {
 
     private final RunSheetService runSheetService;

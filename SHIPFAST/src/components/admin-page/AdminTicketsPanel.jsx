@@ -72,7 +72,9 @@ export function AdminTicketsPanel() {
     return (
       String(ticket.subject || '').toLowerCase().includes(query) ||
       String(ticket.id || '').toLowerCase().includes(query) ||
-      String(ticket.userId || '').toLowerCase().includes(query)
+      String(ticket.userId || '').toLowerCase().includes(query) ||
+      String(ticket.category || '').toLowerCase().includes(query) ||
+      String(ticket.messages?.[0]?.senderRole || '').toLowerCase().includes(query)
     );
   });
 
@@ -122,8 +124,8 @@ export function AdminTicketsPanel() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Customer Care Tickets</h1>
-          <p className="text-slate-600">Handle customer conversations, assign, and resolve issues</p>
+          <h1 className="text-2xl font-bold text-slate-800">Support Tickets</h1>
+          <p className="text-slate-600">Handle both customer and agent conversations with admin</p>
         </div>
         <button
           onClick={() => loadTickets()}
@@ -176,7 +178,7 @@ export function AdminTicketsPanel() {
                     <div>
                       <div className="font-semibold text-slate-900">{ticket.subject}</div>
                       <div className="text-xs text-slate-500 font-mono">{ticket.id}</div>
-                      <div className="text-xs text-slate-500">Customer: {ticket.userId || 'N/A'}</div>
+                      <div className="text-xs text-slate-500">Requester: {ticket.userId || 'N/A'}</div>
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${STATUS_STYLES[normalize(ticket.status)] || STATUS_STYLES.OPEN}`}>
                       {String(ticket.status || '').replace(/_/g, ' ')}

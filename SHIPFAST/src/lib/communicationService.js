@@ -3,7 +3,7 @@ import { authStorage } from './authService';
 import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
 const COMM_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_COMM_BASE_URL, {
-  localDirectBase: 'http://localhost:8086'
+  localDirectBase: 'http://localhost:8088'
 })
   .filter((value, index, list) => list.indexOf(value) === index);
 const LOCAL_NOTIFICATIONS_KEY = 'sf_local_notifications';

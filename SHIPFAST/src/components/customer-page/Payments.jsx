@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CreditCard, DollarSign, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { toast } from 'sonner';
@@ -10,19 +10,41 @@ export function Payments() {
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(value) || 0);
+  const normalizeStatus = (value) => String(value || '').toUpperCase();
+  const normalizeMethod = (value) => {
+    const raw = String(value || '').toUpperCase();
+    if (raw.includes('CARD')) return 'CARD';
+    if (raw === 'COD' || raw === 'CASH') return 'COD';
+    if (raw === 'UPI') return 'UPI';
+    return raw || 'ONLINE';
+  };
 
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
         setIsLoading(true);
-        const data = (shipments || []).map((shipment) => ({
-          id: shipment.id,
-          date: shipment.date,
-          description: `Shipment ${shipment.id} (${shipment.service || shipment.type || 'Standard'})`,
-          method: shipment.paymentMode || 'Online',
-          status: ['CANCELLED', 'FAILED'].includes(String(shipment.status || '').toUpperCase()) ? 'Failed' : 'Completed',
-          amount: Number(shipment.cost || 0)
-        }));
+        const data = (shipments || []).map((shipment) => {
+          const stableId = shipment.trackingNumber || shipment.trackingId || shipment.id;
+          const statusNorm = normalizeStatus(shipment.status);
+          const paymentStatusNorm = normalizeStatus(shipment.paymentStatus);
+          const paymentMode = normalizeMethod(shipment.paymentMode || shipment.paymentMethod || 'ONLINE');
+          const isSettled = ['SUCCESS', 'PAID', 'COMPLETED'].includes(paymentStatusNorm) ||
+            (['COD', 'CASH'].includes(paymentMode) && statusNorm === 'DELIVERED');
+          const isFailed = ['FAILED', 'CANCELLED'].includes(paymentStatusNorm) || statusNorm === 'CANCELLED';
+
+          return {
+            id: stableId,
+            trackingNumber: stableId,
+            date: shipment.date,
+            description: `Shipment ${stableId} (${shipment.service || shipment.type || 'Standard'})`,
+            method: paymentMode,
+            status: isFailed ? 'Failed' : isSettled ? 'Completed' : 'Pending',
+            isSettled,
+            paymentMode,
+            amount: Number(shipment.cost || 0)
+          };
+        });
         setTransactions(data);
       } catch (error) {
         console.error('Failed to fetch transactions', error);
@@ -88,9 +110,35 @@ export function Payments() {
              t.description.toLowerCase().includes(term);
   });
 
-  const totalSpent = transactions
-    .filter(t => t.status === 'Completed')
-    .reduce((acc, t) => acc + parseFloat(t.amount.toString().replace(/[^0-9.-]+/g,"")), 0);
+  const paidTransactions = useMemo(
+    () => transactions.filter((t) => t.isSettled || t.status === 'Completed'),
+    [transactions]
+  );
+
+  const totalSpent = paidTransactions.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+
+  const outstandingCod = useMemo(() => {
+    return transactions
+      .filter((t) => t.paymentMode === 'COD' && !(t.isSettled || t.status === 'Completed'))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [transactions]);
+
+  const topMethod = useMemo(() => {
+    if (transactions.length === 0) return { method: 'N/A', share: 0 };
+    const counts = transactions.reduce((acc, t) => {
+      acc[t.paymentMode || t.method || 'ONLINE'] = (acc[t.paymentMode || t.method || 'ONLINE'] || 0) + 1;
+      return acc;
+    }, {});
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const [method, count] = sorted[0];
+    return { method, share: Math.round((count / transactions.length) * 100) };
+  }, [transactions]);
+
+  const lastPayment = useMemo(() => {
+    if (paidTransactions.length === 0) return null;
+    const sorted = [...paidTransactions].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    return sorted[0];
+  }, [paidTransactions]);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -116,11 +164,11 @@ export function Payments() {
             <span className="text-sm font-medium text-slate-500">Total Spent</span>
           </div>
           <div className="text-3xl font-bold text-slate-900 relative z-10">
-            ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatCurrency(totalSpent)}
           </div>
           <div className="text-sm text-green-600 mt-2 flex items-center gap-1 relative z-10">
             <ArrowUpRight className="w-4 h-4" />
-            +12.5% from last month
+            {paidTransactions.length} settled payments
           </div>
         </div>
 
@@ -130,10 +178,10 @@ export function Payments() {
             <div className="p-3 bg-pink-50 text-pink-600 rounded-xl">
               <CreditCard className="w-6 h-6" />
             </div>
-            <span className="text-sm font-medium text-slate-500">Payment Method</span>
+            <span className="text-sm font-medium text-slate-500">Top Payment Method</span>
           </div>
-          <div className="text-lg font-bold text-slate-900 relative z-10">Visa •••• 4242</div>
-          <div className="text-sm text-slate-500 mt-2 relative z-10">Expires 12/28</div>
+          <div className="text-lg font-bold text-slate-900 relative z-10">{topMethod.method}</div>
+          <div className="text-sm text-slate-500 mt-2 relative z-10">Used in {topMethod.share}% of transactions</div>
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
@@ -142,10 +190,12 @@ export function Payments() {
             <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
               <Calendar className="w-6 h-6" />
             </div>
-            <span className="text-sm font-medium text-slate-500">Next Billing</span>
+            <span className="text-sm font-medium text-slate-500">Outstanding COD</span>
           </div>
-          <div className="text-lg font-bold text-slate-900 relative z-10">Jan 01, 2026</div>
-          <div className="text-sm text-slate-500 mt-2 relative z-10">Auto-pay enabled</div>
+          <div className="text-lg font-bold text-slate-900 relative z-10">{formatCurrency(outstandingCod)}</div>
+          <div className="text-sm text-slate-500 mt-2 relative z-10">
+            {lastPayment ? `Last payment on ${lastPayment.date}` : 'No payments yet'}
+          </div>
         </div>
       </div>
 
@@ -203,7 +253,7 @@ export function Payments() {
                         {trx.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right font-medium text-slate-900">₹{trx.amount}</td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-900">{formatCurrency(trx.amount)}</td>
                     <td className="px-6 py-4 text-right">
                       <button 
                         onClick={() => handleDownloadInvoice(trx.id)}

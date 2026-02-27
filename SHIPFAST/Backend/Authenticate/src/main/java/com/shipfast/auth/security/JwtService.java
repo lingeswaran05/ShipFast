@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 
 import java.security.Key;
 import java.util.Date;
-import java.util.UUID;
 
 @Service
 public class JwtService {
@@ -22,7 +21,6 @@ public class JwtService {
     public String generateAccessToken(String email, String role) {
         return Jwts.builder()
                 .setSubject(email)
-                .setId(UUID.randomUUID().toString())
                 .claim("role", role)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + ACCESS_TOKEN_VALIDITY))
@@ -33,7 +31,6 @@ public class JwtService {
     public String generateRefreshToken(String email) {
         return Jwts.builder()
                 .setSubject(email)
-                .setId(UUID.randomUUID().toString())
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + REFRESH_TOKEN_VALIDITY))
                 .signWith(getSignKey(), SignatureAlgorithm.HS256)

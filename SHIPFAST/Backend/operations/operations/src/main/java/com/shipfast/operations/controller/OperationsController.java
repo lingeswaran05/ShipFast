@@ -10,7 +10,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/operations")
 @RequiredArgsConstructor
-@CrossOrigin(originPatterns = "*")
+
 public class OperationsController {
 
     private final OperationsService service;

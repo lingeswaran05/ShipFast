@@ -4,6 +4,7 @@ import { useShipment } from '../../context/ShipmentContext';
 import { toast } from 'sonner';
 import { SectionDownloader } from '../shared/SectionDownloader';
 import { operationsService } from '../../lib/operationsService';
+import { shipmentService } from '../../lib/shipmentService';
 import { BarcodeGenerator } from '../shared/BarcodeGenerator';
 import { printElementById } from '../../lib/printUtils';
 import Webcam from 'react-webcam';
@@ -11,8 +12,14 @@ import { useNavigate } from 'react-router-dom';
 
 const normalizeStatus = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
 const isCodPayment = (shipment) => ['cash', 'cod'].includes(String(shipment?.paymentMode || shipment?.paymentMethod || '').toLowerCase());
+const isCodPaymentSettled = (shipment) => {
+  const paymentStatus = String(shipment?.paymentStatus || '').toUpperCase();
+  return paymentStatus === 'SUCCESS' || paymentStatus === 'PAID' || paymentStatus === 'COMPLETED';
+};
 const STATUS_SEQUENCE = ['BOOKED', 'IN TRANSIT', 'OUT FOR DELIVERY', 'DELIVERED'];
-const AGENT_AVAILABILITY = ['AVAILABLE', 'IN_TRANSIT', 'OFFLINE'];
+const AGENT_AVAILABILITY = ['AVAILABLE', 'ACTIVE', 'IN_TRANSIT', 'OFFLINE'];
+const normalizeAvailability = (value) => String(value || '').toUpperCase().replace(/ /g, '_');
+const isAvailableForAssignment = (value) => ['AVAILABLE', 'ACTIVE'].includes(normalizeAvailability(value));
 const SCAN_STATUS_OPTIONS = ['Booked', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed'];
 const AGENT_SCAN_TARGET_KEY = 'sf_agent_scan_target';
 const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
@@ -54,7 +61,18 @@ const getPartyDetails = (shipment, type) => {
 };
 
 export function AgentDashboard({ view }) {
-    const { shipments, updateShipmentStatus, currentUser, refreshShipments, lastDataSyncAt, getRoleNotifications, notifyAdminFromAgent } = useShipment();
+    const {
+      shipments,
+      users,
+      updateShipmentStatus,
+      currentUser,
+      refreshShipments,
+      lastDataSyncAt,
+      getRoleNotifications,
+      notifyAdminFromAgent,
+      getSupportTickets,
+      replySupportTicket
+    } = useShipment();
   const navigate = useNavigate();
   const [scanId, setScanId] = useState('');
   const [scanResult, setScanResult] = useState(null);
@@ -67,10 +85,14 @@ export function AgentDashboard({ view }) {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [adminMessage, setAdminMessage] = useState('');
     const [isSendingAdminMessage, setIsSendingAdminMessage] = useState(false);
+    const [supportTickets, setSupportTickets] = useState([]);
+    const [selectedSupportTicketId, setSelectedSupportTicketId] = useState(null);
+    const [isSupportLoading, setIsSupportLoading] = useState(false);
     const [availabilityStatus, setAvailabilityStatus] = useState('AVAILABLE');
     const agentNotifications = getRoleNotifications('agent');
     const podFileInputRef = useRef(null);
     const podWebcamRef = useRef(null);
+    const autoReassigningRef = useRef(new Set());
 
     const onboardingStorageKey = `sf_agent_onboarding_${currentUser?.email || currentUser?.id || currentUser?.userId || 'default'}`;
     const legacyOnboardingStorageKey = `agent_onboarding_${currentUser?.email || currentUser?.id || currentUser?.userId || 'default'}`;
@@ -92,21 +114,28 @@ export function AgentDashboard({ view }) {
   // Shift Timer Logic
   const [shiftDuration, setShiftDuration] = useState('00:00');
   useEffect(() => {
-    // Mock shift start: 4 hours and 30 minutes ago
-    const startTime = new Date();
-    startTime.setHours(startTime.getHours() - 4);
-    startTime.setMinutes(startTime.getMinutes() - 32);
+    const agentKey = currentUser?.userId || currentUser?.id || currentUser?.email || 'default';
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const storageKey = `sf_agent_shift_start_${agentKey}_${todayKey}`;
+    let startIso = localStorage.getItem(storageKey);
+    if (!startIso) {
+      startIso = new Date().toISOString();
+      localStorage.setItem(storageKey, startIso);
+    }
+    const startTime = new Date(startIso);
 
-    const timer = setInterval(() => {
-        const now = new Date();
-        const diff = now - startTime;
-        const hours = Math.floor(diff / 3600000);
-        const minutes = Math.floor((diff % 3600000) / 60000);
-        setShiftDuration(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`);
-    }, 60000);
+    const updateShiftDuration = () => {
+      const now = new Date();
+      const diff = Math.max(now.getTime() - startTime.getTime(), 0);
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      setShiftDuration(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`);
+    };
 
+    updateShiftDuration();
+    const timer = setInterval(updateShiftDuration, 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [currentUser?.userId, currentUser?.id, currentUser?.email]);
 
     useEffect(() => {
         if (currentUser?.role !== 'agent') return;
@@ -127,7 +156,7 @@ export function AgentDashboard({ view }) {
             try {
                 const profile = await operationsService.getAgentProfile(userId);
                 if (profile) {
-                    const normalizedAvailability = String(profile.availabilityStatus || 'AVAILABLE').toUpperCase();
+                    const normalizedAvailability = normalizeAvailability(profile.availabilityStatus || 'AVAILABLE');
                     setAvailabilityStatus(AGENT_AVAILABILITY.includes(normalizedAvailability) ? normalizedAvailability : 'AVAILABLE');
                     setAgentOnboarding(prev => ({
                         ...prev,
@@ -196,6 +225,11 @@ export function AgentDashboard({ view }) {
       return (shipments || []).filter((shipment) => isAgentShipment(shipment));
     }, [shipments, isAgentShipment]);
 
+    const selectedSupportTicket = useMemo(
+      () => supportTickets.find((ticket) => ticket.id === selectedSupportTicketId) || null,
+      [supportTickets, selectedSupportTicketId]
+    );
+
     const computeAgentPerformance = useCallback((source = agentShipments) => {
       const deliveredCount = source.filter((s) => normalizeStatus(s.status) === 'DELIVERED').length;
       const failedCount = source.filter((s) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalizeStatus(s.status))).length;
@@ -239,7 +273,7 @@ export function AgentDashboard({ view }) {
            toDeliver: agentShipments.filter(s => ['IN TRANSIT', 'OUT FOR DELIVERY', 'BOOKED'].includes(normalizeStatus(s.status))).length,
            completed: agentShipments.filter(s => ['DELIVERED', 'CANCELLED', 'FAILED'].includes(normalizeStatus(s.status))).length,
            cashCollected: agentShipments
-              .filter(s => normalizeStatus(s.status) === 'DELIVERED' && isCodPayment(s))
+              .filter((s) => normalizeStatus(s.status) === 'DELIVERED' && isCodPayment(s) && !isCodPaymentSettled(s))
               .reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0)
        };
     }, [agentShipments]);
@@ -316,6 +350,132 @@ export function AgentDashboard({ view }) {
           toast.error(error.message || 'Failed to update shipment');
       }
   };
+
+  const getShipmentIdentifier = useCallback((shipment) => shipment?.trackingNumber || shipment?.trackingId || shipment?.id, []);
+
+  const pickAvailableAgentForReassign = useCallback(async () => {
+      const currentAgentId = currentUser?.userId || currentUser?.id || currentUser?.email;
+      const blockedNames = new Set(['kyle reese', 'kyle rease', 'kyle resse']);
+      const candidates = (users || [])
+        .filter((user) => String(user?.role || '').toLowerCase() === 'agent')
+        .filter((user) => !blockedNames.has(String(user?.name || '').trim().toLowerCase()))
+        .map((user) => ({
+          userId: user?.userId || user?.id || user?.email,
+          name: user?.name || user?.email || 'Agent',
+          status: String(user?.status || 'active').toLowerCase()
+        }))
+        .filter((agent) => agent.userId && agent.userId !== currentAgentId && agent.status !== 'inactive');
+
+      if (candidates.length === 0) return null;
+
+      const profiles = await Promise.allSettled(
+        candidates.map(async (agent) => {
+          const profile = await operationsService.getAgentProfile(agent.userId);
+          return { ...agent, profile };
+        })
+      );
+
+      const available = profiles
+        .filter((result) => result.status === 'fulfilled')
+        .map((result) => result.value)
+        .filter((agent) => {
+          const availability = normalizeAvailability(agent.profile?.availabilityStatus || '');
+          return Boolean(agent.profile) && isAvailableForAssignment(availability);
+        });
+
+      return available[0] || null;
+  }, [users, currentUser?.userId, currentUser?.id, currentUser?.email]);
+
+  const reassignShipmentToAnotherAgent = useCallback(async (shipment, reason = 'Reassigned by agent', options = {}) => {
+      if (!shipment) return false;
+      const shipmentId = getShipmentIdentifier(shipment);
+      if (!shipmentId) return false;
+
+      if (autoReassigningRef.current.has(shipmentId)) return false;
+      autoReassigningRef.current.add(shipmentId);
+
+      try {
+        const nextAgent = await pickAvailableAgentForReassign();
+        if (!nextAgent?.userId) {
+          // If no agent is available, push the parcel back to admin runsheet queue for manual assignment.
+          try {
+            await shipmentService.assignShipment(shipmentId, null);
+          } catch {
+            // best effort: continue even if backend does not support explicit unassign
+          }
+          await updateShipmentStatus(shipmentId, 'Booked', {
+            remarks: `${reason} | waiting for admin manual assignment`,
+            reassignedByAgentId: currentUser?.userId || currentUser?.id || currentUser?.email,
+            reassignedToAgentId: null,
+            assignedAgentId: null
+          });
+          await refreshShipments();
+          if (!options.silent) toast.info('No available agent. Shipment returned to admin runsheet queue');
+          return true;
+        }
+
+        try {
+          await operationsService.createRunSheet({
+            agentId: nextAgent.userId,
+            hubId: 'HUB-DEFAULT',
+            shipmentTrackingNumbers: [shipmentId]
+          });
+        } catch {
+          await shipmentService.assignShipment(shipmentId, nextAgent.userId);
+        }
+
+        await updateShipmentStatus(shipmentId, 'Booked', {
+          remarks: reason,
+          reassignedByAgentId: currentUser?.userId || currentUser?.id || currentUser?.email,
+          reassignedToAgentId: nextAgent.userId,
+          assignedAgentId: nextAgent.userId
+        });
+        await refreshShipments();
+        if (!options.silent) {
+          toast.success(`Shipment sent to ${nextAgent.name}`);
+        }
+        return true;
+      } catch (error) {
+        if (!options.silent) toast.error(error.message || 'Failed to send shipment to another agent');
+        return false;
+      } finally {
+        autoReassigningRef.current.delete(shipmentId);
+      }
+  }, [
+      getShipmentIdentifier,
+      pickAvailableAgentForReassign,
+      updateShipmentStatus,
+      currentUser?.userId,
+      currentUser?.id,
+      currentUser?.email,
+      refreshShipments
+  ]);
+
+  useEffect(() => {
+      if (currentUser?.role !== 'agent') return;
+      const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+      const processStaleShipments = async () => {
+          const now = Date.now();
+          const staleBooked = (agentShipments || []).filter((shipment) => {
+            if (normalizeStatus(shipment.status) !== 'BOOKED') return false;
+            const bookedEvent = [...(shipment.history || [])]
+              .reverse()
+              .find((entry) => normalizeStatus(entry.status) === 'BOOKED' && entry.timestamp);
+            const reference = bookedEvent?.timestamp || shipment.updatedAt || shipment.createdAt || shipment.date;
+            if (!reference) return false;
+            const age = now - new Date(reference).getTime();
+            return Number.isFinite(age) && age >= FIVE_HOURS_MS;
+          });
+
+          for (const shipment of staleBooked) {
+            await reassignShipmentToAnotherAgent(shipment, 'Auto reassigned after 5 hours without pickup', { silent: true });
+          }
+      };
+      processStaleShipments();
+      const timer = setInterval(processStaleShipments, 60000);
+
+      return () => clearInterval(timer);
+  }, [agentShipments, currentUser?.role, reassignShipmentToAnotherAgent]);
   
   const handlePodFile = async (file) => {
     if (!file) return;
@@ -537,12 +697,75 @@ export function AgentDashboard({ view }) {
         }
     };
 
+    const handleToggleAvailability = async () => {
+        const currentAvailability = normalizeAvailability(availabilityStatus);
+        const nextAvailability = isAvailableForAssignment(currentAvailability) ? 'OFFLINE' : 'AVAILABLE';
+        setAvailabilityStatus(nextAvailability);
+        try {
+            await persistAgentProfileSnapshot({ availabilityStatus: nextAvailability });
+            toast.success(nextAvailability === 'OFFLINE' ? 'Availability disabled' : 'Availability enabled');
+        } catch (error) {
+            setAvailabilityStatus(currentAvailability || 'AVAILABLE');
+            toast.error(error.message || 'Failed to update availability');
+        }
+    };
+
+    useEffect(() => {
+      if (view !== 'notifications' || !currentUser) return;
+      let mounted = true;
+      const loadTickets = async ({ silent = false } = {}) => {
+        try {
+          if (!silent && mounted) setIsSupportLoading(true);
+          const data = await getSupportTickets(currentUser?.userId || currentUser?.id || currentUser?.email);
+          if (!mounted) return;
+          setSupportTickets(data || []);
+          if (!data || data.length === 0) {
+            setSelectedSupportTicketId(null);
+          } else if (!selectedSupportTicketId || !data.some((ticket) => ticket.id === selectedSupportTicketId)) {
+            setSelectedSupportTicketId(data[0].id);
+          }
+        } catch {
+          if (mounted && !silent) toast.error('Failed to load support conversation');
+        } finally {
+          if (mounted && !silent) setIsSupportLoading(false);
+        }
+      };
+
+      loadTickets();
+      const interval = setInterval(() => {
+        loadTickets({ silent: true });
+      }, 10000);
+
+      return () => {
+        mounted = false;
+        clearInterval(interval);
+      };
+    }, [view, currentUser?.userId, currentUser?.id, currentUser?.email, getSupportTickets, selectedSupportTicketId]);
+
     const handleSendAdminMessage = async () => {
         const text = String(adminMessage || '').trim();
         if (!text) return;
         try {
             setIsSendingAdminMessage(true);
-            await notifyAdminFromAgent(text);
+            let updatedTicket = null;
+            const currentStatus = String(selectedSupportTicket?.status || '').toUpperCase();
+            const canReply =
+              selectedSupportTicket &&
+              currentStatus !== 'CLOSED' &&
+              currentStatus !== 'RESOLVED';
+
+            if (canReply) {
+              updatedTicket = await replySupportTicket(selectedSupportTicket.id, text);
+              setSupportTickets((prev) => prev.map((ticket) => (
+                ticket.id === updatedTicket.id ? updatedTicket : ticket
+              )));
+            } else {
+              updatedTicket = await notifyAdminFromAgent(text);
+              if (updatedTicket?.id) {
+                setSupportTickets((prev) => [updatedTicket, ...prev.filter((ticket) => ticket.id !== updatedTicket.id)]);
+                setSelectedSupportTicketId(updatedTicket.id);
+              }
+            }
             setAdminMessage('');
             toast.success('Message sent to admin');
         } catch (error) {
@@ -706,7 +929,7 @@ export function AgentDashboard({ view }) {
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
             <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Cash in Hand</div>
-            <div className="text-2xl font-bold text-emerald-600">₹{stats.cashCollected}</div>
+            <div className="text-2xl font-bold text-emerald-600">Rs {Number(stats.cashCollected || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
              <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Shift Timer</div>
@@ -715,42 +938,6 @@ export function AgentDashboard({ view }) {
              </div>
          </div>
       </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
-                <div>
-                    <div className="font-semibold text-slate-900">Live Operations Feed</div>
-                    <div className="text-xs text-slate-500">{lastDataSyncAt ? `Last sync: ${new Date(lastDataSyncAt).toLocaleTimeString()}` : 'No sync yet'}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <select
-                      value={availabilityStatus}
-                      onChange={async (e) => {
-                        const nextAvailability = String(e.target.value || 'AVAILABLE').toUpperCase();
-                        setAvailabilityStatus(nextAvailability);
-                        try {
-                          await persistAgentProfileSnapshot({ availabilityStatus: nextAvailability });
-                          toast.success(`Status set to ${nextAvailability.replace(/_/g, ' ')}`);
-                        } catch {
-                          toast.warning('Status updated locally');
-                        }
-                      }}
-                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-white"
-                    >
-                      {AGENT_AVAILABILITY.map((status) => (
-                        <option key={status} value={status}>
-                          {status.replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                        onClick={handleRefreshAgentData}
-                        disabled={isRefreshing}
-                        className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-70"
-                    >
-                        {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
-                    </button>
-                </div>
-            </div>
 
       {view === 'overview' && (
         <div className="space-y-6">
@@ -793,6 +980,17 @@ export function AgentDashboard({ view }) {
                         <option value="Delivered">Delivered</option>
                         <option value="Failed">Failed</option>
                     </select>
+                    <button
+                        type="button"
+                        onClick={handleToggleAvailability}
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                            isAvailableForAssignment(availabilityStatus)
+                              ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              : 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                        }`}
+                    >
+                        {isAvailableForAssignment(availabilityStatus) ? 'Disable' : 'Enable'}
+                    </button>
                 </div>
             </div>
                 <div className="space-y-4">
@@ -866,10 +1064,10 @@ export function AgentDashboard({ view }) {
                                                 <Package className="w-4 h-4" /> Pick Up
                                             </button>
                                             <button 
-                                                onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed')}
+                                                onClick={() => reassignShipmentToAnotherAgent(shipment, 'Reassigned from agent delivery queue')}
                                                 className="py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                             >
-                                                <AlertTriangle className="w-4 h-4" /> Failed
+                                                <AlertTriangle className="w-4 h-4" /> Send Other Agent
                                             </button>
                                         </div>
                                     )}
@@ -886,10 +1084,10 @@ export function AgentDashboard({ view }) {
                                               <Scan className="w-4 h-4" /> Move To Scan
                                           </button>
                                           <button
-                                              onClick={() => handleQuickStatusUpdate(shipment.id, 'Failed')}
+                                              onClick={() => reassignShipmentToAnotherAgent(shipment, 'Reassigned from pickup queue')}
                                               className="py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
                                           >
-                                              <AlertTriangle className="w-4 h-4" /> Failed
+                                              <AlertTriangle className="w-4 h-4" /> Send Other Agent
                                           </button>
                                         </div>
                                     )}
@@ -996,8 +1194,8 @@ export function AgentDashboard({ view }) {
             )}
 
             {showPodCamera && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-md">
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowPodCamera(false)}>
+                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
                   <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                     <h3 className="font-bold text-slate-800">Capture Proof of Delivery</h3>
                     <button type="button" onClick={() => setShowPodCamera(false)} className="text-slate-500">Close</button>
@@ -1057,57 +1255,112 @@ export function AgentDashboard({ view }) {
       )}
 
       {view === 'cash' && (
-         <CashCollectionView shipments={agentShipments} />
+         <CashCollectionView
+            shipments={agentShipments}
+            currentUser={currentUser}
+            agentIdentifier={agentOnboarding.agentId || currentUser?.userId || currentUser?.id || currentUser?.email}
+            updateShipmentStatus={updateShipmentStatus}
+            refreshShipments={refreshShipments}
+         />
       )}
 
             {view === 'notifications' && (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in-up">
-                    <div className="p-6 border-b border-slate-100">
-                        <h2 className="text-lg font-bold text-slate-900">Agent Notifications</h2>
-                        <p className="text-sm text-slate-500">Important delivery alerts and direct communication with admin</p>
+                <div className="space-y-4 animate-fade-in-up">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                        <h2 className="text-lg font-bold text-slate-900">Agent Support Conversation</h2>
+                        <p className="text-sm text-slate-500">Chat with admin and track replies in real time</p>
                     </div>
-                    <div className="p-6 border-b border-slate-100 bg-slate-50/60 space-y-3">
-                        <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                            <MessageSquare className="w-4 h-4 text-indigo-600" />
-                            Send Message To Admin
-                        </label>
-                        <div className="flex gap-2">
-                            <input
-                                value={adminMessage}
-                                onChange={(e) => setAdminMessage(e.target.value)}
-                                placeholder="Type an operational note for admin..."
-                                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleSendAdminMessage();
-                                    }
-                                }}
-                            />
-                            <button
-                                type="button"
-                                onClick={handleSendAdminMessage}
-                                disabled={isSendingAdminMessage || !adminMessage.trim()}
-                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 inline-flex items-center gap-2"
-                            >
-                                <Send className="w-4 h-4" />
-                                {isSendingAdminMessage ? 'Sending...' : 'Send'}
-                            </button>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50">
+                                <h3 className="font-bold text-slate-900 text-sm">My Support Tickets</h3>
+                            </div>
+                            <div className="divide-y divide-slate-100 max-h-[520px] overflow-y-auto">
+                                {isSupportLoading ? (
+                                  <div className="p-6 text-sm text-center text-slate-500">Loading conversation...</div>
+                                ) : supportTickets.length > 0 ? supportTickets.map((ticket) => (
+                                  <button
+                                    key={ticket.id}
+                                    type="button"
+                                    onClick={() => setSelectedSupportTicketId(ticket.id)}
+                                    className={`w-full text-left p-4 hover:bg-slate-50 ${selectedSupportTicketId === ticket.id ? 'bg-indigo-50/60' : ''}`}
+                                  >
+                                    <div className="font-semibold text-slate-900 text-sm">{ticket.subject}</div>
+                                    <div className="text-xs text-slate-500 font-mono mt-1">{ticket.id}</div>
+                                    <div className="text-xs text-slate-500 mt-1">{String(ticket.status || 'OPEN').replace(/_/g, ' ')}</div>
+                                  </button>
+                                )) : (
+                                  <div className="p-8 text-center text-slate-500 text-sm">No conversation yet.</div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50">
+                                <h3 className="font-bold text-slate-900 text-sm">{selectedSupportTicket?.subject || 'Start a conversation with admin'}</h3>
+                            </div>
+                            <div className="p-4 space-y-3 max-h-[430px] overflow-y-auto">
+                                {selectedSupportTicket && (selectedSupportTicket.messages || []).length > 0 ? (
+                                  selectedSupportTicket.messages.map((message) => {
+                                    const senderRole = String(message.senderRole || '').toUpperCase();
+                                    const isMine = senderRole === 'AGENT';
+                                    return (
+                                      <div key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[80%] rounded-2xl px-4 py-3 border ${isMine ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-800 border-slate-200'}`}>
+                                          <div className={`text-xs mb-1 ${isMine ? 'text-indigo-100' : 'text-slate-500'}`}>
+                                            {message.senderName} ({senderRole || 'ADMIN'})
+                                          </div>
+                                          <p className="text-sm whitespace-pre-wrap">{message.message}</p>
+                                          <div className={`text-[11px] mt-2 ${isMine ? 'text-indigo-100' : 'text-slate-500'}`}>{message.createdLabel}</div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="py-10 text-center text-slate-500 text-sm">
+                                    {isSupportLoading ? 'Loading conversation...' : 'No messages yet. Send a note to admin.'}
+                                  </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-slate-100">
+                                <div className="flex gap-2">
+                                    <input
+                                        value={adminMessage}
+                                        onChange={(e) => setAdminMessage(e.target.value)}
+                                        placeholder="Type an operational note for admin..."
+                                        className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleSendAdminMessage();
+                                            }
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleSendAdminMessage}
+                                        disabled={isSendingAdminMessage || !adminMessage.trim()}
+                                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 inline-flex items-center gap-2"
+                                    >
+                                        <Send className="w-4 h-4" />
+                                        {isSendingAdminMessage ? 'Sending...' : 'Send'}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div className="divide-y divide-slate-100">
-                        {agentNotifications.length > 0 ? agentNotifications.map((item) => (
-                            <div key={item.id} className="px-6 py-4 flex items-start justify-between gap-4 hover:bg-slate-50">
-                                <div>
-                                    <p className="font-medium text-slate-900">{item.message}</p>
-                                    <p className="text-xs text-slate-500 mt-1">{item.timestamp}</p>
-                                </div>
-                                <span className="text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-700 font-semibold">Alert</span>
+                    {agentNotifications.length > 0 && (
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50 text-sm font-semibold text-slate-800">System Alerts</div>
+                        <div className="divide-y divide-slate-100">
+                          {agentNotifications.slice(0, 5).map((item) => (
+                            <div key={item.id} className="px-4 py-3 text-sm">
+                              <div className="text-slate-900">{item.message}</div>
+                              <div className="text-xs text-slate-500 mt-1">{item.timestamp}</div>
                             </div>
-                        )) : (
-                            <div className="px-6 py-10 text-center text-slate-500">No notifications yet.</div>
-                        )}
-                    </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                 </div>
             )}
     </div>
@@ -1407,51 +1660,170 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
     );
 }
 
-function CashCollectionView({ shipments }) {
+function CashCollectionView({ shipments, currentUser, agentIdentifier, updateShipmentStatus, refreshShipments }) {
     const [historyInfo, setHistoryInfo] = useState(false);
     const [submittedTransactions, setSubmittedTransactions] = useState([]);
     const [verifyAmount, setVerifyAmount] = useState('');
+    const [syncedRunSheetIds, setSyncedRunSheetIds] = useState([]);
+    const [selectedRunSheetId, setSelectedRunSheetId] = useState('');
+    const agentCashHistoryKey = `sf_agent_cash_txn_${currentUser?.userId || currentUser?.id || currentUser?.email || 'default'}`;
+    const toCents = (value) => Math.max(0, Math.round((Number(value) || 0) * 100));
+    const fromCents = (value) => (Number(value) || 0) / 100;
+    const formatAmount = (value) => Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(agentCashHistoryKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            setSubmittedTransactions(Array.isArray(parsed) ? parsed : []);
+        } catch {
+            setSubmittedTransactions([]);
+        }
+    }, [agentCashHistoryKey]);
+
+    useEffect(() => {
+        localStorage.setItem(agentCashHistoryKey, JSON.stringify(submittedTransactions));
+    }, [agentCashHistoryKey, submittedTransactions]);
+
+    useEffect(() => {
+      const loadRunSheets = async () => {
+        if (!agentIdentifier) {
+          setSyncedRunSheetIds([]);
+          return;
+        }
+        try {
+          const runSheets = await operationsService.getRunSheetsByAgent(agentIdentifier);
+          const ids = Array.from(new Set((runSheets || []).map((sheet) => sheet?.runSheetId).filter(Boolean)));
+          setSyncedRunSheetIds(ids);
+        } catch {
+          setSyncedRunSheetIds([]);
+        }
+      };
+      loadRunSheets();
+    }, [agentIdentifier, shipments]);
     
     // Categorization Logic
-    const breakdown = shipments
-        .filter(s => normalizeStatus(s.status) === 'DELIVERED')
-        .reduce((acc, s) => {
-            const mode = isCodPayment(s) ? 'COD' : (s.paymentMode || s.paymentMethod || 'ONLINE');
-            acc[mode] = (acc[mode] || 0) + (parseFloat(s.cost) || 0);
-            return acc;
-        }, {});
+    const deliveredCod = shipments
+        .filter((s) => normalizeStatus(s.status) === 'DELIVERED')
+        .filter((s) => isCodPayment(s));
 
-    const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
-    const verifiedSubmittedTotal = submittedTransactions
+    const pendingCodShipments = deliveredCod.filter((shipment) => !isCodPaymentSettled(shipment));
+    const paidCodShipments = deliveredCod.filter((shipment) => isCodPaymentSettled(shipment));
+
+    const breakdown = deliveredCod.reduce((acc, s) => {
+        const mode = 'COD';
+        acc[mode] = (acc[mode] || 0) + toCents(s.cost);
+        return acc;
+    }, {});
+
+    const totalCollected = fromCents(paidCodShipments.reduce((sum, shipment) => sum + toCents(shipment.cost), 0));
+    const verifiedSubmittedTotal = fromCents(submittedTransactions
       .filter((transaction) => String(transaction.status || '').toUpperCase() === 'VERIFIED')
-      .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
-    const totalVerifiedRevenue = totalCollected + verifiedSubmittedTotal;
+      .reduce((sum, transaction) => sum + toCents(transaction.amount), 0));
+    const pendingCodAmountCents = pendingCodShipments.reduce((sum, shipment) => sum + toCents(shipment.cost), 0);
+    const cashOnHandCents = Math.max(pendingCodAmountCents, 0);
+    const cashOnHand = fromCents(cashOnHandCents);
+    const totalVerifiedRevenue = verifiedSubmittedTotal;
+    const runSheetIds = Array.from(new Set([
+      ...(shipments || []).map((s) => s.runSheetId).filter(Boolean),
+      ...syncedRunSheetIds
+    ]));
 
-    const handleDeposit = () => {
-        toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
-        // Mock deposit logic - ideally would clear the stats or mark as 'Deposited'
-        // For now, we simulate adding to history
+    useEffect(() => {
+      if (!runSheetIds.length) {
+        setSelectedRunSheetId('');
+        return;
+      }
+      if (!selectedRunSheetId || !runSheetIds.includes(selectedRunSheetId)) {
+        setSelectedRunSheetId(runSheetIds[0]);
+      }
+    }, [runSheetIds, selectedRunSheetId]);
+
+    const markCodShipmentsAsPaid = async (amount, runSheetId = '') => {
+      const sortedPending = [...pendingCodShipments].sort((a, b) => {
+        const aDate = new Date(a.deliveryDate || a.date || 0).getTime();
+        const bDate = new Date(b.deliveryDate || b.date || 0).getTime();
+        return aDate - bDate;
+      });
+
+      let remainingCents = toCents(amount);
+      const updatedIds = [];
+      for (const shipment of sortedPending) {
+        const shipmentAmountCents = toCents(shipment.cost);
+        if (shipmentAmountCents <= 0 || remainingCents < shipmentAmountCents) continue;
+        const mutationId = shipment.shipmentId || shipment.id;
+        await updateShipmentStatus(mutationId, 'Delivered', {
+          remarks: runSheetId
+            ? `COD payment collected and submitted by agent against run sheet ${runSheetId}`
+            : 'COD payment collected and submitted by agent',
+          paymentStatus: 'SUCCESS',
+          paymentCollectedAt: new Date().toISOString()
+        });
+        remainingCents -= shipmentAmountCents;
+        updatedIds.push(shipment.trackingNumber || shipment.trackingId || shipment.id);
+      }
+      return updatedIds;
+    };
+
+    const handleDeposit = async () => {
+        if (cashOnHandCents <= 0) {
+            toast.info('No pending cash to deposit.');
+            return;
+        }
+        try {
+          const updatedIds = await markCodShipmentsAsPaid(cashOnHand, selectedRunSheetId);
+          if (updatedIds.length === 0) {
+            toast.error('No COD shipment matched for payment update');
+            return;
+          }
+          await refreshShipments?.();
+          toast.success(`COD updated as paid for ${updatedIds.length} shipments`);
+        } catch (error) {
+          toast.error(error.message || 'Failed to submit COD deposit');
+          return;
+        }
         const newTxn = {
             id: `DEP-${Date.now()}`,
             date: new Date().toLocaleString(),
-            amount: totalCollected,
+            amount: Number(cashOnHand.toFixed(2)),
             type: 'Deposit',
-            status: 'Processing'
+            status: 'VERIFIED',
+            runSheetId: selectedRunSheetId || '-'
         };
         setSubmittedTransactions((prev) => [newTxn, ...prev]);
     };
 
-    const handleSubmitCash = () => {
+        const handleSubmitCash = async () => {
         if (!verifyAmount || parseFloat(verifyAmount) <= 0) return toast.error("Enter valid amount");
-        
-        const amount = parseFloat(verifyAmount);
-        toast.success(`Cash verification submitted for ₹${amount}`);
+
+        const amountCents = toCents(verifyAmount);
+        if (amountCents > cashOnHandCents) {
+            toast.error(`Entered amount exceeds cash on hand (Rs ${formatAmount(cashOnHand)}).`);
+            return;
+        }
+        const amount = fromCents(amountCents);
+        try {
+          const updatedIds = await markCodShipmentsAsPaid(amount, selectedRunSheetId);
+          if (updatedIds.length === 0) {
+            toast.error('No COD shipment matched for this amount');
+            return;
+          }
+          await refreshShipments?.();
+          toast.success(`Cash verified. ${updatedIds.length} shipment(s) marked paid`);
+        } catch (error) {
+          toast.error(error.message || 'Failed to verify cash');
+          return;
+        }
         const newTxn = {
              id: `CSH-${Date.now()}`,
              date: new Date().toLocaleString(),
-             amount: amount,
+             amount: Number(amount.toFixed(2)),
              type: 'Cash Submission',
-             status: 'Verified'
+             status: 'VERIFIED',
+             runSheetId: selectedRunSheetId || '-'
         };
         setSubmittedTransactions((prev) => [newTxn, ...prev]);
         setVerifyAmount('');
@@ -1464,8 +1836,9 @@ function CashCollectionView({ shipments }) {
             <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
-                     <div className="text-slate-400 text-sm font-medium mb-1">Total Verified Revenue</div>
-                     <div className="text-4xl font-bold">₹{totalVerifiedRevenue.toLocaleString()}</div>
+                     <div className="text-slate-400 text-sm font-medium mb-1">Cash On Hand (COD)</div>
+                     <div className="text-4xl font-bold">Rs {formatAmount(cashOnHand)}</div>
+                     <div className="text-xs text-slate-300 mt-1">Submitted & verified: Rs {formatAmount(totalVerifiedRevenue)}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
                             onClick={handleDeposit}
@@ -1493,7 +1866,7 @@ function CashCollectionView({ shipments }) {
                                           <div className="text-xs text-slate-500">{txn.date}</div>
                                       </div>
                                       <div className="text-right">
-                                          <div className="font-bold text-indigo-600">₹{txn.amount}</div>
+                                          <div className="font-bold text-indigo-600">Rs {formatAmount(txn.amount)}</div>
                                           <div className="text-xs text-green-600">{txn.status}</div>
                                       </div>
                                   </div>
@@ -1507,10 +1880,10 @@ function CashCollectionView({ shipments }) {
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                      <h3 className="font-bold text-slate-900 mb-3 text-sm uppercase tracking-wider">Breakdown by Method</h3>
                      <div className="space-y-3">
-                         {Object.entries(breakdown).map(([method, amount]) => (
+                         {Object.entries(breakdown).map(([method, amountCents]) => (
                              <div key={method} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
                                  <span className="font-medium text-slate-700">{method}</span>
-                                 <span className="font-bold text-slate-900">₹{amount.toLocaleString()}</span>
+                                 <span className="font-bold text-slate-900">Rs {formatAmount(fromCents(amountCents))}</span>
                              </div>
                          ))}
                          {Object.keys(breakdown).length === 0 && <p className="text-slate-400 text-sm italic">No collected payments yet</p>}
@@ -1523,17 +1896,29 @@ function CashCollectionView({ shipments }) {
                   <div className="space-y-4">
                      <div>
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Run Sheet ID</label>
-                         <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                             <option>RS-2025-10-24-A (Morning)</option>
-                             <option>RS-2025-10-24-B (Afternoon)</option>
-                         </select>
+                        {runSheetIds.length > 0 ? (
+                          <select
+                              value={selectedRunSheetId}
+                              onChange={(e) => setSelectedRunSheetId(e.target.value)}
+                              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          >
+                              {runSheetIds.map((id) => (
+                                <option key={id} value={id}>{id}</option>
+                              ))}
+                          </select>
+                        ) : (
+                          <div className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-500">
+                            No run sheets synced yet
+                          </div>
+                        )}
                      </div>
                      <div>
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount (Cash Only)</label>
                         <div className="relative">
-                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
+                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">Rs</span>
                            <input 
-                                type="number" 
+                                type="number"
+                                step="0.01"
                                 className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" 
                                 placeholder="Enter amount"
                                 value={verifyAmount}
@@ -1558,8 +1943,48 @@ function AgentProfileView({ currentUser }) {
     const [profile, setProfile] = useState(null);
     const [docs, setDocs] = useState({});
     const [isLoading, setIsLoading] = useState(true);
+    const [isSavingDocs, setIsSavingDocs] = useState(false);
     const userKey = currentUser?.userId || currentUser?.id || currentUser?.email || 'default';
     const storageKeys = [`sf_agent_onboarding_${userKey}`, `agent_onboarding_${userKey}`];
+
+    const convertFileToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const persistDocs = (nextDocs) => {
+        storageKeys.forEach((key) => {
+            localStorage.setItem(key, JSON.stringify(nextDocs));
+        });
+    };
+
+    const handleDocUpload = async (docKey, file) => {
+        if (!file) return;
+        try {
+            setIsSavingDocs(true);
+            const base64 = await convertFileToBase64(file);
+            const nextDocs = { ...docs, [docKey]: base64 };
+            setDocs(nextDocs);
+            persistDocs(nextDocs);
+            if (docKey === 'profilePhoto') {
+                try {
+                    await operationsService.upsertAgentProfile(userKey, { profileImage: base64 });
+                    setProfile((prev) => ({ ...(prev || {}), profileImage: base64 }));
+                } catch {
+                    // local docs still preserved
+                }
+            }
+            toast.success('Document uploaded');
+        } catch {
+            toast.error('Failed to upload document');
+        } finally {
+            setIsSavingDocs(false);
+        }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -1698,7 +2123,7 @@ function AgentProfileView({ currentUser }) {
 
                 <div className="p-6 bg-slate-50 border-t border-slate-200">
                      <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Uploaded Documents</h4>
-                     <div className="flex gap-4 flex-wrap">
+                     <div className="grid md:grid-cols-2 gap-4">
                          {[
                             { label: 'Profile', key: 'profilePhoto', dbKey: 'profileImage' },
                             { label: 'Aadhaar', key: 'aadharCopy' },
@@ -1707,10 +2132,34 @@ function AgentProfileView({ currentUser }) {
                          ].map((doc) => {
                              const hasDoc = docs?.[doc.key] || (doc.dbKey ? profile?.[doc.dbKey] : null);
                              return (
-                                 <div key={doc.label} className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${hasDoc ? 'bg-white border-green-200 text-green-700' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
-                                     <FileText className="w-4 h-4" />
-                                     <span className="text-sm font-medium">{doc.label}</span>
-                                     {hasDoc && <CheckCircle className="w-3 h-3 ml-1" />}
+                                 <div key={doc.label} className={`p-3 rounded-lg border ${hasDoc ? 'bg-white border-green-200' : 'bg-slate-100 border-slate-200'}`}>
+                                     <div className="flex items-center justify-between gap-2 mb-2">
+                                        <div className="flex items-center gap-2">
+                                          <FileText className={`w-4 h-4 ${hasDoc ? 'text-green-700' : 'text-slate-400'}`} />
+                                          <span className={`text-sm font-medium ${hasDoc ? 'text-green-700' : 'text-slate-500'}`}>{doc.label}</span>
+                                          {hasDoc && <CheckCircle className="w-3 h-3 text-green-700" />}
+                                        </div>
+                                        {hasDoc && (
+                                          <a
+                                            href={hasDoc}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-xs text-indigo-600 hover:underline"
+                                          >
+                                            View
+                                          </a>
+                                        )}
+                                     </div>
+                                     <label className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-700 cursor-pointer">
+                                        <Upload className="w-3.5 h-3.5" />
+                                        {isSavingDocs ? 'Uploading...' : `Upload ${doc.label}`}
+                                        <input
+                                          type="file"
+                                          accept=".jpg,.jpeg,.png,.pdf"
+                                          className="hidden"
+                                          onChange={(e) => handleDocUpload(doc.key, e.target.files?.[0])}
+                                        />
+                                     </label>
                                  </div>
                              )
                          })}

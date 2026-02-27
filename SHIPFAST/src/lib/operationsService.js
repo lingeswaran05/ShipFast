@@ -3,7 +3,7 @@ import { shipmentService } from './shipmentService';
 import { resolveServiceBaseUrls, toServiceBaseUrl, shouldRetryWithFallback } from './apiConfig';
 
 const OPERATIONS_BASE_URLS = resolveServiceBaseUrls(import.meta.env.VITE_OPERATIONS_BASE_URL, {
-  localDirectBase: 'http://localhost:8082'
+  localDirectBase: 'http://localhost:8088'
 })
   .map((base) => toServiceBaseUrl(base, '/api/operations'))
   .filter((value, index, list) => list.indexOf(value) === index);
@@ -76,10 +76,11 @@ export const operationsService = {
         hubId: payload.hubId,
         shipmentTrackingNumbers: payload.shipmentTrackingNumbers || []
       }));
+      const runSheetId = getPayload(response)?.runSheetId || null;
       const shipmentIds = payload.shipmentTrackingNumbers || [];
       if (shipmentIds.length > 0 && payload.agentId) {
         await Promise.allSettled(
-          shipmentIds.map((shipmentId) => shipmentService.assignShipment(shipmentId, payload.agentId))
+          shipmentIds.map((shipmentId) => shipmentService.assignShipment(shipmentId, payload.agentId, runSheetId))
         );
       }
       return getPayload(response);

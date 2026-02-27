@@ -10,6 +10,7 @@ export function CustomerDashboard() {
   const [calcData, setCalcData] = useState({ weight: '', source: '', destination: '', type: 'Standard' });
   const [calculatedRate, setCalculatedRate] = useState(null);
   const [trackingInput, setTrackingInput] = useState('');
+  const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(value) || 0);
 
   const handleCalculate = (e) => {
     e.preventDefault();
@@ -22,7 +23,8 @@ export function CustomerDashboard() {
   };
 
   const handleTrack = () => {
-    navigate(`/track${trackingInput.trim() ? `?id=${trackingInput.trim()}` : ''}`);
+    const trimmed = trackingInput.trim();
+    navigate(`/track${trimmed ? `?id=${encodeURIComponent(trimmed)}` : ''}`);
   };
 
   const recentShipments = shipments.slice(0, 3);
@@ -30,8 +32,8 @@ export function CustomerDashboard() {
   return (
     <div className="space-y-6 animate-fade-in-up relative">
       {showCalculator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-scale-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowCalculator(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-scale-in" onClick={(e) => e.stopPropagation()}>
              <div className="flex justify-between items-center mb-6">
                <div className="flex items-center gap-3">
                  <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
@@ -118,7 +120,7 @@ export function CustomerDashboard() {
                 <div className="mt-6 p-4 bg-green-50 border border-green-100 rounded-xl animate-fade-in-up">
                    <div className="flex justify-between items-center">
                       <span className="text-green-700 font-medium">Estimated Cost</span>
-                      <span className="text-2xl font-bold text-green-700">₹{calculatedRate.toFixed(2)}</span>
+                      <span className="text-2xl font-bold text-green-700">{formatCurrency(calculatedRate)}</span>
                    </div>
                    <p className="text-xs text-green-600 mt-1 text-center">* Final price may vary based on exact volumetric weight</p>
                 </div>
@@ -165,7 +167,7 @@ export function CustomerDashboard() {
             <div>
               <div className="text-sm text-slate-500">Total Spent</div>
               <div className="text-2xl font-bold text-slate-900">
-                ₹{shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0).toLocaleString()}
+                {formatCurrency(shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0))}
               </div>
             </div>
           </div>
@@ -236,10 +238,12 @@ export function CustomerDashboard() {
         </div>
         <div className="divide-y divide-slate-100">
           {recentShipments.length > 0 ? (
-            recentShipments.map((shipment) => (
+            recentShipments.map((shipment) => {
+              const stableId = shipment.trackingNumber || shipment.trackingId || shipment.id;
+              return (
               <div 
-                 key={shipment.id} 
-                 onClick={() => navigate(`/track?id=${shipment.id}`)}
+                 key={stableId} 
+                 onClick={() => navigate(`/track?id=${encodeURIComponent(stableId)}`)}
                  className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer"
               >
                 <div className="flex items-center gap-4">
@@ -249,9 +253,9 @@ export function CustomerDashboard() {
                     <Package className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="font-semibold text-slate-900">{shipment.id}</div>
+                    <div className="font-semibold text-slate-900">{stableId}</div>
                     <div className="text-sm text-slate-500">
-                       {shipment.sender?.city || 'Origin'} → {shipment.receiver?.city || 'Dest'}
+                       {shipment.sender?.city || 'Origin'} {'->'} {shipment.receiver?.city || 'Dest'}
                     </div>
                   </div>
                 </div>
@@ -266,7 +270,8 @@ export function CustomerDashboard() {
                   <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
                 </div>
               </div>
-            ))
+              );
+            })
           ) : (
             <div className="p-8 text-center text-slate-500">No shipments found.</div>
           )}
@@ -275,5 +280,4 @@ export function CustomerDashboard() {
     </div>
   );
 }
-
 

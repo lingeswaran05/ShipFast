@@ -77,9 +77,6 @@ public class OperationsService {
                 .deliveredCount(0L)
                 .failedCount(0L)
                 .inTransitCount(0L)
-                .salaryBalance(0.0)
-                .totalSalaryCredited(0.0)
-                .totalSalaryDebited(0.0)
                 .build();
 
         agentRepo.save(Objects.requireNonNull(agent));
@@ -89,7 +86,7 @@ public class OperationsService {
 
     public List<AgentResponse> getAllAgents() {
 
-        return agentRepo.findAll()
+        return agentRepo.findByVerificationStatus("PENDING")
                 .stream()
                 .map(this::mapToAgentResponse)
                 .toList();
@@ -127,9 +124,6 @@ public class OperationsService {
                         .deliveredCount(0L)
                         .failedCount(0L)
                         .inTransitCount(0L)
-                        .salaryBalance(0.0)
-                        .totalSalaryCredited(0.0)
-                        .totalSalaryDebited(0.0)
                         .build());
 
         if (request.getLicenseNumber() != null) profile.setLicenseNumber(request.getLicenseNumber());
@@ -140,6 +134,9 @@ public class OperationsService {
         if (request.getOrganDonor() != null) profile.setOrganDonor(request.getOrganDonor());
         if (request.getShiftTiming() != null) profile.setShiftTiming(request.getShiftTiming());
         if (request.getProfileImage() != null) profile.setProfileImage(request.getProfileImage());
+        if (request.getAadharCopy() != null) profile.setAadharCopy(request.getAadharCopy());
+        if (request.getLicenseCopy() != null) profile.setLicenseCopy(request.getLicenseCopy());
+        if (request.getRcBookCopy() != null) profile.setRcBookCopy(request.getRcBookCopy());
         if (request.getVerificationStatus() != null) profile.setVerificationStatus(request.getVerificationStatus().toUpperCase());
         if (request.getVerifiedBy() != null) profile.setVerifiedBy(request.getVerifiedBy());
         if (request.getVerificationNotes() != null) profile.setVerificationNotes(request.getVerificationNotes());
@@ -147,22 +144,12 @@ public class OperationsService {
         if (request.getDeliveredCount() != null) profile.setDeliveredCount(Math.max(0L, request.getDeliveredCount()));
         if (request.getFailedCount() != null) profile.setFailedCount(Math.max(0L, request.getFailedCount()));
         if (request.getInTransitCount() != null) profile.setInTransitCount(Math.max(0L, request.getInTransitCount()));
-        if (request.getBankAccountHolder() != null) profile.setBankAccountHolder(request.getBankAccountHolder());
-        if (request.getBankAccountNumber() != null) profile.setBankAccountNumber(request.getBankAccountNumber());
-        if (request.getBankIfsc() != null) profile.setBankIfsc(request.getBankIfsc());
-        if (request.getBankName() != null) profile.setBankName(request.getBankName());
-        if (request.getSalaryBalance() != null) profile.setSalaryBalance(Math.max(0.0, request.getSalaryBalance()));
-        if (request.getTotalSalaryCredited() != null) profile.setTotalSalaryCredited(Math.max(0.0, request.getTotalSalaryCredited()));
-        if (request.getTotalSalaryDebited() != null) profile.setTotalSalaryDebited(Math.max(0.0, request.getTotalSalaryDebited()));
         if (profile.getAverageRating() == null) profile.setAverageRating(0.0);
         if (profile.getTotalRatings() == null) profile.setTotalRatings(0L);
         if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("AVAILABLE");
         if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
         if (profile.getFailedCount() == null) profile.setFailedCount(0L);
         if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
-        if (profile.getSalaryBalance() == null) profile.setSalaryBalance(0.0);
-        if (profile.getTotalSalaryCredited() == null) profile.setTotalSalaryCredited(0.0);
-        if (profile.getTotalSalaryDebited() == null) profile.setTotalSalaryDebited(0.0);
         profile.setUpdatedAt(LocalDateTime.now());
         if ("VERIFIED".equalsIgnoreCase(profile.getVerificationStatus())) {
             profile.setVerifiedAt(LocalDateTime.now());
@@ -186,9 +173,6 @@ public class OperationsService {
                         .deliveredCount(0L)
                         .failedCount(0L)
                         .inTransitCount(0L)
-                        .salaryBalance(0.0)
-                        .totalSalaryCredited(0.0)
-                        .totalSalaryDebited(0.0)
                         .build());
 
         boolean verified = request != null && request.getVerified() != null && request.getVerified();
@@ -203,9 +187,6 @@ public class OperationsService {
         if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
         if (profile.getFailedCount() == null) profile.setFailedCount(0L);
         if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
-        if (profile.getSalaryBalance() == null) profile.setSalaryBalance(0.0);
-        if (profile.getTotalSalaryCredited() == null) profile.setTotalSalaryCredited(0.0);
-        if (profile.getTotalSalaryDebited() == null) profile.setTotalSalaryDebited(0.0);
 
         agentRepo.save(Objects.requireNonNull(profile));
         return mapToAgentProfileResponse(profile);
@@ -255,17 +236,13 @@ public class OperationsService {
                 .averageRating(profile.getAverageRating() != null ? profile.getAverageRating().doubleValue() : 0.0)
                 .totalRatings(profile.getTotalRatings() != null ? profile.getTotalRatings().longValue() : 0L)
                 .profileImage(profile.getProfileImage())
+                .aadharCopy(profile.getAadharCopy())
+                .licenseCopy(profile.getLicenseCopy())
+                .rcBookCopy(profile.getRcBookCopy())
                 .availabilityStatus(profile.getAvailabilityStatus() != null ? profile.getAvailabilityStatus() : "AVAILABLE")
                 .deliveredCount(profile.getDeliveredCount() != null ? profile.getDeliveredCount() : 0L)
                 .failedCount(profile.getFailedCount() != null ? profile.getFailedCount() : 0L)
                 .inTransitCount(profile.getInTransitCount() != null ? profile.getInTransitCount() : 0L)
-                .bankAccountHolder(profile.getBankAccountHolder())
-                .bankAccountNumber(profile.getBankAccountNumber())
-                .bankIfsc(profile.getBankIfsc())
-                .bankName(profile.getBankName())
-                .salaryBalance(profile.getSalaryBalance() != null ? profile.getSalaryBalance() : 0.0)
-                .totalSalaryCredited(profile.getTotalSalaryCredited() != null ? profile.getTotalSalaryCredited() : 0.0)
-                .totalSalaryDebited(profile.getTotalSalaryDebited() != null ? profile.getTotalSalaryDebited() : 0.0)
                 .build();
     }
 

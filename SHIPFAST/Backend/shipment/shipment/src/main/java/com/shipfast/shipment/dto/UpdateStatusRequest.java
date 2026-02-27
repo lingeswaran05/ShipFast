@@ -10,4 +10,6 @@ public class UpdateStatusRequest {
     private String proofOfDeliveryImage;
     private String deliveredBy;
     private String deliveredByAgentId;
+    private String paymentStatus;
+    private String paymentCollectedAt;
 }

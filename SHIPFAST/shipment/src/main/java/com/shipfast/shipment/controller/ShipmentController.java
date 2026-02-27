@@ -39,8 +39,9 @@ public class ShipmentController {
 
     @PutMapping("/{trackingNumber}/status")
     public ApiResponse<Shipment> updateStatus(@PathVariable String trackingNumber,
-                                              @RequestParam ShipmentStatus status) {
+                                              @RequestParam ShipmentStatus status,
+                                              @RequestParam(required = false) Boolean paymentSuccess) {
         return new ApiResponse<>(true, "Status updated successfully",
-                shipmentService.updateStatus(trackingNumber, status));
+                shipmentService.updateStatus(trackingNumber, status, paymentSuccess));
     }
 }
