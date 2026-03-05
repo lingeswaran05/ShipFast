@@ -7,11 +7,11 @@ import { printElementById } from '../../lib/printUtils';
 import { toast } from 'sonner';
 
 export function BookingForm({ onViewInvoice }) {
-  const { addShipment, calculateRate } = useShipment();
+  const { addShipment, calculateRate, pricingConfig } = useShipment();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
-    sender: { name: '', phone: '', address: '', pincode: '', city: 'Covai' },
-    receiver: { name: '', phone: '', address: '', pincode: '', city: 'Madurai' },
+    sender: { name: '', phone: '+91', doorAddress: '', city: '', state: 'Tamil Nadu', pincode: '' },
+    receiver: { name: '', phone: '+91', doorAddress: '', city: '', state: 'Tamil Nadu', pincode: '' },
     package: { weight: '', length: '', width: '', height: '', type: 'Standard', declaredValue: '' },
     service: 'standard', 
     paymentMode: ''
@@ -30,14 +30,74 @@ export function BookingForm({ onViewInvoice }) {
 
   const paymentLabel = formData.paymentMode === 'cash' ? 'COD' : String(formData.paymentMode || 'ONLINE').toUpperCase();
   const paymentStatusLabel = formData.paymentMode === 'cash' ? 'PENDING' : 'SUCCESS';
+  const codHandlingFee = Number(pricingConfig?.codHandlingFee ?? 50);
+
+  const roundToRupee = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.round(numeric);
+  };
+
+  const normalizePhoneInput = (value = '') => {
+    const digits = String(value || '').replace(/\D/g, '');
+    const withoutCountry = digits.startsWith('91') ? digits.slice(2) : digits;
+    return `+91${withoutCountry.slice(0, 10)}`;
+  };
+
+  const isValidIndianPhone = (value) => /^\+91\d{10}$/.test(String(value || '').trim());
+
+  const isValidAddressParts = (details = {}) => {
+    return (
+      String(details.doorAddress || '').trim().length >= 5 &&
+      String(details.city || '').trim().length >= 2 &&
+      String(details.state || '').trim().length >= 2 &&
+      /^\d{6}$/.test(String(details.pincode || '').trim())
+    );
+  };
+
+  const composeAddressLine = (details = {}) => (
+    [details.doorAddress, details.city, details.state, details.pincode]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  );
+
+  const normalizeComparable = (value = '') => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const validateSenderReceiverStep = () => {
+    if (!formData.sender.name || !formData.receiver.name) {
+      toast.error('Sender and receiver names are required');
+      return false;
+    }
+    if (!isValidIndianPhone(formData.sender.phone) || !isValidIndianPhone(formData.receiver.phone)) {
+      toast.error('Phone number must be in +91XXXXXXXXXX format');
+      return false;
+    }
+    if (formData.sender.phone === formData.receiver.phone) {
+      toast.error('Sender and receiver phone numbers cannot be the same');
+      return false;
+    }
+    if (!isValidAddressParts(formData.sender) || !isValidAddressParts(formData.receiver)) {
+      toast.error('Enter door address, city, state and valid 6-digit pincode for sender and receiver');
+      return false;
+    }
+    if (normalizeComparable(composeAddressLine(formData.sender)) === normalizeComparable(composeAddressLine(formData.receiver))) {
+      toast.error('Sender and receiver addresses cannot be the same');
+      return false;
+    }
+    return true;
+  };
 
   const handleInputChange = (section, field, value) => {
+    const nextValue = (field === 'phone' && (section === 'sender' || section === 'receiver'))
+      ? normalizePhoneInput(value)
+      : value;
     if (section === 'root') {
-      setFormData(prev => ({ ...prev, [field]: value }));
+      setFormData(prev => ({ ...prev, [field]: nextValue }));
     } else {
       setFormData(prev => ({
         ...prev,
-        [section]: { ...prev[section], [field]: value }
+        [section]: { ...prev[section], [field]: nextValue }
       }));
     }
   };
@@ -51,16 +111,15 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const normalizeQuote = (value) => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return 0;
-    return Math.round(numeric * 100) / 100;
+    return roundToRupee(value);
   };
 
   const fallbackPrice = (serviceId) => {
     const typeLabel = getServiceTypeLabel(serviceId);
     let price = Number(calculateRate(formData.package.weight, typeLabel)) || 0;
     if (serviceId === 'sameday') {
-      price += 500;
+      const expressFallback = Number(calculateRate(formData.package.weight, 'Express')) || 0;
+      price = expressFallback * 2;
     }
     return normalizeQuote(price);
   };
@@ -76,7 +135,7 @@ export function BookingForm({ onViewInvoice }) {
   const getTotalPrice = () => {
       let price = getCalculatedPrice(formData.service);
       if (formData.paymentMode === 'cash') {
-          price += 50; // Cash Handling Fee
+          price += codHandlingFee;
       }
       return normalizeQuote(price);
   };
@@ -117,7 +176,7 @@ export function BookingForm({ onViewInvoice }) {
         setServiceQuotes({
           standard: standardTotal,
           express: expressTotal,
-          sameday: normalizeQuote(standardTotal + 500)
+          sameday: normalizeQuote(expressTotal * 2)
         });
       } catch {
         if (isCancelled) return;
@@ -137,9 +196,16 @@ export function BookingForm({ onViewInvoice }) {
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [formData.package.weight, formData.sender.pincode, formData.receiver.pincode]);
+  }, [formData.package.weight, formData.sender.pincode, formData.receiver.pincode, pricingConfig?.standardRatePerKg, pricingConfig?.expressMultiplier, pricingConfig?.distanceSurcharge, pricingConfig?.fuelSurchargePct, pricingConfig?.gstPct]);
 
   const handleNext = () => {
+    if (step === 1 && !validateSenderReceiverStep()) {
+      return;
+    }
+    if (step === 2 && (!Number.isFinite(Number(formData.package.weight)) || Number(formData.package.weight) <= 0)) {
+      toast.error('Package weight must be greater than 0');
+      return;
+    }
     if (step < 4) setStep(step + 1);
   };
 
@@ -148,6 +214,10 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const handleSubmit = async () => {
+    if (!validateSenderReceiverStep()) {
+      setStep(1);
+      return;
+    }
     if (!formData.paymentMode) {
         toast.error('Please select a payment method');
         return;
@@ -244,9 +314,9 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const services = [
-    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getCalculatedPrice('standard').toFixed(2)}`, icon: Truck },
-    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getCalculatedPrice('express').toFixed(2)}`, icon: Package },
-    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getCalculatedPrice('sameday').toFixed(2)}`, icon: Calendar },
+    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getCalculatedPrice('standard')}`, icon: Truck },
+    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getCalculatedPrice('express')}`, icon: Package },
+    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getCalculatedPrice('sameday')}`, icon: Calendar },
   ];
 
   if (bookingSuccess) {
@@ -282,8 +352,8 @@ export function BookingForm({ onViewInvoice }) {
              </div>
              <div className="text-right">
                 <p className="text-xs text-slate-400 font-semibold uppercase">Amount {formData.paymentMode === 'cash' ? 'To Pay' : 'Paid'}</p>
-                <p className="font-bold text-slate-800">₹{Number(finalAmount || getTotalPrice()).toFixed(2)}</p>
-                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee)</span>}
+                <p className="font-bold text-slate-800">₹{roundToRupee(finalAmount || getTotalPrice())}</p>
+                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee ₹{roundToRupee(codHandlingFee)})</span>}
              </div>
           </div>
           <div className="hidden print:block mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
@@ -292,15 +362,13 @@ export function BookingForm({ onViewInvoice }) {
                     <span className="font-bold block mb-1">From:</span>
                     <p>{formData.sender.name}</p>
                     <p>{formData.sender.phone}</p>
-                    <p>{formData.sender.address || 'N/A'}</p>
-                    <p>{formData.sender.city} - {formData.sender.pincode}</p>
+                    <p>{composeAddressLine(formData.sender) || 'N/A'}</p>
                 </div>
                 <div>
                     <span className="font-bold block mb-1">To:</span>
                     <p>{formData.receiver.name}</p>
                     <p>{formData.receiver.phone}</p>
-                    <p>{formData.receiver.address || 'N/A'}</p>
-                    <p>{formData.receiver.city} - {formData.receiver.pincode}</p>
+                    <p>{composeAddressLine(formData.receiver) || 'N/A'}</p>
                 </div>
              </div>
              <div className="mt-4 pt-4 border-t">
@@ -398,7 +466,7 @@ export function BookingForm({ onViewInvoice }) {
                     <input 
                       type="text" 
                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                      placeholder="John Doe"
+                      placeholder="Kavinraj M"
                       value={formData.sender.name}
                       onChange={(e) => handleInputChange('sender', 'name', e.target.value)}
                     />
@@ -408,30 +476,50 @@ export function BookingForm({ onViewInvoice }) {
                     <input 
                       type="tel" 
                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                      placeholder="+91 98765 43210"
+                      placeholder="+919876543210"
                       value={formData.sender.phone}
                       onChange={(e) => handleInputChange('sender', 'phone', e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div>
+                     <label className="block text-sm font-semibold text-slate-700 mb-1">Full Address</label>
+                     <input
+                       type="text"
+                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
+                       placeholder="12, Mettupalayam Road"
+                       value={formData.sender.doorAddress}
+                       onChange={(e) => handleInputChange('sender', 'doorAddress', e.target.value)}
+                     />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
                      <div>
                        <label className="block text-sm font-semibold text-slate-700 mb-1">City</label>
-                       <input 
-                         type="text" 
+                       <input
+                         type="text"
                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                         placeholder="Mumbai"
+                         placeholder="Coimbatore"
                          value={formData.sender.city}
                          onChange={(e) => handleInputChange('sender', 'city', e.target.value)}
                        />
                      </div>
                      <div>
-                       <label className="block text-sm font-semibold text-slate-700 mb-1">Pincode</label>
-                       <input 
-                         type="text" 
+                       <label className="block text-sm font-semibold text-slate-700 mb-1">State</label>
+                       <input
+                         type="text"
                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                         placeholder="400001"
+                         placeholder="Tamil Nadu"
+                         value={formData.sender.state}
+                         onChange={(e) => handleInputChange('sender', 'state', e.target.value)}
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-sm font-semibold text-slate-700 mb-1">Pincode</label>
+                       <input
+                         type="text"
+                         className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
+                         placeholder="641043"
                          value={formData.sender.pincode}
-                         onChange={(e) => handleInputChange('sender', 'pincode', e.target.value)}
+                         onChange={(e) => handleInputChange('sender', 'pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
                        />
                      </div>
                   </div>
@@ -452,7 +540,7 @@ export function BookingForm({ onViewInvoice }) {
                     <input 
                       type="text" 
                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                      placeholder="Jane Smith"
+                      placeholder="Thenmozhi S"
                       value={formData.receiver.name}
                       onChange={(e) => handleInputChange('receiver', 'name', e.target.value)}
                     />
@@ -462,30 +550,50 @@ export function BookingForm({ onViewInvoice }) {
                     <input 
                       type="tel" 
                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                      placeholder="+91 98765 43210"
+                      placeholder="+919876543210"
                       value={formData.receiver.phone}
                       onChange={(e) => handleInputChange('receiver', 'phone', e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div>
+                     <label className="block text-sm font-semibold text-slate-700 mb-1">Full Address</label>
+                     <input
+                       type="text"
+                       className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
+                       placeholder="44, West Veli Street"
+                       value={formData.receiver.doorAddress}
+                       onChange={(e) => handleInputChange('receiver', 'doorAddress', e.target.value)}
+                     />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
                      <div>
                        <label className="block text-sm font-semibold text-slate-700 mb-1">City</label>
-                       <input 
-                         type="text" 
+                       <input
+                         type="text"
                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                         placeholder="Delhi"
+                         placeholder="Madurai"
                          value={formData.receiver.city}
                          onChange={(e) => handleInputChange('receiver', 'city', e.target.value)}
                        />
                      </div>
                      <div>
-                       <label className="block text-sm font-semibold text-slate-700 mb-1">Pincode</label>
-                       <input 
-                         type="text" 
+                       <label className="block text-sm font-semibold text-slate-700 mb-1">State</label>
+                       <input
+                         type="text"
                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
-                         placeholder="110001"
+                         placeholder="Tamil Nadu"
+                         value={formData.receiver.state}
+                         onChange={(e) => handleInputChange('receiver', 'state', e.target.value)}
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-sm font-semibold text-slate-700 mb-1">Pincode</label>
+                       <input
+                         type="text"
+                         className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
+                         placeholder="625001"
                          value={formData.receiver.pincode}
-                         onChange={(e) => handleInputChange('receiver', 'pincode', e.target.value)}
+                         onChange={(e) => handleInputChange('receiver', 'pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
                        />
                      </div>
                   </div>
@@ -657,7 +765,7 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Base Rate</span>
-                            <span className="font-medium text-slate-900">₹{getCalculatedPrice(formData.service).toFixed(2)}</span>
+                            <span className="font-medium text-slate-900">₹{getCalculatedPrice(formData.service)}</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Tax & Fees</span>
@@ -666,12 +774,12 @@ export function BookingForm({ onViewInvoice }) {
                          {formData.paymentMode === 'cash' && (
                            <div className="flex justify-between">
                               <span className="text-slate-500">Cash Handling Fee</span>
-                              <span className="font-medium text-slate-900">₹50.00</span>
+                              <span className="font-medium text-slate-900">₹{roundToRupee(codHandlingFee)}</span>
                            </div>
                          )}
                          <div className="border-t border-slate-100 pt-3 flex justify-between text-lg font-bold">
                             <span className="text-slate-900">Total</span>
-                            <span className="text-purple-600">₹{getTotalPrice().toFixed(2)}</span>
+                            <span className="text-purple-600">₹{getTotalPrice()}</span>
                          </div>
                          <div className="text-xs text-slate-500">Live backend calculated rate</div>
                       </div>
@@ -708,18 +816,17 @@ export function BookingForm({ onViewInvoice }) {
         </div>
 
         <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-          <button 
-            onClick={handleBack}
-            disabled={step === 1}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-              step === 1 
-                ? 'text-slate-300 cursor-not-allowed' 
-                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-800'
-            }`}
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back
-          </button>
+          {step > 1 ? (
+            <button
+              onClick={handleBack}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all text-slate-600 hover:bg-slate-200 hover:text-slate-800"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Back
+            </button>
+          ) : (
+            <div />
+          )}
           
           <button 
             onClick={step === 4 ? handleSubmit : handleNext}

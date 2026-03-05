@@ -6,8 +6,10 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -20,31 +22,50 @@ import org.springframework.web.server.ResponseStatusException;
 import com.shipfast.shipment.dto.AssignShipmentRequest;
 import com.shipfast.shipment.dto.CalculateRateRequest;
 import com.shipfast.shipment.dto.CreateShipmentRequest;
+import com.shipfast.shipment.dto.PricingConfigDto;
 import com.shipfast.shipment.dto.RateCalculationResponse;
 import com.shipfast.shipment.dto.RatingRequest;
 import com.shipfast.shipment.dto.ShipmentListResponse;
 import com.shipfast.shipment.dto.UpdateShipmentRequest;
 import com.shipfast.shipment.dto.UpdateStatusRequest;
+import com.shipfast.shipment.entity.Address;
+import com.shipfast.shipment.entity.PricingConfig;
 import com.shipfast.shipment.entity.Shipment;
 import com.shipfast.shipment.entity.TrackingEvent;
+import com.shipfast.shipment.repository.PricingConfigRepository;
 import com.shipfast.shipment.repository.ShipmentRepository;
 import com.shipfast.shipment.service.ShipmentService;
 
 @Service
 public class ShipmentServiceImpl implements ShipmentService {
 
+    private static final String DEFAULT_PRICING_CONFIG_ID = "DEFAULT";
+    private static final Pattern INDIA_PHONE_PATTERN = Pattern.compile("^\\+91\\d{10}$");
+    private static final Pattern PINCODE_PATTERN = Pattern.compile("\\b\\d{6}\\b");
+    private static final Map<String, List<String>> STATUS_TRANSITIONS = Map.of(
+            "BOOKED", List.of("IN TRANSIT", "FAILED"),
+            "IN TRANSIT", List.of("OUT FOR DELIVERY", "FAILED"),
+            "OUT FOR DELIVERY", List.of("DELIVERED", "FAILED"),
+            "FAILED", List.of("OUT FOR DELIVERY")
+    );
+
     private final ShipmentRepository shipmentRepository;
+    private final PricingConfigRepository pricingConfigRepository;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${operations.service.url:http://localhost:8082}")
     private String operationsServiceUrl;
 
-    public ShipmentServiceImpl(ShipmentRepository shipmentRepository) {
+    public ShipmentServiceImpl(ShipmentRepository shipmentRepository,
+                               PricingConfigRepository pricingConfigRepository) {
         this.shipmentRepository = shipmentRepository;
+        this.pricingConfigRepository = pricingConfigRepository;
     }
 
     @Override
     public Shipment createShipment(CreateShipmentRequest request) {
+        normalizeAddress(request.getSender());
+        normalizeAddress(request.getRecipient());
         validateCreateRequest(request);
 
         LocalDateTime now = LocalDateTime.now();
@@ -54,11 +75,12 @@ public class ShipmentServiceImpl implements ShipmentService {
         RateCalculationResponse rate = calculateRateFromInputs(
                 request.getPackageDetails().getWeight(),
                 request.getServiceType(),
-                extractPincode(request.getSender().getAddress()),
-                extractPincode(request.getRecipient().getAddress())
+                resolveAddressPincode(request.getSender()),
+                resolveAddressPincode(request.getRecipient()),
+                request.getPaymentMethod()
         );
         double finalCost = request.getQuotedCost() != null && request.getQuotedCost() > 0
-                ? Math.round(request.getQuotedCost() * 100.0) / 100.0
+                ? roundToRupee(request.getQuotedCost())
                 : rate.getTotalCost();
 
         TrackingEvent initialEvent = TrackingEvent.builder()
@@ -97,8 +119,9 @@ public class ShipmentServiceImpl implements ShipmentService {
                                        LocalDate dateTo,
                                        Integer page,
                                        Integer limit) {
+        boolean paginate = limit != null && limit > 0;
         int pageNumber = page == null || page < 1 ? 0 : page - 1;
-        int pageSize = limit == null || limit < 1 ? 10 : limit;
+        int pageSize = paginate ? limit : Integer.MAX_VALUE;
 
         List<Shipment> filtered = shipmentRepository.findAll().stream()
                 .filter(item -> !hasText(status) || (item.getStatus() != null && item.getStatus().equalsIgnoreCase(status)))
@@ -118,17 +141,19 @@ public class ShipmentServiceImpl implements ShipmentService {
                     Comparator.nullsLast(Comparator.naturalOrder())).reversed())
                 .collect(Collectors.toList());
 
-        int fromIndex = Math.min(pageNumber * pageSize, filtered.size());
-        int toIndex = Math.min(fromIndex + pageSize, filtered.size());
+        int fromIndex = paginate ? Math.min(pageNumber * pageSize, filtered.size()) : 0;
+        int toIndex = paginate ? Math.min(fromIndex + pageSize, filtered.size()) : filtered.size();
         List<Shipment> pagedData = filtered.subList(fromIndex, toIndex);
-        int totalPages = filtered.isEmpty() ? 0 : (int) Math.ceil((double) filtered.size() / pageSize);
+        int totalPages = paginate
+                ? (filtered.isEmpty() ? 0 : (int) Math.ceil((double) filtered.size() / pageSize))
+                : (filtered.isEmpty() ? 0 : 1);
 
         return ShipmentListResponse.builder()
                 .data(pagedData)
                 .pagination(ShipmentListResponse.Pagination.builder()
                         .totalItems(filtered.size())
                         .totalPages(totalPages)
-                        .currentPage(pageNumber + 1)
+                        .currentPage(paginate ? pageNumber + 1 : 1)
                         .build())
                 .build();
     }
@@ -163,9 +188,11 @@ public class ShipmentServiceImpl implements ShipmentService {
         Shipment shipment = getById(shipmentId);
 
         if (request.getSender() != null) {
+            normalizeAddress(request.getSender());
             shipment.setSender(request.getSender());
         }
         if (request.getRecipient() != null) {
+            normalizeAddress(request.getRecipient());
             shipment.setRecipient(request.getRecipient());
         }
         if (request.getPackageDetails() != null) {
@@ -185,7 +212,19 @@ public class ShipmentServiceImpl implements ShipmentService {
     @Override
     public void deleteShipment(String shipmentId) {
         Shipment shipment = getById(shipmentId);
-        shipmentRepository.deleteById(shipment.getId());
+        String databaseId = shipment.getId();
+        String trackingNumber = shipment.getTrackingNumber();
+
+        shipmentRepository.deleteById(databaseId);
+        if (hasText(trackingNumber)) {
+            shipmentRepository.deleteAllByTrackingNumber(trackingNumber);
+        }
+
+        boolean stillExistsById = hasText(databaseId) && shipmentRepository.findById(databaseId).isPresent();
+        boolean stillExistsByTracking = hasText(trackingNumber) && shipmentRepository.findByTrackingNumber(trackingNumber).isPresent();
+        if (stillExistsById || stillExistsByTracking) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to hard delete shipment");
+        }
     }
 
     @Override
@@ -196,8 +235,16 @@ public class ShipmentServiceImpl implements ShipmentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
         }
 
+        String currentStatus = normalizeStatus(shipment.getStatus());
+        if (hasText(currentStatus) && currentStatus.equalsIgnoreCase(nextStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shipment is already " + currentStatus);
+        }
+
         if ("Cancelled".equalsIgnoreCase(nextStatus) && hasText(customerId) && !customerId.equals(shipment.getCustomerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can cancel only your own shipment");
+        }
+        if (!isAllowedStatusTransition(currentStatus, nextStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, buildTransitionErrorMessage(currentStatus, nextStatus));
         }
 
         shipment.setStatus(nextStatus);
@@ -220,8 +267,11 @@ public class ShipmentServiceImpl implements ShipmentService {
             if (!hasText(shipment.getAssignedAgentId()) && hasText(shipment.getDeliveredByAgentId())) {
                 shipment.setAssignedAgentId(shipment.getDeliveredByAgentId());
             }
-            if (!hasText(request.getPaymentStatus()) && !"COD".equalsIgnoreCase(shipment.getPaymentMethod())) {
+            if (!hasText(request.getPaymentStatus())) {
                 shipment.setPaymentStatus("SUCCESS");
+                if (shipment.getPaymentCollectedAt() == null) {
+                    shipment.setPaymentCollectedAt(LocalDateTime.now());
+                }
             }
         }
         if (hasText(request.getPaymentStatus())) {
@@ -305,36 +355,91 @@ public class ShipmentServiceImpl implements ShipmentService {
                 request.getWeight(),
                 request.getServiceType(),
                 request.getOriginPincode(),
-                request.getDestinationPincode());
+                request.getDestinationPincode(),
+                null);
+    }
+
+    @Override
+    public PricingConfigDto getPricingConfig() {
+        return toPricingConfigDto(getEffectivePricingConfig());
+    }
+
+    @Override
+    public PricingConfigDto updatePricingConfig(PricingConfigDto request) {
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pricing config payload is required");
+        }
+
+        PricingConfig existing = getEffectivePricingConfig();
+        existing.setStandardRatePerKg(normalizePositiveValue(
+                request.getStandardRatePerKg(),
+                existing.getStandardRatePerKg(),
+                "standardRatePerKg"));
+        existing.setExpressMultiplier(normalizePositiveValue(
+                request.getExpressMultiplier(),
+                existing.getExpressMultiplier(),
+                "expressMultiplier"));
+        // Same-day pricing is always fixed as 2x Express.
+        existing.setSameDayMultiplier(2.0);
+        existing.setDistanceSurcharge(normalizeNonNegativeValue(
+                request.getDistanceSurcharge(),
+                existing.getDistanceSurcharge(),
+                "distanceSurcharge"));
+        existing.setFuelSurchargePct(normalizeNonNegativeValue(
+                request.getFuelSurchargePct(),
+                existing.getFuelSurchargePct(),
+                "fuelSurchargePct"));
+        existing.setGstPct(normalizeNonNegativeValue(
+                request.getGstPct(),
+                existing.getGstPct(),
+                "gstPct"));
+        existing.setCodHandlingFee(normalizeNonNegativeValue(
+                request.getCodHandlingFee(),
+                existing.getCodHandlingFee(),
+                "codHandlingFee"));
+
+        PricingConfig saved = pricingConfigRepository.save(existing);
+        return toPricingConfigDto(saved);
     }
 
     private RateCalculationResponse calculateRateFromInputs(double weight,
                                                             String serviceType,
                                                             String originPincode,
-                                                            String destinationPincode) {
-        double baseRate = weight * 80;
-        if (hasText(serviceType) && "Express".equalsIgnoreCase(serviceType)) {
-            baseRate += 60;
-        }
+                                                            String destinationPincode,
+                                                            String paymentMethod) {
+        PricingConfig pricing = getEffectivePricingConfig();
+        String normalizedServiceType = normalizeServiceType(serviceType);
+        double baseRate = Math.max(weight, 0) * pricing.getStandardRatePerKg();
 
         if (hasText(originPincode) && hasText(destinationPincode)) {
             if (!originPincode.substring(0, Math.min(2, originPincode.length()))
                     .equals(destinationPincode.substring(0, Math.min(2, destinationPincode.length())))) {
-                baseRate += 40;
+                baseRate += pricing.getDistanceSurcharge();
             }
         }
 
-        double fuelSurcharge = Math.round(baseRate * 0.09 * 100.0) / 100.0;
-        double gst = Math.round(baseRate * 0.05 * 100.0) / 100.0;
-        double total = Math.round((baseRate + fuelSurcharge + gst) * 100.0) / 100.0;
+        if ("EXPRESS".equals(normalizedServiceType)) {
+            baseRate *= pricing.getExpressMultiplier();
+        } else if ("SAME_DAY".equals(normalizedServiceType)) {
+            baseRate *= (pricing.getExpressMultiplier() * pricing.getSameDayMultiplier());
+        }
 
-        int etaDays = hasText(serviceType) && "Express".equalsIgnoreCase(serviceType) ? 2 : 4;
+        double fuelSurcharge = (baseRate * pricing.getFuelSurchargePct()) / 100.0;
+        double gst = (baseRate * pricing.getGstPct()) / 100.0;
+        double codHandlingFee = isCodPaymentMethod(paymentMethod) ? pricing.getCodHandlingFee() : 0.0;
+        double total = baseRate + fuelSurcharge + gst + codHandlingFee;
+
+        int etaDays = switch (normalizedServiceType) {
+            case "SAME_DAY" -> 1;
+            case "EXPRESS" -> 2;
+            default -> 4;
+        };
 
         return RateCalculationResponse.builder()
-                .baseRate(Math.round(baseRate * 100.0) / 100.0)
-                .fuelSurcharge(fuelSurcharge)
-                .gst(gst)
-                .totalCost(total)
+                .baseRate(roundToRupee(baseRate))
+                .fuelSurcharge(roundToRupee(fuelSurcharge))
+                .gst(roundToRupee(gst))
+                .totalCost(roundToRupee(total))
                 .estimatedDeliveryDays(etaDays)
                 .build();
     }
@@ -346,8 +451,28 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (request.getPackageDetails().getWeight() <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "packageDetails.weight must be greater than 0");
         }
+        if (!hasText(request.getServiceType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "serviceType is required");
+        }
+        if (!hasText(request.getPaymentMethod())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "paymentMethod is required");
+        }
         if (request.getQuotedCost() != null && request.getQuotedCost() < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quotedCost cannot be negative");
+        }
+        validateAddress("sender", request.getSender());
+        validateAddress("recipient", request.getRecipient());
+
+        String senderPhone = request.getSender().getPhone().trim();
+        String recipientPhone = request.getRecipient().getPhone().trim();
+        if (senderPhone.equals(recipientPhone)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sender and recipient phone numbers cannot be the same");
+        }
+
+        String senderAddress = normalizeComparableValue(composeFullAddressLine(request.getSender()));
+        String recipientAddress = normalizeComparableValue(composeFullAddressLine(request.getRecipient()));
+        if (senderAddress.equals(recipientAddress)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sender and recipient addresses cannot be the same");
         }
     }
 
@@ -356,7 +481,182 @@ public class ShipmentServiceImpl implements ShipmentService {
             return null;
         }
         String[] parts = address.split(",");
-        return parts[parts.length - 1].trim();
+        for (int index = parts.length - 1; index >= 0; index--) {
+            String candidate = parts[index].trim();
+            if (PINCODE_PATTERN.matcher(candidate).find()) {
+                return candidate.replaceAll("[^0-9]", "").substring(0, 6);
+            }
+            String digits = candidate.replaceAll("[^0-9]", "");
+            if (digits.length() >= 6) {
+                return digits.substring(digits.length() - 6);
+            }
+        }
+
+        String allDigits = address.replaceAll("[^0-9]", "");
+        if (allDigits.length() >= 6) {
+            return allDigits.substring(allDigits.length() - 6);
+        }
+        return null;
+    }
+
+    private PricingConfig getEffectivePricingConfig() {
+        return pricingConfigRepository.findById(DEFAULT_PRICING_CONFIG_ID)
+                .orElseGet(() -> pricingConfigRepository.save(defaultPricingConfig()));
+    }
+
+    private PricingConfig defaultPricingConfig() {
+        return PricingConfig.builder()
+                .id(DEFAULT_PRICING_CONFIG_ID)
+                .standardRatePerKg(80.0)
+                .expressMultiplier(1.75)
+                .sameDayMultiplier(2.0)
+                .distanceSurcharge(40.0)
+                .fuelSurchargePct(9.0)
+                .gstPct(5.0)
+                .codHandlingFee(50.0)
+                .build();
+    }
+
+    private PricingConfigDto toPricingConfigDto(PricingConfig config) {
+        return PricingConfigDto.builder()
+                .standardRatePerKg(config.getStandardRatePerKg())
+                .expressMultiplier(config.getExpressMultiplier())
+                .sameDayMultiplier(config.getSameDayMultiplier())
+                .distanceSurcharge(config.getDistanceSurcharge())
+                .fuelSurchargePct(config.getFuelSurchargePct())
+                .gstPct(config.getGstPct())
+                .codHandlingFee(config.getCodHandlingFee())
+                .build();
+    }
+
+    private void validateAddress(String label, Address address) {
+        if (address == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + " details are required");
+        }
+        normalizeAddress(address);
+        if (!hasText(address.getName())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".name is required");
+        }
+        if (!hasText(address.getPhone())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".phone is required");
+        }
+        String normalizedPhone = address.getPhone().trim();
+        if (!INDIA_PHONE_PATTERN.matcher(normalizedPhone).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".phone must be in +91XXXXXXXXXX format");
+        }
+        if (!hasText(address.getDoorAddress())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".doorAddress is required");
+        }
+        if (!hasText(address.getCity())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".city is required");
+        }
+        if (!hasText(address.getState())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".state is required");
+        }
+        if (!hasText(address.getPincode()) || !address.getPincode().trim().matches("\\d{6}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + ".pincode must be a valid 6-digit number");
+        }
+    }
+
+    private void normalizeAddress(Address address) {
+        if (address == null) return;
+
+        String doorAddress = safeTrim(address.getDoorAddress());
+        String city = safeTrim(address.getCity());
+        String state = safeTrim(address.getState());
+        String pincode = safeTrim(address.getPincode());
+        String legacyAddress = safeTrim(address.getAddress());
+
+        if ((!hasText(doorAddress) || !hasText(city) || !hasText(state) || !hasText(pincode)) && hasText(legacyAddress)) {
+            String[] parts = legacyAddress.split(",");
+            if (!hasText(doorAddress) && parts.length >= 1) {
+                doorAddress = safeTrim(parts[0]);
+            }
+            if (!hasText(city) && parts.length >= 2) {
+                city = safeTrim(parts[parts.length - 3 >= 1 ? parts.length - 3 : 1]);
+            }
+            if (!hasText(state) && parts.length >= 3) {
+                state = safeTrim(parts[parts.length - 2]);
+            }
+            if (!hasText(pincode)) {
+                pincode = extractPincode(legacyAddress);
+            }
+        }
+
+        address.setDoorAddress(doorAddress);
+        address.setCity(city);
+        address.setState(state);
+        address.setPincode(pincode);
+        address.setAddress(composeFullAddressLine(address));
+    }
+
+    private String composeFullAddressLine(Address address) {
+        if (address == null) return "";
+        return String.join(", ",
+                List.of(
+                        safeTrim(address.getDoorAddress()),
+                        safeTrim(address.getCity()),
+                        safeTrim(address.getState()),
+                        safeTrim(address.getPincode())
+                ).stream().filter(this::hasText).toList()
+        );
+    }
+
+    private String resolveAddressPincode(Address address) {
+        String pincode = safeTrim(address != null ? address.getPincode() : null);
+        if (hasText(pincode) && pincode.matches("\\d{6}")) {
+            return pincode;
+        }
+        return extractPincode(address != null ? address.getAddress() : null);
+    }
+
+    private String safeTrim(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String normalizeComparableValue(String value) {
+        return (value == null ? "" : value)
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]", "");
+    }
+
+    private boolean isCodPaymentMethod(String paymentMethod) {
+        if (!hasText(paymentMethod)) return false;
+        String normalized = paymentMethod.trim().toUpperCase(Locale.ROOT);
+        return "COD".equals(normalized) || "CASH".equals(normalized);
+    }
+
+    private String normalizeServiceType(String serviceType) {
+        String normalized = String.valueOf(serviceType)
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replace("-", " ")
+                .replace("_", " ");
+        if ("express".equals(normalized)) return "EXPRESS";
+        if ("same day".equals(normalized) || "sameday".equals(normalized)) return "SAME_DAY";
+        return "STANDARD";
+    }
+
+    private double normalizePositiveValue(Double input, double fallback, String fieldName) {
+        if (input == null) return fallback;
+        if (!Double.isFinite(input) || input <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " must be greater than 0");
+        }
+        return input;
+    }
+
+    private double normalizeNonNegativeValue(Double input, double fallback, String fieldName) {
+        if (input == null) return fallback;
+        if (!Double.isFinite(input) || input < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " cannot be negative");
+        }
+        return input;
+    }
+
+    private double roundToRupee(double value) {
+        if (!Double.isFinite(value)) return 0.0;
+        return (double) Math.round(value);
     }
 
     private boolean hasText(String value) {
@@ -391,5 +691,44 @@ public class ShipmentServiceImpl implements ShipmentService {
             if (i < words.length - 1) builder.append(" ");
         }
         return builder.toString();
+    }
+
+    private boolean isAllowedStatusTransition(String currentStatus, String nextStatus) {
+        String current = canonicalStatus(currentStatus);
+        String next = canonicalStatus(nextStatus);
+        if (!hasText(next)) return false;
+        if (!hasText(current)) return true;
+
+        if ("CANCELLED".equals(next)) {
+            return !"DELIVERED".equals(current) && !"CANCELLED".equals(current);
+        }
+
+        if ("CANCELLED".equals(current) || "DELIVERED".equals(current)) {
+            return false;
+        }
+
+        List<String> allowed = STATUS_TRANSITIONS.getOrDefault(current, List.of());
+        return allowed.contains(next);
+    }
+
+    private String buildTransitionErrorMessage(String currentStatus, String nextStatus) {
+        String current = canonicalStatus(currentStatus);
+        String next = canonicalStatus(nextStatus);
+        if (!hasText(current)) {
+            return "Invalid status transition";
+        }
+        if ("CANCELLED".equals(current) || "DELIVERED".equals(current)) {
+            return "Cannot update shipment from " + currentStatus;
+        }
+        List<String> allowed = STATUS_TRANSITIONS.getOrDefault(current, List.of());
+        if (allowed.isEmpty()) {
+            return "Invalid status transition from " + currentStatus + " to " + nextStatus;
+        }
+        return "Invalid status transition from " + currentStatus + " to " + nextStatus + ". Allowed: " + String.join(", ", allowed);
+    }
+
+    private String canonicalStatus(String status) {
+        if (!hasText(status)) return "";
+        return normalizeStatus(status).toUpperCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 }

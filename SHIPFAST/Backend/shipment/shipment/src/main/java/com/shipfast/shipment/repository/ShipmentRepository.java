@@ -13,6 +13,7 @@ import com.shipfast.shipment.entity.Shipment;
 public interface ShipmentRepository extends MongoRepository<Shipment, String> {
 
     Optional<Shipment> findByTrackingNumber(String trackingNumber);
+    long deleteAllByTrackingNumber(String trackingNumber);
 
     List<Shipment> findByCustomerIdOrderByCreatedAtDesc(String customerId);
 

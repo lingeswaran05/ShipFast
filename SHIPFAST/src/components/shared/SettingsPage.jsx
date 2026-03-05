@@ -6,12 +6,28 @@ import { toast } from 'sonner';
 import { operationsService } from '../../lib/operationsService';
 
 export function SettingsPage() {
-   const { currentUser, shipments, updateProfile, requestRoleUpgrade, roleRequests } = useShipment();
+   const { currentUser, shipments, updateProfile, requestRoleUpgrade, cancelRoleRequest, roleRequests } = useShipment();
   const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
   const normalizeRequestStatus = (value) => {
     const status = String(value || 'PENDING').toUpperCase();
     if (status === 'VERIFIED') return 'APPROVED';
     return status;
+  };
+  const getStableIdentityValues = (user = currentUser) => (
+    [user?.userId, user?.id].map(toIdentityValue).filter(Boolean)
+  );
+  const requestBelongsToCurrentCustomer = (request = {}) => {
+    const stableIds = getStableIdentityValues(currentUser);
+    const requestUserId = toIdentityValue(request?.userId);
+    const requestEmail = toIdentityValue(request?.email);
+    const userEmail = toIdentityValue(currentUser?.email);
+
+    if (stableIds.length > 0) {
+      if (requestUserId) return stableIds.includes(requestUserId);
+      return Boolean(userEmail) && requestEmail === userEmail;
+    }
+
+    return Boolean(userEmail) && requestEmail === userEmail;
   };
   const isPendingRequestStatus = (value) => ['PENDING', 'PENDING_VERIFICATION'].includes(normalizeRequestStatus(value));
   const [isEditing, setIsEditing] = useState(false);
@@ -152,6 +168,24 @@ export function SettingsPage() {
     }));
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, agentInsights.agentId, shipments]);
 
+  const hasProfileRequestSignal = (profile = {}) => {
+    if (!profile) return false;
+    const hasDocs = Boolean(
+      profile.profileImage ||
+      profile.aadharCopy ||
+      profile.licenseCopy ||
+      profile.rcBookCopy
+    );
+    const hasDetails = Boolean(
+      profile.licenseNumber ||
+      profile.aadharNumber ||
+      profile.vehicleNumber ||
+      profile.rcBookNumber
+    );
+    const hasNotes = Boolean(String(profile.verificationNotes || '').trim());
+    return hasDocs || hasDetails || hasNotes;
+  };
+
   useEffect(() => {
     if (currentUser?.role !== 'customer') {
       setBackendRoleRequest(null);
@@ -167,6 +201,18 @@ export function SettingsPage() {
       return;
     }
 
+    // Only infer backend request state when there is an actual local request record
+    // for this customer. This prevents old/ex-agent profiles from showing
+    // "approved" to customers who never submitted a request.
+    const hasLocalRequest = (roleRequests || []).some((request) => {
+      return requestBelongsToCurrentCustomer(request);
+    });
+
+    if (!hasLocalRequest) {
+      setBackendRoleRequest(null);
+      return;
+    }
+
     let cancelled = false;
     const loadRoleRequestStatus = async () => {
       try {
@@ -178,7 +224,9 @@ export function SettingsPage() {
         );
         if (cancelled) return;
 
-        const availableProfiles = profileResults.filter(Boolean);
+        const availableProfiles = profileResults
+          .filter(Boolean)
+          .filter((item) => hasProfileRequestSignal(item.profile));
         if (availableProfiles.length === 0) {
           setBackendRoleRequest(null);
           return;
@@ -226,10 +274,16 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, currentUser?.name]);
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, currentUser?.name, roleRequests]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    if (name === 'phone') {
+      const digitsOnly = String(value || '').replace(/\D/g, '').slice(0, 10);
+      setFormData({ ...formData, [name]: digitsOnly });
+      return;
+    }
+    setFormData({ ...formData, [name]: value });
   };
 
   const convertFileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -266,6 +320,12 @@ export function SettingsPage() {
    const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+
+      if (formData.phone && !/^\d{10}$/.test(String(formData.phone))) {
+        toast.error('Phone number must be exactly 10 digits');
+        setIsLoading(false);
+        return;
+      }
 
       try {
          await updateProfile({
@@ -320,31 +380,15 @@ export function SettingsPage() {
     setShowPhotoOptions(false);
   };
 
-   const customerIdentityValues = useMemo(
-      () => [
-        currentUser?.userId,
-        currentUser?.id,
-        currentUser?.email
-      ].map(toIdentityValue).filter(Boolean),
-      [currentUser?.userId, currentUser?.id, currentUser?.email]
-   );
-
-   const myLocalRoleRequests = useMemo(() => (
+  const myLocalRoleRequests = useMemo(() => (
       (roleRequests || [])
-        .filter((request) => {
-          const requestIdentities = [
-            request?.userId,
-            request?.email,
-            request?.id
-          ].map(toIdentityValue).filter(Boolean);
-          return requestIdentities.some((identity) => customerIdentityValues.includes(identity));
-        })
+        .filter((request) => requestBelongsToCurrentCustomer(request))
         .sort((a, b) => {
           const aTime = new Date(a?.reviewedAt || a?.createdAt || 0).getTime();
           const bTime = new Date(b?.reviewedAt || b?.createdAt || 0).getTime();
           return bTime - aTime;
         })
-   ), [roleRequests, customerIdentityValues]);
+   ), [roleRequests, currentUser?.userId, currentUser?.id, currentUser?.email]);
 
    const latestLocalRoleRequest = myLocalRoleRequests[0] || null;
    const latestRoleRequest = useMemo(() => {
@@ -355,6 +399,10 @@ export function SettingsPage() {
       const backendStatus = normalizeRequestStatus(backendRoleRequest?.status);
       const localTime = new Date(latestLocalRoleRequest?.reviewedAt || latestLocalRoleRequest?.createdAt || 0).getTime();
       const backendTime = new Date(backendRoleRequest?.reviewedAt || backendRoleRequest?.createdAt || 0).getTime();
+
+      if (backendStatus === 'APPROVED') {
+        return { ...latestLocalRoleRequest, ...backendRoleRequest };
+      }
 
       if (['REJECTED', 'APPROVED'].includes(backendStatus) && isPendingRequestStatus(localStatus)) {
         return { ...latestLocalRoleRequest, ...backendRoleRequest };
@@ -387,6 +435,10 @@ export function SettingsPage() {
       );
       if (!hasMandatoryDetails) {
         toast.error('Please complete all mandatory details before submitting request');
+        return;
+      }
+      if (!/^\d{12}$/.test(String(requestDetails.aadharNumber || ''))) {
+        toast.error('Aadhaar number must be exactly 12 digits');
         return;
       }
       if (!hasMandatoryDocs) {
@@ -427,6 +479,15 @@ export function SettingsPage() {
       }
    };
    const isVerifiedAgent = currentUser?.role === 'agent' && String(agentProfile.verificationStatus || '').toUpperCase() === 'VERIFIED';
+   const handleCancelRequest = async () => {
+     if (!myPendingRoleRequest) return;
+     try {
+       await cancelRoleRequest(myPendingRoleRequest);
+       toast.success('Request cancelled. You can submit a new request now.');
+     } catch (error) {
+       toast.error(error.message || 'Failed to cancel request');
+     }
+   };
 
 
   return (
@@ -546,6 +607,9 @@ export function SettingsPage() {
                            name="phone"
                            value={formData.phone}
                            onChange={handleChange}
+                          inputMode="numeric"
+                          pattern="\\d{10}"
+                          maxLength={10}
                            disabled={!isEditing}
                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-slate-900 ${!isEditing ? 'bg-slate-50 border-slate-100 text-slate-500' : 'border-slate-200 bg-white'}`}
                            placeholder="+91"
@@ -732,23 +796,43 @@ export function SettingsPage() {
                          ? 'border-amber-200 bg-amber-50 text-amber-800'
                          : latestRoleRequestStatus === 'REJECTED'
                            ? 'border-red-200 bg-red-50 text-red-700'
-                           : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                           : latestRoleRequestStatus === 'CANCELLED'
+                             ? 'border-slate-200 bg-slate-50 text-slate-600'
+                             : 'border-emerald-200 bg-emerald-50 text-emerald-700'
                      }`}>
                         <div className="font-semibold">
                           {myPendingRoleRequest
                             ? 'Your request is pending admin approval.'
                             : latestRoleRequestStatus === 'REJECTED'
                               ? 'Your request was rejected by admin.'
-                              : 'Your request was approved by admin.'}
+                              : latestRoleRequestStatus === 'CANCELLED'
+                                ? 'Your request was cancelled.'
+                                : 'Your request was approved by admin.'}
                         </div>
                         {latestRoleRequest?.reviewedAt && !myPendingRoleRequest && (
                           <div className="mt-1 text-xs opacity-90">
                             Reviewed on {new Date(latestRoleRequest.reviewedAt).toLocaleString()}
                           </div>
                         )}
+                        {myPendingRoleRequest && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCancelRequest}
+                              className="px-3 py-1.5 rounded-md text-xs font-semibold border border-amber-200 bg-white text-amber-700 hover:bg-amber-100 transition-colors"
+                            >
+                              Cancel Request
+                            </button>
+                          </div>
+                        )}
                         {latestRoleRequestStatus === 'REJECTED' && (
                           <div className="mt-1 text-xs opacity-90">
                             You can update details and submit a new request.
+                          </div>
+                        )}
+                        {latestRoleRequestStatus === 'CANCELLED' && (
+                          <div className="mt-1 text-xs opacity-90">
+                            You can submit a new request anytime.
                           </div>
                         )}
                         {latestRoleRequestStatus === 'APPROVED' && (
@@ -790,7 +874,13 @@ export function SettingsPage() {
                               <label className="text-sm font-medium text-slate-700">Aadhaar Number</label>
                               <input
                                  value={requestDetails.aadharNumber}
-                                 onChange={(e) => setRequestDetails((prev) => ({ ...prev, aadharNumber: e.target.value }))}
+                                onChange={(e) => {
+                                  const digitsOnly = String(e.target.value || '').replace(/\D/g, '').slice(0, 12);
+                                  setRequestDetails((prev) => ({ ...prev, aadharNumber: digitsOnly }));
+                                }}
+                                inputMode="numeric"
+                                pattern="\\d{12}"
+                                maxLength={12}
                                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                  placeholder="Aadhaar number"
                               />

@@ -6,11 +6,12 @@ import { useNavigate } from 'react-router-dom';
 import logoImage from '../../assets/logo.png';
 
 export function TopNavbar({ user, isSidebarOpen }) {
-  const { getRoleNotifications, dismissNotification } = useShipment();
+  const { getRoleNotifications, dismissNotification, activeRole, switchActiveRole } = useShipment();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
   const notificationsDropdownRef = useRef(null);
-  const notifications = getRoleNotifications(user?.role);
+  const effectiveRole = activeRole || user?.role;
+  const notifications = getRoleNotifications(effectiveRole);
   const visibleNotifications = showAllNotifications ? notifications : notifications.slice(0, 5);
   const navigate = useNavigate();
 
@@ -45,8 +46,15 @@ export function TopNavbar({ user, isSidebarOpen }) {
 
   const handleProfileClick = () => {
     if (user?.role === 'admin') navigate('/admin/settings');
-    else if (user?.role === 'agent') navigate('/agent/settings');
+    else if (effectiveRole === 'agent') navigate('/agent/settings');
     else navigate('/dashboard/settings');
+  };
+
+  const handleRoleToggle = () => {
+    if (user?.role !== 'agent') return;
+    const nextRole = effectiveRole === 'agent' ? 'customer' : 'agent';
+    switchActiveRole(nextRole);
+    navigate(nextRole === 'agent' ? '/agent' : '/dashboard');
   };
 
   return (
@@ -64,6 +72,15 @@ export function TopNavbar({ user, isSidebarOpen }) {
 
       {/* Right side - Notifications & Profile */}
        <div className="flex items-center gap-4 ml-auto">
+          {user?.role === 'agent' && (
+            <button
+              type="button"
+              onClick={handleRoleToggle}
+              className="px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Switch to {effectiveRole === 'agent' ? 'Customer' : 'Agent'}
+            </button>
+          )}
           <div className="relative" ref={notificationsDropdownRef}>
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
@@ -120,7 +137,7 @@ export function TopNavbar({ user, isSidebarOpen }) {
           >
              <div className="text-right hidden sm:block">
                <div className="text-sm font-bold text-slate-900 leading-tight group-hover:text-purple-600 transition-colors">{user?.name}</div>
-               <div className="text-xs text-slate-500 font-medium capitalize">{user?.role}</div>
+               <div className="text-xs text-slate-500 font-medium capitalize">{effectiveRole}</div>
              </div>
              {user?.profilePic ? (
                <img

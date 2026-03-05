@@ -20,25 +20,53 @@ export function RegistrationPage() {
     pincode: '',
   });
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const getPasswordChecklist = (password) => {
+    const value = String(password || '');
+    return [
+      { key: 'length', label: 'Minimum 8 characters', valid: value.length >= 8 },
+      { key: 'upper', label: 'At least one uppercase letter', valid: /[A-Z]/.test(value) },
+      { key: 'lower', label: 'At least one lowercase letter', valid: /[a-z]/.test(value) },
+      { key: 'number', label: 'At least one number', valid: /[0-9]/.test(value) },
+      { key: 'special', label: 'At least one special symbol (@#$%^&+=!)', valid: /[@#$%^&+=!]/.test(value) },
+      { key: 'spaces', label: 'No spaces', valid: !/\s/.test(value) }
+    ];
+  };
+
+  const getPasswordErrors = (password, confirmPassword, enforceRequired = false) => {
+    const nextErrors = {};
+    const safePassword = String(password || '');
+    const safeConfirm = String(confirmPassword || '');
+    const failedRule = getPasswordChecklist(safePassword).find((item) => !item.valid);
+
+    if ((enforceRequired || safePassword.length > 0) && failedRule) {
+      nextErrors.password = failedRule.label;
+    }
+    if (enforceRequired && !safeConfirm) {
+      nextErrors.confirmPassword = 'Please confirm your password';
+    }
+    if (safeConfirm && safePassword !== safeConfirm) {
+      nextErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    return nextErrors;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setFieldErrors({});
     setIsLoading(true);
 
-    // Validation
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      setIsLoading(false);
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
+    const passwordErrors = getPasswordErrors(formData.password, formData.confirmPassword, true);
+    if (Object.keys(passwordErrors).length > 0) {
+      setFieldErrors((prev) => ({ ...prev, ...passwordErrors }));
+      setError(passwordErrors.confirmPassword || passwordErrors.password);
       setIsLoading(false);
       return;
     }
@@ -64,8 +92,8 @@ export function RegistrationPage() {
 
       setSuccess(true);
       setTimeout(() => {
-        navigate('/dashboard');
-      }, 1500);
+        navigate('/login', { replace: true });
+      }, 1400);
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -74,10 +102,33 @@ export function RegistrationPage() {
   };
 
   const handleChange = (e) => {
-    setFormData({
+    const { name, value } = e.target;
+    const nextFormData = {
       ...formData,
-      [e.target.name]: e.target.value,
+      [name]: value
+    };
+    setFormData({
+      ...nextFormData
     });
+
+    if (name === 'password' || name === 'confirmPassword') {
+      const passwordErrors = getPasswordErrors(nextFormData.password, nextFormData.confirmPassword);
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next.password;
+        delete next.confirmPassword;
+        return { ...next, ...passwordErrors };
+      });
+    } else {
+      setFieldErrors((prev) => {
+        if (!prev[name]) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+
+    if (error) setError('');
   };
 
   const handleBackToLogin = () => {
@@ -103,7 +154,7 @@ export function RegistrationPage() {
               <Shield className="w-12 h-12 text-white" />
             </div>
             <h2 className="text-3xl font-black text-slate-900">Account Created!</h2>
-            <p className="text-lg text-slate-600">Welcome to ShipFast! Redirecting to your dashboard...</p>
+            <p className="text-lg text-slate-600">Registration complete. Redirecting to login page...</p>
           </div>
         </div>
       </div>
@@ -111,7 +162,7 @@ export function RegistrationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#6366f1] via-[#8b5cf6] to-[#d946ef] flex items-center justify-center p-6 relative overflow-hidden transition-colors duration-500 max-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-[#6366f1] via-[#8b5cf6] to-[#d946ef] flex items-start lg:items-center justify-center p-4 sm:p-6 relative overflow-hidden overflow-y-auto transition-colors duration-500">
       
       {/* Animated Background Pattern */}
       <div className="absolute inset-0 opacity-10">
@@ -124,9 +175,9 @@ export function RegistrationPage() {
       <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-pulse" />
       <div className="absolute bottom-20 right-20 w-96 h-96 bg-white/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
       
-      <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-12 items-center relative z-10">
+      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start lg:items-center relative z-10 py-4">
         {/* Left Side - Branding */}
-        <div className="text-white space-y-8 animate-fade-in-up">
+        <div className="text-white space-y-8 animate-fade-in-up order-1">
           <div className="mb-6">
             <Logo className="text-white" />
           </div>
@@ -164,7 +215,7 @@ export function RegistrationPage() {
         </div>
 
         {/* Right Side - Registration Form */}
-        <div className="bg-white rounded-3xl shadow-2xl p-10 animate-slide-in-right max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-10 animate-slide-in-right order-2 lg:max-h-[90vh] lg:overflow-y-auto scrollbar-hide">
           <div className="space-y-6">
             <div className="text-center">
               <div className="inline-block mb-4 px-4 py-1.5 bg-indigo-50 rounded-full">
@@ -194,7 +245,7 @@ export function RegistrationPage() {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  placeholder="Enter your full name"
+                  placeholder="Nivetha Rajalakshmi"
                   className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                   required
                 />
@@ -210,7 +261,7 @@ export function RegistrationPage() {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="your.email@example.com"
+                  placeholder="arulmozhi.madurai@example.in"
                   className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                   required
                 />
@@ -244,8 +295,12 @@ export function RegistrationPage() {
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
-                      placeholder="Min 6 characters"
-                      className="w-full px-4 py-3 pr-12 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
+                      placeholder="Min 8 chars, Aa1@"
+                      className={`w-full px-4 py-3 pr-12 border-2 rounded-xl focus:outline-none focus:ring-2 transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400 ${
+                        fieldErrors.password
+                          ? 'border-red-300 focus:ring-red-200 focus:border-red-400'
+                          : 'border-slate-200 focus:ring-blue-500 focus:border-transparent'
+                      }`}
                       required
                     />
                     <button
@@ -256,6 +311,16 @@ export function RegistrationPage() {
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
+                  </div>
+                  {fieldErrors.password && (
+                    <p className="text-xs font-medium text-red-600">{fieldErrors.password}</p>
+                  )}
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
+                    {getPasswordChecklist(formData.password).map((rule) => (
+                      <div key={rule.key} className={`text-[11px] ${rule.valid ? 'text-green-700' : 'text-slate-500'}`}>
+                        {rule.valid ? '✓' : '•'} {rule.label}
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -271,7 +336,11 @@ export function RegistrationPage() {
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Re-enter password"
-                      className="w-full px-4 py-3 pr-12 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
+                      className={`w-full px-4 py-3 pr-12 border-2 rounded-xl focus:outline-none focus:ring-2 transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400 ${
+                        fieldErrors.confirmPassword
+                          ? 'border-red-300 focus:ring-red-200 focus:border-red-400'
+                          : 'border-slate-200 focus:ring-blue-500 focus:border-transparent'
+                      }`}
                       required
                     />
                     <button
@@ -283,6 +352,9 @@ export function RegistrationPage() {
                       {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
+                  {fieldErrors.confirmPassword && (
+                    <p className="text-xs font-medium text-red-600">{fieldErrors.confirmPassword}</p>
+                  )}
                 </div>
               </div>
 
@@ -296,7 +368,7 @@ export function RegistrationPage() {
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
-                  placeholder="Street address"
+                  placeholder="12, South Masi Street"
                   className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                 />
               </div>
@@ -309,7 +381,7 @@ export function RegistrationPage() {
                     name="city"
                     value={formData.city}
                     onChange={handleChange}
-                    placeholder="City"
+                    placeholder="Madurai"
                     className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                   />
                 </div>
@@ -321,7 +393,7 @@ export function RegistrationPage() {
                     name="state"
                     value={formData.state}
                     onChange={handleChange}
-                    placeholder="State"
+                    placeholder="Tamil Nadu"
                     className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                   />
                 </div>
@@ -333,7 +405,7 @@ export function RegistrationPage() {
                     name="pincode"
                     value={formData.pincode}
                     onChange={handleChange}
-                    placeholder="PIN"
+                    placeholder="625001"
                     className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-slate-50 hover:bg-white text-slate-900 placeholder-slate-400"
                   />
                 </div>

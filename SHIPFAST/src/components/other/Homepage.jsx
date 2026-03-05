@@ -7,7 +7,8 @@ import { useShipment } from '../../context/ShipmentContext';
 
 export function Homepage() {
   const navigate = useNavigate();
-  const { currentUser } = useShipment();
+  const { currentUser, activeRole } = useShipment();
+  const effectiveRole = activeRole || currentUser?.role;
 
   const handleSignIn = () => {
     navigate('/login');
@@ -40,7 +41,7 @@ export function Homepage() {
               </Button>
               {currentUser ? (
                 <div 
-                   onClick={() => navigate(currentUser.role === 'admin' ? '/admin' : currentUser.role === 'agent' ? '/agent' : '/dashboard')}
+                   onClick={() => navigate(effectiveRole === 'admin' ? '/admin' : effectiveRole === 'agent' ? '/agent' : '/dashboard')}
                    className="flex items-center gap-3 bg-white/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/50 cursor-pointer hover:bg-white/80 transition-colors"
                 >
                    {currentUser.profilePic ? (

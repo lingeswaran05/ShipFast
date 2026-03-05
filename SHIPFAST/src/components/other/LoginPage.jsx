@@ -34,35 +34,35 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #020617, #0b1a3a, #1e3a8a, #312e81)' }}>
+    <div className="min-h-screen relative overflow-hidden overflow-y-auto p-4 sm:p-6" style={{ background: 'linear-gradient(135deg, #020617, #0b1a3a, #1e3a8a, #312e81)' }}>
       {/* Background Plus Pattern */}
       <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
       }}></div>
 
-      <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-12 items-center relative z-10">
+      <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start lg:items-center relative z-10 py-4">
         
         {/* Left Side - Visuals (Text overlay) */}
-        <div className="hidden lg:flex flex-col justify-between relative text-white animate-fade-in-up">
+        <div className="flex flex-col justify-between relative text-white animate-fade-in-up order-1">
           <div className="relative z-10">
             <Logo className="mb-10 text-white" />
             
-            <h2 className="text-5xl font-bold leading-tight mb-6">
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold leading-tight mb-6">
               Welcome to the <br/>
               Future of <span className="text-blue-400">Logistics</span>
             </h2>
-            <p className="text-indigo-100 text-lg leading-relaxed mb-10 max-w-lg">
+            <p className="text-indigo-100 text-base sm:text-lg leading-relaxed mb-8 lg:mb-10 max-w-lg">
               Sign in to access your personalized dashboard with real-time tracking, instant quotes, and seamless delivery management.
             </p>
 
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
                 {/* Feature 1 */}
                 <div className="bg-white/10 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex items-center gap-5 transition-transform hover:scale-105 duration-300">
                     <div className="bg-blue-500/20 p-3 rounded-xl">
                         <Truck className="w-8 h-8 text-blue-300" />
                     </div>
                     <div>
-                        <h4 className="font-bold text-xl">Real-time Tracking</h4>
+                        <h4 className="font-bold text-lg sm:text-xl">Real-time Tracking</h4>
                         <p className="text-sm text-indigo-100">Live GPS updates & detailed timeline</p>
                     </div>
                 </div>
@@ -73,7 +73,7 @@ export function LoginPage() {
                         <Lock className="w-8 h-8 text-purple-300" />
                     </div>
                     <div>
-                        <h4 className="font-bold text-xl">Secure Authentication</h4>
+                        <h4 className="font-bold text-lg sm:text-xl">Secure Authentication</h4>
                         <p className="text-sm text-indigo-100">JWT-based role-based access control</p>
                     </div>
                 </div>
@@ -84,7 +84,7 @@ export function LoginPage() {
                         <Zap className="w-8 h-8 text-orange-300" />
                     </div>
                     <div>
-                        <h4 className="font-bold text-xl">Lightning Fast</h4>
+                        <h4 className="font-bold text-lg sm:text-xl">Lightning Fast</h4>
                         <p className="text-sm text-indigo-100">Express delivery within 24-48 hours</p>
                     </div>
                 </div>
@@ -101,7 +101,7 @@ export function LoginPage() {
         </div>
 
         {/* Right Side - Login Form */}
-        <div className="bg-white rounded-3xl shadow-2xl p-10 animate-slide-in-right">
+        <div className="order-2 bg-white rounded-3xl shadow-2xl p-6 sm:p-10 animate-slide-in-right">
           <div className="w-full">
             <div className="text-center mb-8">
                <span className="inline-block px-4 py-1.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-bold tracking-wider mb-4 uppercase">
@@ -129,7 +129,7 @@ export function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none font-medium text-slate-900 placeholder:text-slate-400"
-                    placeholder="name@company.com"
+                    placeholder="karthika.selvan@example.in"
                     required
                 />
               </div>

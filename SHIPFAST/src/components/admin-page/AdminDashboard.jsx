@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, Briefcase, MapPin, DollarSign, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
+import { Building2, Briefcase, MapPin, IndianRupee, Truck, TrendingUp, Users, Package, Activity, X, Plus, Edit, FileText, Upload, Download, Eye, ChevronRight, Trash2, Camera, Save, XCircle } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { SectionDownloader } from '../shared/SectionDownloader';
 import { ConfirmationModal } from '../shared/ConfirmationModal';
@@ -8,6 +8,7 @@ import { AdminTicketsPanel } from './AdminTicketsPanel';
 import { toast } from 'sonner';
 import { reportingService } from '../../lib/reportingService';
 import { operationsService } from '../../lib/operationsService';
+import { roleService } from '../../lib/roleService';
 import { shipmentService } from '../../lib/shipmentService';
 
 export function AdminDashboard({ view }) {
@@ -36,7 +37,6 @@ export function AdminDashboard({ view }) {
         removeStaff,
         addStaff,
         approveRoleRequest,
-        markRoleRequestPending,
         rejectRoleRequest,
         updateUserRole,
         removeUserAccess,
@@ -48,9 +48,19 @@ export function AdminDashboard({ view }) {
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
-    const [isPricingEditing, setIsPricingEditing] = useState(false);
-    const [profitDraft, setProfitDraft] = useState(String(pricingConfig?.profitPercentage ?? 20));
-    const [reportSummary, setReportSummary] = useState(null);
+  const [isPricingEditing, setIsPricingEditing] = useState(false);
+  const [isPricingSaving, setIsPricingSaving] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState({
+    profitPercentage: Number(pricingConfig?.profitPercentage ?? 20),
+    standardRatePerKg: Number(pricingConfig?.standardRatePerKg ?? 80),
+    expressMultiplier: Number(pricingConfig?.expressMultiplier ?? 1.75),
+    sameDayMultiplier: 2,
+    distanceSurcharge: Number(pricingConfig?.distanceSurcharge ?? 40),
+    fuelSurchargePct: Number(pricingConfig?.fuelSurchargePct ?? 9),
+    gstPct: Number(pricingConfig?.gstPct ?? 5),
+    codHandlingFee: Number(pricingConfig?.codHandlingFee ?? 50)
+  });
+  const [reportSummary, setReportSummary] = useState(null);
   
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, type: '', id: null, title: '', message: '' });
 
@@ -110,6 +120,23 @@ export function AdminDashboard({ view }) {
   }, [view, location.state, contextBranches, navigate, location.pathname]);
 
   const getAgentKey = (agent = {}) => agent.userId || agent.id || agent.email;
+  const hasProfileRequestSignal = (profile = {}) => {
+    if (!profile) return false;
+    const hasDocs = Boolean(
+      profile.profileImage ||
+      profile.aadharCopy ||
+      profile.licenseCopy ||
+      profile.rcBookCopy
+    );
+    const hasDetails = Boolean(
+      profile.licenseNumber ||
+      profile.aadharNumber ||
+      profile.vehicleNumber ||
+      profile.rcBookNumber
+    );
+    const hasNotes = Boolean(String(profile.verificationNotes || '').trim());
+    return hasDocs || hasDetails || hasNotes;
+  };
   const matchesRequestIdentity = (request, identity) => {
     const normalized = String(identity || '').trim().toLowerCase();
     if (!normalized) return false;
@@ -262,93 +289,87 @@ export function AdminDashboard({ view }) {
   }, [view, users]);
 
   useEffect(() => {
-    setProfitDraft(String(pricingConfig?.profitPercentage ?? 20));
-  }, [pricingConfig?.profitPercentage]);
+    setPricingDraft({
+      profitPercentage: Number(pricingConfig?.profitPercentage ?? 20),
+      standardRatePerKg: Number(pricingConfig?.standardRatePerKg ?? 80),
+      expressMultiplier: Number(pricingConfig?.expressMultiplier ?? 1.75),
+      sameDayMultiplier: 2,
+      distanceSurcharge: Number(pricingConfig?.distanceSurcharge ?? 40),
+      fuelSurchargePct: Number(pricingConfig?.fuelSurchargePct ?? 9),
+      gstPct: Number(pricingConfig?.gstPct ?? 5),
+      codHandlingFee: Number(pricingConfig?.codHandlingFee ?? 50)
+    });
+  }, [
+    pricingConfig?.profitPercentage,
+    pricingConfig?.standardRatePerKg,
+    pricingConfig?.expressMultiplier,
+    pricingConfig?.distanceSurcharge,
+    pricingConfig?.fuelSurchargePct,
+    pricingConfig?.gstPct,
+    pricingConfig?.codHandlingFee
+  ]);
 
   useEffect(() => {
     if (view !== 'staff') return;
 
     let cancelled = false;
     const loadBackendPendingRequests = async () => {
-      const candidates = (users || []).filter((user) => {
-        const role = String(user?.role || '').toLowerCase();
-        return role === 'customer' || role === 'agent';
-      });
-      const identityCandidates = new Set(
-        candidates
-          .map((user) => user?.userId || user?.id || user?.email)
-          .filter(Boolean)
-          .map((value) => String(value).trim())
-      );
+      const normalize = (value) => String(value || '').trim();
+      const normalizeRole = (value) => String(value || 'agent').toLowerCase();
+      const normalizeStatus = (value) => String(value || 'PENDING').toUpperCase();
 
+      let pendingRequests = [];
       try {
-        const pendingProfiles = await operationsService.getAgents();
-        (pendingProfiles || []).forEach((profile) => {
-          const identity = String(profile?.userId || '').trim();
-          if (identity) identityCandidates.add(identity);
-        });
+        const payload = await roleService.getPendingRequests();
+        if (Array.isArray(payload)) pendingRequests = payload;
+        else if (Array.isArray(payload?.requests)) pendingRequests = payload.requests;
+        else if (Array.isArray(payload?.content)) pendingRequests = payload.content;
       } catch {
-        // non-blocking: fallback to user list scan only
+        pendingRequests = [];
       }
 
       const checks = await Promise.allSettled(
-        [...identityCandidates].map(async (identity) => {
-          const normalizedIdentity = String(identity || '').trim().toLowerCase();
-          if (!normalizedIdentity) return null;
-
-          const user = (candidates || []).find((entry) => (
-            [entry?.userId, entry?.id, entry?.email]
-              .filter(Boolean)
-              .map((value) => String(value).trim().toLowerCase())
-              .includes(normalizedIdentity)
-          )) || null;
+        (pendingRequests || []).map(async (request) => {
+          const requestId = request?.id || request?.requestId || request?._id;
+          const userId = request?.userId || request?.user?.userId || request?.user?.id || request?.user?.email;
+          const email = request?.email || request?.user?.email || '';
+          const name = request?.name || request?.user?.name || request?.user?.fullName || email || userId || 'User';
+          const identity = normalize(userId || email || requestId);
+          if (!identity) return null;
 
           const profile = await operationsService.getAgentProfile(identity);
-          if (!profile) return null;
-
-          const verificationStatus = String(profile.verificationStatus || '').toUpperCase();
-          if (!['PENDING', 'PENDING_VERIFICATION'].includes(verificationStatus)) return null;
-
-          if (String(user?.role || '').toLowerCase() === 'agent') return null;
-
-          const localDocs = getLocalAgentDocs(user || { userId: profile.userId || identity, email: user?.email || '' });
-          const linkedRequest = (roleRequests || []).find((request) => (
-            matchesRequestIdentity(request, identity) ||
-            matchesRequestIdentity(request, profile?.userId) ||
-            matchesRequestIdentity(request, user?.email) ||
-            matchesRequestIdentity(request, user?.userId)
-          )) || null;
+          const localDocs = getLocalAgentDocs({ userId: identity, email });
 
           return {
-            id: linkedRequest?.id || `backend-${profile.userId || identity}`,
-            userId: user?.userId || user?.id || profile.userId || identity,
-            email: user?.email || linkedRequest?.email || '',
-            name: user?.name || user?.fullName || linkedRequest?.name || user?.email || profile.userId || identity,
-            currentRole: String(user?.role || linkedRequest?.currentRole || 'customer').toLowerCase(),
-            requestedRole: String(linkedRequest?.requestedRole || 'agent').toLowerCase(),
-            reason: linkedRequest?.reason || profile.verificationNotes || '',
+            id: requestId || `backend-${identity}`,
+            userId: userId || identity,
+            email,
+            name,
+            currentRole: normalizeRole(request?.currentRole || request?.role || 'customer'),
+            requestedRole: normalizeRole(request?.requestedRole || request?.roleRequested || 'agent'),
+            reason: request?.reason || request?.notes || profile?.verificationNotes || '',
             agentDetails: {
-              licenseNumber: profile.licenseNumber || linkedRequest?.agentDetails?.licenseNumber || '',
-              aadharNumber: profile.aadharNumber || linkedRequest?.agentDetails?.aadharNumber || '',
-              vehicleNumber: profile.vehicleNumber || linkedRequest?.agentDetails?.vehicleNumber || '',
-              rcBookNumber: profile.rcBookNumber || linkedRequest?.agentDetails?.rcBookNumber || '',
-              bloodType: profile.bloodType || linkedRequest?.agentDetails?.bloodType || '',
-              organDonor: Boolean(profile.organDonor ?? linkedRequest?.agentDetails?.organDonor),
-              bankAccountHolder: profile.bankAccountHolder || linkedRequest?.agentDetails?.bankAccountHolder || '',
-              bankAccountNumber: profile.bankAccountNumber || linkedRequest?.agentDetails?.bankAccountNumber || '',
-              bankIfsc: profile.bankIfsc || linkedRequest?.agentDetails?.bankIfsc || '',
-              bankName: profile.bankName || linkedRequest?.agentDetails?.bankName || '',
-              shiftTiming: profile.shiftTiming || linkedRequest?.agentDetails?.shiftTiming || 'Day'
+              licenseNumber: request?.agentDetails?.licenseNumber || profile?.licenseNumber || '',
+              aadharNumber: request?.agentDetails?.aadharNumber || profile?.aadharNumber || '',
+              vehicleNumber: request?.agentDetails?.vehicleNumber || profile?.vehicleNumber || '',
+              rcBookNumber: request?.agentDetails?.rcBookNumber || profile?.rcBookNumber || '',
+              bloodType: request?.agentDetails?.bloodType || profile?.bloodType || '',
+              organDonor: Boolean(request?.agentDetails?.organDonor ?? profile?.organDonor),
+              bankAccountHolder: request?.agentDetails?.bankAccountHolder || profile?.bankAccountHolder || '',
+              bankAccountNumber: request?.agentDetails?.bankAccountNumber || profile?.bankAccountNumber || '',
+              bankIfsc: request?.agentDetails?.bankIfsc || profile?.bankIfsc || '',
+              bankName: request?.agentDetails?.bankName || profile?.bankName || '',
+              shiftTiming: request?.agentDetails?.shiftTiming || profile?.shiftTiming || 'Day'
             },
             documents: {
-              profilePhoto: profile.profileImage || localDocs.profilePhoto || linkedRequest?.documents?.profilePhoto || null,
-              aadharCopy: profile.aadharCopy || localDocs.aadharCopy || linkedRequest?.documents?.aadharCopy || null,
-              licenseCopy: profile.licenseCopy || localDocs.licenseCopy || linkedRequest?.documents?.licenseCopy || null,
-              rcBookCopy: profile.rcBookCopy || localDocs.rcBookCopy || linkedRequest?.documents?.rcBookCopy || null
+              profilePhoto: request?.documents?.profilePhoto || profile?.profileImage || localDocs.profilePhoto || null,
+              aadharCopy: request?.documents?.aadharCopy || profile?.aadharCopy || localDocs.aadharCopy || null,
+              licenseCopy: request?.documents?.licenseCopy || profile?.licenseCopy || localDocs.licenseCopy || null,
+              rcBookCopy: request?.documents?.rcBookCopy || profile?.rcBookCopy || localDocs.rcBookCopy || null
             },
-            requestRecord: linkedRequest,
-            status: 'PENDING',
-            createdAt: linkedRequest?.createdAt || profile.joinDate || profile.updatedAt || new Date().toISOString()
+            requestRecord: request,
+            status: normalizeStatus(request?.status || 'PENDING'),
+            createdAt: request?.createdAt || request?.requestedAt || profile?.updatedAt || new Date().toISOString()
           };
         })
       );
@@ -358,12 +379,78 @@ export function AdminDashboard({ view }) {
       const next = checks
         .filter((result) => result.status === 'fulfilled' && result.value)
         .map((result) => result.value);
-      setBackendPendingRequests(next);
+
+      if (next.length > 0) {
+        setBackendPendingRequests(next);
+        return;
+      }
+
+      // Fallback path: derive pending requests from operations profile data
+      // when role request endpoint is unavailable (e.g., 404) or returns empty.
+      const customerCandidates = (users || []).filter((user) => String(user?.role || '').toLowerCase() === 'customer');
+      const profileChecks = await Promise.allSettled(
+        customerCandidates.map(async (user) => {
+          const identities = [user?.userId, user?.id, user?.email]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+          for (const identity of identities) {
+            const profile = await operationsService.getAgentProfile(identity);
+            if (!profile || !hasProfileRequestSignal(profile)) continue;
+
+            const status = normalizeStatus(profile?.verificationStatus || 'PENDING');
+            if (!['PENDING', 'PENDING_VERIFICATION'].includes(status)) continue;
+
+            const localDocs = getLocalAgentDocs({ userId: identity, email: user?.email });
+            return {
+              id: `ops-${identity}`,
+              userId: user?.userId || user?.id || identity,
+              email: user?.email || '',
+              name: user?.name || user?.fullName || user?.email || identity,
+              currentRole: 'customer',
+              requestedRole: 'agent',
+              reason: profile?.verificationNotes || '',
+              agentDetails: {
+                licenseNumber: profile?.licenseNumber || '',
+                aadharNumber: profile?.aadharNumber || '',
+                vehicleNumber: profile?.vehicleNumber || '',
+                rcBookNumber: profile?.rcBookNumber || '',
+                bloodType: profile?.bloodType || '',
+                organDonor: Boolean(profile?.organDonor),
+                bankAccountHolder: profile?.bankAccountHolder || '',
+                bankAccountNumber: profile?.bankAccountNumber || '',
+                bankIfsc: profile?.bankIfsc || '',
+                bankName: profile?.bankName || '',
+                shiftTiming: profile?.shiftTiming || 'Day'
+              },
+              documents: {
+                profilePhoto: profile?.profileImage || localDocs.profilePhoto || null,
+                aadharCopy: profile?.aadharCopy || localDocs.aadharCopy || null,
+                licenseCopy: profile?.licenseCopy || localDocs.licenseCopy || null,
+                rcBookCopy: profile?.rcBookCopy || localDocs.rcBookCopy || null
+              },
+              status,
+              createdAt: profile?.updatedAt || profile?.joinDate || new Date().toISOString()
+            };
+          }
+          return null;
+        })
+      );
+
+      const fallbackPending = profileChecks
+        .filter((result) => result.status === 'fulfilled' && result.value)
+        .map((result) => result.value);
+
+      setBackendPendingRequests(fallbackPending);
     };
 
     loadBackendPendingRequests();
+    const interval = setInterval(() => {
+      loadBackendPendingRequests();
+    }, 10000);
+
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [view, users, roleRequests]);
 
@@ -376,6 +463,36 @@ export function AdminDashboard({ view }) {
   const availableFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase() === 'available').length;
   const transitFleetCount = (contextVehicles || []).filter(v => String(v.status || '').toLowerCase().includes('transit')).length;
   const isStaffRole = (role) => String(role || '').toLowerCase() !== 'customer';
+
+  const handlePricingDraftChange = (field, value) => {
+    const numeric = Number(value);
+    setPricingDraft((prev) => ({
+      ...prev,
+      [field]: Number.isFinite(numeric) ? numeric : 0,
+      ...(field === 'expressMultiplier' ? { sameDayMultiplier: 2 } : {})
+    }));
+  };
+
+  const handlePricingEditToggle = async () => {
+    if (!isPricingEditing) {
+      setIsPricingEditing(true);
+      return;
+    }
+
+    setIsPricingSaving(true);
+    try {
+      await updatePricingConfig({
+        ...pricingDraft,
+        sameDayMultiplier: 2
+      });
+      toast.success('Pricing configuration saved successfully!');
+      setIsPricingEditing(false);
+    } catch (error) {
+      toast.error(error?.message || 'Failed to save pricing configuration');
+    } finally {
+      setIsPricingSaving(false);
+    }
+  };
 
   const filteredBranches = useMemo(() => {
     const query = branchSearch.trim().toLowerCase();
@@ -849,7 +966,8 @@ export function AdminDashboard({ view }) {
                 await operationsService.verifyAgentProfile(requestUserId, {
                   verified: false,
                   verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
-                  verificationNotes: 'Rejected by admin'
+                  verificationNotes: 'Rejected by admin',
+                  verificationStatus: 'REJECTED'
                 });
               } catch {
                 // keep local reject flow even if backend verification update fails
@@ -955,7 +1073,8 @@ export function AdminDashboard({ view }) {
                   <button onClick={() => setIsAgentDetailOpen(false)} className="text-slate-500">
                     <X className="w-5 h-5" />
                   </button>
-                </div>                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
                     <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">License Number</div>
                     <div className="font-semibold text-slate-900">{selectedAgentView?.profile?.licenseNumber || 'N/A'}</div>
@@ -1304,12 +1423,12 @@ export function AdminDashboard({ view }) {
               <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-6 rounded-xl shadow-lg shadow-emerald-500/20">
                 <div className="flex items-center justify-between mb-2">
                   <span className="opacity-80">Lifetime Revenue</span>
-                  <DollarSign className="w-5 h-5 opacity-80" />
+                  <IndianRupee className="w-5 h-5 opacity-80" />
                 </div>
 
 
-                <div className="text-3xl font-bold">₹{totalRevenue.toLocaleString()}</div>
-                <div className="text-emerald-100 text-sm mt-1">{shipments.length} shipments | Profit @ {profitPercentage}%: ₹{Math.round(totalProfit).toLocaleString()}</div>
+                <div className="text-3xl font-bold">Rs {totalRevenue.toLocaleString()}</div>
+                <div className="text-emerald-100 text-sm mt-1">{shipments.length} shipments | Profit @ {profitPercentage}%: Rs {Math.round(totalProfit).toLocaleString()}</div>
               </div>
 
               <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-6 rounded-xl shadow-lg shadow-orange-500/20">
@@ -1388,31 +1507,31 @@ export function AdminDashboard({ view }) {
                         <tbody className="divide-y divide-slate-100">
                             <tr className="hover:bg-slate-50">
                                 <td className="px-6 py-4 font-medium text-slate-900">Total Revenue</td>
-                                <td className="px-6 py-4 text-emerald-600 font-bold">₹{totalRevenue.toLocaleString()}</td>
-                                <td className="px-6 py-4 text-green-600">+12.5%</td>
-                                <td className="px-6 py-4 text-slate-600">₹{(totalRevenue + totalProfit).toLocaleString()}</td>
-                                <td className="px-6 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">On Track</span></td>
+                                <td className="px-6 py-4 text-emerald-600 font-bold">₹{Math.round(totalRevenue).toLocaleString()}</td>
+                                <td className="px-6 py-4 text-slate-500">Live</td>
+                                <td className="px-6 py-4 text-slate-600">₹{Math.round(totalRevenue).toLocaleString()}</td>
+                                <td className="px-6 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Database</span></td>
                             </tr>
                             <tr className="hover:bg-slate-50">
                                 <td className="px-6 py-4 font-medium text-slate-900">Total Shipments</td>
                                 <td className="px-6 py-4 font-bold">{shipments.length}</td>
-                                <td className="px-6 py-4 text-green-600">+8.2%</td>
-                                <td className="px-6 py-4 text-slate-600">2,000</td>
-                                <td className="px-6 py-4"><span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold">Exceeding</span></td>
+                                <td className="px-6 py-4 text-slate-500">Live</td>
+                                <td className="px-6 py-4 text-slate-600">{shipments.length}</td>
+                                <td className="px-6 py-4"><span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold">Database</span></td>
                             </tr>
                             <tr className="hover:bg-slate-50">
                                 <td className="px-6 py-4 font-medium text-slate-900">Total Users</td>
                                 <td className="px-6 py-4 font-bold">{users.length}</td>
-                                <td className="px-6 py-4 text-slate-500">0%</td>
-                                <td className="px-6 py-4 text-slate-600">50</td>
-                                <td className="px-6 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold">Needs Attention</span></td>
+                                <td className="px-6 py-4 text-slate-500">Live</td>
+                                <td className="px-6 py-4 text-slate-600">{users.length}</td>
+                                <td className="px-6 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold">Database</span></td>
                             </tr>
                             <tr className="hover:bg-slate-50">
-                                <td className="px-6 py-4 font-medium text-slate-900">Avg. Delivery Time</td>
-                                <td className="px-6 py-4 font-bold">2.4 Days</td>
-                                <td className="px-6 py-4 text-red-500">-5%</td>
-                                <td className="px-6 py-4 text-slate-600">2.0 Days</td>
-                                <td className="px-6 py-4"><span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">Lagging</span></td>
+                                <td className="px-6 py-4 font-medium text-slate-900">Delivery Success Rate</td>
+                                <td className="px-6 py-4 font-bold">{shipmentKpis.deliveryRate}%</td>
+                                <td className="px-6 py-4 text-slate-500">Live</td>
+                                <td className="px-6 py-4 text-slate-600">100%</td>
+                                <td className="px-6 py-4"><span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">Database</span></td>
                             </tr>
                         </tbody>
                     </table>
@@ -1450,7 +1569,7 @@ export function AdminDashboard({ view }) {
 
         {view === 'branches' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">Branch & Hub Management</h1>
                 <p className="text-slate-600">Manage branch locations and hub hierarchy</p>
@@ -1500,96 +1619,7 @@ export function AdminDashboard({ view }) {
                 <div className="text-2xl font-bold text-amber-600 mt-1">{activeShipmentsCount}</div>
               </div>
             </div>
-            
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-200">
-                            <tr>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Branch Name</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Manager</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {visibleBranches.map(branch => (
-                                <tr key={branch.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-6 py-4 font-medium text-slate-900">
-                                        <div>{branch.name}</div>
-                                        <div className="text-xs text-slate-500">{branch.location || branch.state}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`px-2 py-1 rounded text-xs font-semibold ${branch.type === 'Hub' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
-                                            {branch.type}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-600">{branch.manager || 'N/A'}</td>
-                                    <td className="px-6 py-4 text-slate-600">{branch.contact || 'N/A'}</td>
-                                    <td className="px-6 py-4">
-                                        <select
-                                          value={branch.status || 'Active'}
-                                          onChange={async (e) => {
-                                            const nextStatus = e.target.value;
-                                            try {
-                                              await updateBranchStatus(branch.id || branch.branchId, nextStatus);
-                                              toast.success('Branch status updated');
-                                            } catch (error) {
-                                              toast.error(error.message || 'Failed to update branch status');
-                                            }
-                                          }}
-                                          className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
-                                        >
-                                          <option value="Active">Active</option>
-                                          <option value="Inactive">Inactive</option>
-                                          <option value="Under Maintenance">Under Maintenance</option>
-                                        </select>
-                                    </td>
-                                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openBranchModal(branch);
-                                          }}
-                                          className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                                        >
-                                            <Edit className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch? This action cannot be undone.');
-                                          }}
-                                          className="text-red-500 hover:text-red-700 text-sm font-medium"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                            {filteredBranches.length === 0 && (
-                              <tr>
-                                <td colSpan="6" className="px-6 py-8 text-center text-slate-500">No branches match current filters.</td>
-                              </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {filteredBranches.length > 5 && (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setBranchVisibleCount((prev) => (prev >= filteredBranches.length ? 5 : filteredBranches.length))}
-                  className="px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white hover:bg-slate-50"
-                >
-                  {branchVisibleCount >= filteredBranches.length ? 'Show Less' : `Show More (${filteredBranches.length - branchVisibleCount})`}
-                </button>
-              </div>
-            )}
-          </div>
+             </div>
         )}
 
         {view === 'pricing' && (
@@ -1597,21 +1627,16 @@ export function AdminDashboard({ view }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <h1 className="text-2xl font-bold text-slate-800">Pricing Configuration</h1>
-                    <p className="text-slate-600">Base rates and zone adjustments</p>
+                    <p className="text-slate-600">Live backend pricing used for shipment calculation</p>
                   </div>
                   <button 
-                    onClick={() => {
-                        if (isPricingEditing) {
-                            updatePricingConfig({ profitPercentage: Number(profitDraft) });
-                            toast.success("Pricing configuration saved successfully!");
-                        }
-                        setIsPricingEditing(!isPricingEditing);
-                    }}
-                    className={`px-4 py-2 rounded-lg transition-colors shadow-lg flex items-center gap-2 font-bold ${isPricingEditing ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-500/20' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'}`}
+                    onClick={handlePricingEditToggle}
+                    disabled={isPricingSaving}
+                    className={`px-4 py-2 rounded-lg transition-colors shadow-lg flex items-center gap-2 font-bold disabled:opacity-60 ${isPricingEditing ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-500/20' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'}`}
                   >
                     {isPricingEditing ? (
                         <>
-                            <Save className="w-4 h-4" /> Save Changes
+                            <Save className="w-4 h-4" /> {isPricingSaving ? 'Saving...' : 'Save Changes'}
                         </>
                     ) : (
                         <>
@@ -1622,85 +1647,53 @@ export function AdminDashboard({ view }) {
                 </div>
 
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                  <div className="grid md:grid-cols-3 gap-4 items-end">
-                    <div className="md:col-span-2">
-                      <div className="text-sm font-semibold text-slate-800">Profit Percentage Per Shipment</div>
-                      <div className="text-xs text-slate-500 mt-1">This percentage is used for admin analytics and revenue projection.</div>
-                    </div>
-                    <div>
-                      <label className="text-xs uppercase tracking-wider text-slate-500">Profit %</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.1"
-                        value={profitDraft}
-                        onChange={(e) => setProfitDraft(e.target.value)}
-                        disabled={!isPricingEditing}
-                        className={`w-full mt-1 px-3 py-2 border rounded-lg ${isPricingEditing ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-                      />
-                    </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      { key: 'profitPercentage', label: 'Profit %', step: '0.1', min: 0, max: 100, suffix: '%' },
+                      { key: 'standardRatePerKg', label: 'Standard Base Rate / kg', step: '1', min: 1, suffix: 'Rs' },
+                      { key: 'expressMultiplier', label: 'Express Multiplier', step: '0.01', min: 1, suffix: 'x' },
+                      { key: 'sameDayMultiplier', label: 'Same Day Multiplier', step: '1', min: 2, suffix: 'x', readOnly: true },
+                      { key: 'distanceSurcharge', label: 'Inter-Zone Surcharge', step: '1', min: 0, suffix: 'Rs' },
+                      { key: 'fuelSurchargePct', label: 'Fuel Surcharge', step: '0.1', min: 0, suffix: '%' },
+                      { key: 'gstPct', label: 'GST', step: '0.1', min: 0, suffix: '%' },
+                      { key: 'codHandlingFee', label: 'COD Handling Fee', step: '1', min: 0, suffix: 'Rs' }
+                    ].map((item) => (
+                      <div key={item.key}>
+                        <label className="text-xs uppercase tracking-wider text-slate-500">{item.label}</label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={item.min}
+                            max={item.max}
+                            step={item.step}
+                            value={pricingDraft[item.key]}
+                            onChange={(e) => handlePricingDraftChange(item.key, e.target.value)}
+                            disabled={!isPricingEditing || item.readOnly}
+                            className={`w-full px-3 py-2 border rounded-lg ${
+                              !isPricingEditing || item.readOnly
+                                ? 'bg-slate-50 border-slate-100 text-slate-500'
+                                : 'bg-white border-slate-200'
+                            }`}
+                          />
+                          <span className="text-xs font-semibold text-slate-500 min-w-8">{item.suffix}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 p-3 rounded-lg bg-amber-50 text-amber-700 text-sm border border-amber-100">
+                    Same Day multiplier is locked to 2x Express as requested.
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                   <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-200">
-                           <tr>
-                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Weight Slab</th>
-                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone A (Metro)</th>
-                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone B (Tier 1)</th>
-                              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Zone C (Remote)</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {[
-                            { slab: '0 - 500g', zoneA: 40, zoneB: 50, zoneC: 65 },
-                            { slab: '500g - 1kg', zoneA: 75, zoneB: 90, zoneC: 110 },
-                            { slab: '1kg - 2kg', zoneA: 130, zoneB: 150, zoneC: 180 },
-                            { slab: 'Additional 1kg', zoneA: 50, zoneB: 60, zoneC: 80 },
-                          ].map((row, index) => (                           
-                             <tr key={index} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-6 py-4 font-medium text-slate-900">{row.slab}</td>
-                                <td className="px-6 py-4">
-                                   <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
-                                      <input 
-                                        type="number" 
-                                        defaultValue={row.zoneA} 
-                                        readOnly={!isPricingEditing}
-                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
-                                      />
-                                   </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                   <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
-                                      <input 
-                                        type="number" 
-                                        defaultValue={row.zoneB} 
-                                        readOnly={!isPricingEditing}
-                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
-                                      />
-                                   </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                   <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
-                                      <input 
-                                        type="number" 
-                                        defaultValue={row.zoneC} 
-                                        readOnly={!isPricingEditing}
-                                        className={`w-20 px-2 py-1 border rounded text-sm transition-all ${isPricingEditing ? 'border-indigo-300 focus:ring-2 focus:ring-indigo-500 bg-white' : 'border-transparent bg-transparent'}`} 
-                                      />
-                                   </div>
-                                </td>
-                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                   </div>
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                  <h3 className="text-sm font-semibold text-slate-800">Pricing Logic</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                    <li>Standard: `weight × standard rate + distance surcharge (if inter-zone)`</li>
+                    <li>Express: `Standard × express multiplier`</li>
+                    <li>Same Day: `Express × 2`</li>
+                    <li>Final total: `Base + fuel surcharge + GST + COD fee (only for COD)`</li>
+                    <li>All totals are rounded to whole rupees.</li>
+                  </ul>
                 </div>
              </div>
         )}
@@ -1904,7 +1897,13 @@ export function AdminDashboard({ view }) {
                                                   return (
                                                     <div key={request.id} className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                                         <div>
-                                                            <div className="font-semibold text-slate-900">{request.name} ({request.email})</div>
+                                                            <button
+                                                              type="button"
+                                                              onClick={() => openAgentDetails(request)}
+                                                              className="font-semibold text-slate-900 hover:text-indigo-700 underline underline-offset-2 text-left"
+                                                            >
+                                                              {request.name} ({request.email})
+                                                            </button>
                                                             <div className="text-sm text-slate-600">Requested: <span className="font-medium uppercase">{request.requestedRole}</span></div>
                                                             {request.reason && <div className="text-sm text-slate-500 mt-1">Reason: {request.reason}</div>}
                                                             <div className="text-xs text-slate-500 mt-2 space-y-1">
@@ -1915,18 +1914,6 @@ export function AdminDashboard({ view }) {
                                                             </div>
                                                         </div>
                                                         <div className="flex flex-wrap gap-2">
-                                                            <button
-                                                                onClick={() => openAgentDetails(request)}
-                                                                className="px-3 py-1.5 text-sm font-bold bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200"
-                                                            >
-                                                                View Docs
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleMoveRequestToVerification(request)}
-                                                                className="px-3 py-1.5 text-sm font-bold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300"
-                                                            >
-                                                                Pending
-                                                            </button>
                                                             <button
                                                                 onClick={() => handleApproveRequest(request)}
                                                                 className="px-3 py-1.5 text-sm font-bold bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -2373,19 +2360,19 @@ export function AdminDashboard({ view }) {
                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                         <div className="text-sm text-slate-500">Total Shipments</div>
-                        <div className="text-3xl font-bold text-slate-900 mt-2">{reportSummary?.totalShipments ?? shipments.length}</div>
+                        <div className="text-3xl font-bold text-slate-900 mt-2">{shipments.length}</div>
                     </div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                         <div className="text-sm text-slate-500">Delivered Shipments</div>
-                        <div className="text-3xl font-bold text-emerald-600 mt-2">{reportSummary?.deliveredShipments ?? shipmentKpis.delivered}</div>
+                        <div className="text-3xl font-bold text-emerald-600 mt-2">{shipmentKpis.delivered}</div>
                     </div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                         <div className="text-sm text-slate-500">Total Revenue</div>
-                        <div className="text-3xl font-bold text-indigo-600 mt-2">Rs {Math.round(Number(reportSummary?.totalRevenue ?? totalRevenue)).toLocaleString()}</div>
+                        <div className="text-3xl font-bold text-indigo-600 mt-2">Rs {Math.round(Number(totalRevenue)).toLocaleString()}</div>
                     </div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                         <div className="text-sm text-slate-500">Projected Profit ({profitPercentage}%)</div>
-                        <div className="text-3xl font-bold text-emerald-600 mt-2">Rs {Math.round((Number(reportSummary?.totalRevenue ?? totalRevenue) * profitPercentage) / 100).toLocaleString()}</div>
+                        <div className="text-3xl font-bold text-emerald-600 mt-2">Rs {Math.round((Number(totalRevenue) * profitPercentage) / 100).toLocaleString()}</div>
                     </div>
                  </div>
 
@@ -2503,6 +2490,17 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
     const isSuccessStatus = (status) => normalizeStatus(status) === 'DELIVERED';
     const isFailedStatus = (status) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalizeStatus(status));
     const getShipmentIdentifier = (shipment = {}) => shipment.trackingNumber || shipment.trackingId || shipment.id;
+    const normalizeIdentity = (value) => String(value || '').trim().toLowerCase();
+    const getAgentIdentityCandidates = (agent = {}) => (
+      [...new Set([
+        agent.assignmentAgentId,
+        agent.userKey,
+        agent.runtimeAgentId,
+        agent.userId,
+        agent.id,
+        agent.email
+      ].map((value) => String(value || '').trim()).filter(Boolean))]
+    );
 
     const mappedAgents = useMemo(() => {
         const blockedNames = new Set(['kyle reese', 'kyle rease', 'kyle resse']);
@@ -2531,26 +2529,40 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
             return {
               ...staff,
               userKey,
+              assignmentAgentId: userKey,
               runtimeAgentId: profile?.agentId || userKey,
+              identityCandidates: getAgentIdentityCandidates({
+                assignmentAgentId: userKey,
+                userKey,
+                runtimeAgentId: profile?.agentId || userKey,
+                userId: staff.userId,
+                id: staff.id,
+                email: staff.email
+              }),
               verificationStatus: String(profile?.verificationStatus || '').toUpperCase() || 'PENDING',
               availabilityStatus: String(profile?.availabilityStatus || 'AVAILABLE').toUpperCase()
             };
           })
-          .filter((staff) => staff.runtimeAgentId);
+          .filter((staff) => staff.assignmentAgentId);
     }, [users, agentProfiles]);
 
     const agentNameByAssignmentId = useMemo(() => {
       const map = {};
       mappedAgents.forEach((agent) => {
         const name = agent.name || agent.email || agent.userKey || 'Agent';
-        [agent.runtimeAgentId, agent.userKey, agent.userId, agent.id, agent.email]
-          .filter(Boolean)
-          .forEach((key) => {
-            map[key] = name;
-          });
+        getAgentIdentityCandidates(agent).forEach((key) => {
+          map[key] = name;
+          map[normalizeIdentity(key)] = name;
+        });
       });
       return map;
     }, [mappedAgents]);
+
+    const getAssignedAgentName = (assignedId) => {
+      const raw = String(assignedId || '').trim();
+      if (!raw) return 'Awaiting assignment';
+      return agentNameByAssignmentId[raw] || agentNameByAssignmentId[normalizeIdentity(raw)] || raw;
+    };
 
     const shipmentMetrics = useMemo(() => {
         const total = shipments.length;
@@ -2633,11 +2645,20 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
         const userStatus = String(agent.status || 'active').toLowerCase();
         const availability = normalizeAvailability(agent.availabilityStatus || 'AVAILABLE');
         const verification = String(agent.verificationStatus || '').toUpperCase();
+        if (!agent.assignmentAgentId) return false;
         if (userStatus === 'inactive') return false;
         if (!isAssignableAvailability(availability)) return false;
         if (verification === 'REJECTED') return false;
         return true;
       });
+
+    useEffect(() => {
+      if (selectedAgentId === 'AUTO') return;
+      const activeAgentIds = new Set(getActiveAgents().map((agent) => agent.assignmentAgentId).filter(Boolean));
+      if (!activeAgentIds.has(selectedAgentId)) {
+        setSelectedAgentId('AUTO');
+      }
+    }, [selectedAgentId, mappedAgents]);
 
     const handleAssign = async () => {
         if (selectedIds.length === 0) return toast.error('Select shipments to assign');
@@ -2650,13 +2671,20 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
         const selectedShipments = assignableShipments.filter((s) => selectedIds.includes(getShipmentIdentifier(s)));
         if (selectedShipments.length === 0) return toast.error('No pending shipments selected');
 
-        const selectedAgent = mappedAgents.find((agent) => agent.runtimeAgentId === selectedAgentId || agent.userKey === selectedAgentId);
+        const selectedAgent = mappedAgents.find((agent) => (
+          getAgentIdentityCandidates(agent).some((identity) => normalizeIdentity(identity) === normalizeIdentity(selectedAgentId))
+        ));
+        if (!selectedAgent || !getActiveAgents().some((agent) => agent.assignmentAgentId === selectedAgent.assignmentAgentId)) {
+          setSelectedAgentId('AUTO');
+          return toast.error('Selected agent is unavailable. Please choose an active agent.');
+        }
+        const targetAgentId = selectedAgent.assignmentAgentId;
         const agentName = selectedAgent?.name || selectedAgent?.email || 'Selected Agent';
         const trackingIds = selectedShipments.map((s) => getShipmentIdentifier(s));
 
         try {
             const response = await operationsService.createRunSheet({
-                agentId: selectedAgentId,
+                agentId: targetAgentId,
                 hubId: defaultHubId,
                 shipmentTrackingNumbers: trackingIds
             });
@@ -2675,9 +2703,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
         } catch (error) {
             const fallbackAssignments = await Promise.allSettled(
               trackingIds.map(async (trackingId) => {
-                const assignmentIds = [selectedAgent?.runtimeAgentId, selectedAgent?.userKey, selectedAgentId]
-                  .filter(Boolean)
-                  .filter((value, index, list) => list.indexOf(value) === index);
+                const assignmentIds = getAgentIdentityCandidates(selectedAgent);
                 for (const agentId of assignmentIds) {
                   try {
                     await shipmentService.assignShipment(trackingId, agentId);
@@ -2707,25 +2733,6 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
               toast.warning(`Run sheet saved locally (${error.message || 'backend unavailable'})`);
             }
             await onRefresh?.();
-        }
-    };
-
-    const handleMoveRequestToVerification = async (request) => {
-        if (!request) return;
-        try {
-            await markRoleRequestPending(request);
-            const requestId = typeof request === 'string' ? request : request?.id;
-            const requestUserId = request?.userId || request?.email;
-            const requestIdentity = getRoleRequestIdentity(request);
-            setBackendPendingRequests((prev) => prev.filter((item) => {
-              const sameId = requestId && item.id === requestId;
-              const sameUser = requestUserId && (item.userId === requestUserId || item.email === requestUserId);
-              const sameIdentity = requestIdentity && getRoleRequestIdentity(item) === requestIdentity;
-              return !(sameId || sameUser || sameIdentity);
-            }));
-            toast.success('Moved to agent document verification queue');
-        } catch (error) {
-            toast.error(error.message || 'Failed to move request to verification queue');
         }
     };
 
@@ -2838,19 +2845,22 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
 
         const loadMap = {};
         activeAgents.forEach((agent) => {
-            const agentId = agent.runtimeAgentId;
-            const userKey = agent.userKey;
-            loadMap[agentId] = shipments.filter((s) => s.assignedAgentId === agentId || s.assignedAgentId === userKey).length;
+            const agentId = agent.assignmentAgentId;
+            const agentIdentitySet = new Set(getAgentIdentityCandidates(agent).map(normalizeIdentity));
+            loadMap[agentId] = shipments.filter((shipment) => {
+              const assignedIdentity = normalizeIdentity(shipment.assignedAgentId || shipment.assignedToAgentId);
+              return assignedIdentity && agentIdentitySet.has(assignedIdentity);
+            }).length;
         });
 
         const successfullyAssignedIds = [];
         for (const shipmentId of targetIds) {
             const nextAgent = activeAgents.reduce((least, candidate) => {
-                const leastId = least.runtimeAgentId;
-                const candidateId = candidate.runtimeAgentId;
+                const leastId = least.assignmentAgentId;
+                const candidateId = candidate.assignmentAgentId;
                 return loadMap[candidateId] < loadMap[leastId] ? candidate : least;
             });
-            const nextAgentId = nextAgent.runtimeAgentId;
+            const nextAgentId = nextAgent.assignmentAgentId;
             try {
               await operationsService.createRunSheet({
                   agentId: nextAgentId,
@@ -2860,9 +2870,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
               loadMap[nextAgentId] += 1;
               successfullyAssignedIds.push(shipmentId);
             } catch (error) {
-              const assignmentIds = [nextAgent?.runtimeAgentId, nextAgent?.userKey]
-                .filter(Boolean)
-                .filter((value, index, list) => list.indexOf(value) === index);
+              const assignmentIds = getAgentIdentityCandidates(nextAgent);
               for (const agentId of assignmentIds) {
                 try {
                   await shipmentService.assignShipment(shipmentId, agentId);
@@ -2895,25 +2903,26 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                 <h1 className="text-2xl font-bold text-slate-800">Admin Run Sheet Master</h1>
                 <p className="text-slate-600">Global shipment orchestration with live assignment controls</p>
               </div>
-              <div className="flex gap-4 items-center">
+              <div className="flex flex-wrap gap-2 md:gap-4 items-stretch md:items-center">
                   {generatedSheet && (
                       <SectionDownloader 
                         title="Download Sheet"
                         className="inline-block"
                       >
-                           <div className="p-8 bg-white" id="run-sheet-content">
-                               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                           <div className="p-4 sm:p-8 bg-white" id="run-sheet-content">
+                               <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6 border-b pb-4">
                                    <div>
                                        <h1 className="text-2xl font-bold text-slate-900">Delivery Run Sheet</h1>
                                        <p className="text-slate-500">ID: {generatedSheet.id}</p>
                                    </div>
-                                   <div className="text-right">
+                                   <div className="text-left sm:text-right">
                                        <p className="font-bold">{generatedSheet.date}</p>
                                        <p className="text-sm text-slate-500">Agent: {generatedSheet.agent}</p>
                                        <p className="text-sm text-slate-500">Items: {generatedSheet.items.length}</p>
                                    </div>
                                </div>
-                               <table className="w-full text-left text-sm border-collapse">
+                               <div className="overflow-x-auto">
+                               <table className="w-full min-w-[720px] text-left text-sm border-collapse">
                                    <thead>
                                        <tr className="bg-slate-100">
                                            <th className="p-3 border text-slate-700">Tracking ID</th>
@@ -2941,7 +2950,8 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                                        );})}
                                    </tbody>
                                </table>
-                               <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
+                               </div>
+                               <div className="mt-8 pt-4 border-t flex flex-col gap-2 sm:flex-row sm:justify-between text-sm text-slate-500">
                                    <div>Master Admin Log</div>
                                    <div>Authorized Signature _________________</div>
                                </div>
@@ -2950,13 +2960,13 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                   )}
 
                   <select 
-                      className="px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                      className="w-full md:w-auto px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                       value={selectedAgentId}
                       onChange={(e) => setSelectedAgentId(e.target.value)}
                   >
                       <option value="AUTO">Auto Select (Recommended)</option>
                       {getActiveAgents().map((agent) => (
-                          <option key={`opt-${agent.runtimeAgentId}`} value={agent.runtimeAgentId}>
+                          <option key={`opt-${agent.assignmentAgentId}`} value={agent.assignmentAgentId}>
                               {agent.name || agent.email} ({agent.branch || 'Unassigned'}) [{isAssignableAvailability(agent.availabilityStatus) ? 'ACTIVE' : (agent.availabilityStatus || 'OFFLINE')}]
                           </option>
                       ))}
@@ -3022,7 +3032,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+               <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                   <span className="font-semibold text-slate-700">Shipment Assignment Queue</span>
                   <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{assignableShipments.length} pending</span>
                </div>
@@ -3031,8 +3041,8 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                             const shipmentId = getShipmentIdentifier(s);
                             const receiverDetails = s.receiver || s.receiverAddress || {};
                             return (
-                            <div key={`pend-${shipmentId}`} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(shipmentId)}>
-                        <div className="relative flex items-center justify-center p-2">
+                            <div key={`pend-${shipmentId}`} className="p-4 hover:bg-slate-50 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 cursor-pointer" onClick={() => toggleSelection(shipmentId)}>
+                        <div className="relative flex items-center justify-center p-2 self-start sm:self-auto">
                             <input 
                                 type="checkbox" 
                                 className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" 
@@ -3040,12 +3050,12 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                                 onChange={() => {}} 
                             />
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 w-full">
                            <div className="font-medium text-slate-900">{shipmentId}</div>
                            <div className="text-sm text-slate-500">{receiverDetails.city || 'N/A'} - <span className="text-indigo-600 font-medium">{s.type}</span></div>
                            <div className="text-xs text-slate-500 mt-1">Status: {s.status}</div>
                         </div>
-                        <div className="text-right text-sm">
+                        <div className="text-left sm:text-right text-sm w-full sm:w-auto">
                            <div className="font-medium text-slate-900">COD: Rs {s.cost}</div>
                            <div className="text-slate-500">{s.weight} kg</div>
                         </div>
@@ -3066,7 +3076,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                   const shipmentId = getShipmentIdentifier(shipment);
                   const receiverDetails = shipment.receiver || shipment.receiverAddress || {};
                   const assignedId = shipment.assignedAgentId || shipment.assignedToAgentId;
-                  const assignedName = agentNameByAssignmentId[assignedId] || assignedId || 'Awaiting assignment';
+                  const assignedName = getAssignedAgentName(assignedId);
                   return (
                     <div key={`assigned-${shipmentId}`} className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50">
                       <div>
@@ -3098,3 +3108,6 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
          </div>
     );
 }
+
+
+

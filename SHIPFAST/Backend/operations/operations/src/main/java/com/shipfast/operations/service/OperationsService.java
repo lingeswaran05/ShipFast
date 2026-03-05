@@ -192,6 +192,28 @@ public class OperationsService {
         return mapToAgentProfileResponse(profile);
     }
 
+    public void deleteAgentProfile(String userIdOrAgentId) {
+        if (userIdOrAgentId == null || userIdOrAgentId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent user id is required");
+        }
+
+        boolean removed = false;
+        AgentProfile byUserId = agentRepo.findByUserId(userIdOrAgentId).orElse(null);
+        if (byUserId != null) {
+            agentRepo.delete(byUserId);
+            removed = true;
+        }
+
+        if (agentRepo.existsById(userIdOrAgentId)) {
+            agentRepo.deleteById(userIdOrAgentId);
+            removed = true;
+        }
+
+        if (!removed) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent profile not found");
+        }
+    }
+
     public AgentProfileResponse recordAgentRating(String agentIdentifier, AgentRatingRequest request) {
         if (request == null || request.getRating() == null || request.getRating() < 1 || request.getRating() > 5) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rating must be between 1 and 5");

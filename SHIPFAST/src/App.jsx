@@ -28,7 +28,7 @@ import {
   Map as MapIcon, 
   Users, 
   Truck, 
-  DollarSign, 
+  IndianRupee, 
   Building2, 
   TrendingUp,
   Package,
@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 
 function ProtectedRoute({ children, allowedRole }) {
-  const { currentUser, isLoading } = useShipment();
+  const { currentUser, isLoading, activeRole } = useShipment();
 
   if (isLoading) {
     return (
@@ -57,17 +57,33 @@ function ProtectedRoute({ children, allowedRole }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRole && currentUser.role !== allowedRole) {
-    if (currentUser.role === 'admin') return <Navigate to="/admin" replace />;
-    if (currentUser.role === 'agent') return <Navigate to="/agent" replace />;
-    return <Navigate to="/dashboard" replace />;
+  const effectiveRole = activeRole || currentUser.role;
+
+  if (allowedRole) {
+    if (allowedRole === 'admin') {
+      if (currentUser.role !== 'admin') return <Navigate to="/" replace />;
+      return children;
+    }
+
+    if (allowedRole === 'agent') {
+      if (currentUser.role !== 'agent') return <Navigate to="/dashboard" replace />;
+      if (effectiveRole !== 'agent') return <Navigate to="/dashboard" replace />;
+      return children;
+    }
+
+    if (allowedRole === 'customer') {
+      if (currentUser.role === 'customer') return children;
+      if (currentUser.role === 'agent' && effectiveRole === 'customer') return children;
+      return <Navigate to="/agent" replace />;
+    }
   }
 
   return children;
 }
 
 function AppRoutes() {
-  const { currentUser, logout } = useShipment();
+  const { currentUser, logout, activeRole } = useShipment();
+  const effectiveRole = activeRole || currentUser?.role;
 
   const customerSidebar = [
     { path: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -82,7 +98,7 @@ function AppRoutes() {
     { path: '/admin/branches', label: 'Branches', icon: Building2 },
     { path: '/admin/fleet', label: 'Fleet', icon: Truck },
     { path: '/admin/staff', label: 'Staff', icon: Users },
-    { path: '/admin/pricing', label: 'Pricing', icon: DollarSign },
+    { path: '/admin/pricing', label: 'Pricing', icon: IndianRupee },
     { path: '/admin/runsheets', label: 'Runsheets', icon: Package },
     { path: '/admin/tickets', label: 'Tickets', icon: MessageSquare },
     { path: '/admin/performance', label: 'Analytics', icon: TrendingUp },
@@ -94,7 +110,7 @@ function AppRoutes() {
     { path: '/agent/quick-book', label: 'Quick Book', icon: Package },
     { path: '/agent/scan', label: 'Scan Parcels', icon: Scan },
     { path: '/agent/runsheets', label: 'Run Sheets', icon: FileText },
-    { path: '/agent/cash', label: 'Cash Collection', icon: DollarSign },
+    { path: '/agent/cash', label: 'Cash Collection', icon: IndianRupee },
     { path: '/agent/notifications', label: 'Notifications', icon: Bell },
   ];
 
@@ -158,7 +174,11 @@ function AppRoutes() {
         <Route path="settings" element={<SettingsPage />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={
+        currentUser
+          ? <Navigate to={effectiveRole === 'admin' ? '/admin' : effectiveRole === 'agent' ? '/agent' : '/dashboard'} replace />
+          : <Navigate to="/" replace />
+      } />
     </Routes>
   );
 }

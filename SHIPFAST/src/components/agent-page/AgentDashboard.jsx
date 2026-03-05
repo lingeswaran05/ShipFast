@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { LayoutDashboard, Package, Scan, FileText, DollarSign, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User, Printer, Download, History, CreditCard, Camera, Upload, Send, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Package, Scan, FileText, CheckCircle, MapPin, Phone, Truck, Clock, AlertTriangle, ChevronRight, Filter, Search, Calendar, User, Printer, Download, History, CreditCard, Camera, Upload, Send, MessageSquare } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { toast } from 'sonner';
 import { SectionDownloader } from '../shared/SectionDownloader';
@@ -17,10 +17,17 @@ const isCodPaymentSettled = (shipment) => {
   return paymentStatus === 'SUCCESS' || paymentStatus === 'PAID' || paymentStatus === 'COMPLETED';
 };
 const STATUS_SEQUENCE = ['BOOKED', 'IN TRANSIT', 'OUT FOR DELIVERY', 'DELIVERED'];
-const AGENT_AVAILABILITY = ['AVAILABLE', 'ACTIVE', 'IN_TRANSIT', 'OFFLINE'];
+const AGENT_AVAILABILITY = ['AVAILABLE', 'ACTIVE', 'READY', 'IN_TRANSIT', 'OFFLINE'];
 const normalizeAvailability = (value) => String(value || '').toUpperCase().replace(/ /g, '_');
-const isAvailableForAssignment = (value) => ['AVAILABLE', 'ACTIVE'].includes(normalizeAvailability(value));
-const SCAN_STATUS_OPTIONS = ['Booked', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed'];
+const isAvailableForAssignment = (value) => ['AVAILABLE', 'ACTIVE', 'READY'].includes(normalizeAvailability(value));
+const SCAN_STATUS_TRANSITIONS = {
+  BOOKED: ['In Transit', 'Failed'],
+  'IN TRANSIT': ['Out for Delivery', 'Failed'],
+  'OUT FOR DELIVERY': ['Delivered', 'Failed'],
+  FAILED: ['Out for Delivery']
+};
+const TERMINAL_SCAN_STATUSES = new Set(['DELIVERED', 'CANCELLED']);
+const SCAN_BARCODE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code'];
 const AGENT_SCAN_TARGET_KEY = 'sf_agent_scan_target';
 const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
 
@@ -60,6 +67,17 @@ const getPartyDetails = (shipment, type) => {
     };
 };
 
+const getNextScanStatusOptions = (currentStatus) => {
+  const normalized = normalizeStatus(currentStatus).replace(/\s+/g, ' ').trim();
+  return SCAN_STATUS_TRANSITIONS[normalized] || [];
+};
+
+const getShipmentScanIdentifiers = (shipment) => (
+  [shipment?.shipmentId, shipment?.id, shipment?.trackingId, shipment?.trackingNumber]
+    .filter(Boolean)
+    .map((value) => String(value || '').trim().toUpperCase())
+);
+
 export function AgentDashboard({ view }) {
     const {
       shipments,
@@ -76,7 +94,10 @@ export function AgentDashboard({ view }) {
   const navigate = useNavigate();
   const [scanId, setScanId] = useState('');
   const [scanResult, setScanResult] = useState(null);
-  const [scanStatusMode, setScanStatusMode] = useState('Booked'); // Default scan mode
+  const [scanStatusMode, setScanStatusMode] = useState('');
+  const [scanEntryMode, setScanEntryMode] = useState('manual');
+  const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
+  const [isBarcodeDecoding, setIsBarcodeDecoding] = useState(false);
   const [podImage, setPodImage] = useState('');
   const [showPodCamera, setShowPodCamera] = useState(false);
   const [activeTab, setActiveTab] = useState('deliveries'); 
@@ -92,6 +113,8 @@ export function AgentDashboard({ view }) {
     const agentNotifications = getRoleNotifications('agent');
     const podFileInputRef = useRef(null);
     const podWebcamRef = useRef(null);
+    const barcodeFileInputRef = useRef(null);
+    const barcodeWebcamRef = useRef(null);
     const autoReassigningRef = useRef(new Set());
 
     const onboardingStorageKey = `sf_agent_onboarding_${currentUser?.email || currentUser?.id || currentUser?.userId || 'default'}`;
@@ -225,6 +248,37 @@ export function AgentDashboard({ view }) {
       return (shipments || []).filter((shipment) => isAgentShipment(shipment));
     }, [shipments, isAgentShipment]);
 
+    const isBarcodeSupported = useMemo(() => (
+      typeof window !== 'undefined' && typeof window.BarcodeDetector !== 'undefined'
+    ), []);
+
+    const matchedScanShipment = useMemo(() => {
+      const normalizedScan = String(scanId || '').trim().toUpperCase();
+      if (!normalizedScan) return null;
+      return agentShipments.find((shipment) => getShipmentScanIdentifiers(shipment).includes(normalizedScan)) || null;
+    }, [scanId, agentShipments]);
+
+    const nextScanStatusOptions = useMemo(() => (
+      matchedScanShipment ? getNextScanStatusOptions(matchedScanShipment.status) : []
+    ), [matchedScanShipment]);
+
+    useEffect(() => {
+      if (!matchedScanShipment) {
+        setScanStatusMode('');
+        return;
+      }
+      if (nextScanStatusOptions.length === 0) {
+        setScanStatusMode('');
+        return;
+      }
+      const hasCurrentSelection = nextScanStatusOptions.some(
+        (option) => normalizeStatus(option) === normalizeStatus(scanStatusMode)
+      );
+      if (!hasCurrentSelection) {
+        setScanStatusMode(nextScanStatusOptions[0]);
+      }
+    }, [matchedScanShipment, nextScanStatusOptions, scanStatusMode]);
+
     const selectedSupportTicket = useMemo(
       () => supportTickets.find((ticket) => ticket.id === selectedSupportTicketId) || null,
       [supportTickets, selectedSupportTicketId]
@@ -354,24 +408,46 @@ export function AgentDashboard({ view }) {
   const getShipmentIdentifier = useCallback((shipment) => shipment?.trackingNumber || shipment?.trackingId || shipment?.id, []);
 
   const pickAvailableAgentForReassign = useCallback(async () => {
-      const currentAgentId = currentUser?.userId || currentUser?.id || currentUser?.email;
+      const currentIdentitySet = new Set(
+        [currentUser?.userId, currentUser?.id, currentUser?.email]
+          .map(toIdentityValue)
+          .filter(Boolean)
+      );
       const blockedNames = new Set(['kyle reese', 'kyle rease', 'kyle resse']);
       const candidates = (users || [])
         .filter((user) => String(user?.role || '').toLowerCase() === 'agent')
         .filter((user) => !blockedNames.has(String(user?.name || '').trim().toLowerCase()))
         .map((user) => ({
+          assignmentAgentId: String(user?.userId || user?.email || '').trim(),
           userId: user?.userId || user?.id || user?.email,
+          identityCandidates: [...new Set([user?.userId, user?.id, user?.email].map((value) => String(value || '').trim()).filter(Boolean))],
           name: user?.name || user?.email || 'Agent',
-          status: String(user?.status || 'active').toLowerCase()
+          status: String(user?.status || 'active').toLowerCase(),
+          availabilityHint: normalizeAvailability(user?.availabilityStatus || user?.status || '')
         }))
-        .filter((agent) => agent.userId && agent.userId !== currentAgentId && agent.status !== 'inactive');
+        .filter((agent) => {
+          if (!agent.assignmentAgentId) return false;
+          const agentIdentitySet = new Set(agent.identityCandidates.map(toIdentityValue).filter(Boolean));
+          if ([...agentIdentitySet].some((identity) => currentIdentitySet.has(identity))) return false;
+          return agent.status !== 'inactive';
+        });
 
       if (candidates.length === 0) return null;
 
       const profiles = await Promise.allSettled(
         candidates.map(async (agent) => {
-          const profile = await operationsService.getAgentProfile(agent.userId);
-          return { ...agent, profile };
+          let profile = null;
+          for (const identity of agent.identityCandidates) {
+            profile = await operationsService.getAgentProfile(identity);
+            if (profile) break;
+          }
+          const runtimeAgentId = String(profile?.agentId || '').trim();
+          const assignmentIds = [...new Set([
+            agent.assignmentAgentId,
+            runtimeAgentId,
+            ...agent.identityCandidates
+          ].filter(Boolean))];
+          return { ...agent, profile, runtimeAgentId, assignmentIds };
         })
       );
 
@@ -379,8 +455,11 @@ export function AgentDashboard({ view }) {
         .filter((result) => result.status === 'fulfilled')
         .map((result) => result.value)
         .filter((agent) => {
-          const availability = normalizeAvailability(agent.profile?.availabilityStatus || '');
-          return Boolean(agent.profile) && isAvailableForAssignment(availability);
+          const profileAvailability = normalizeAvailability(agent.profile?.availabilityStatus || '');
+          const hintAvailability = normalizeAvailability(agent.availabilityHint || '');
+          if (isAvailableForAssignment(profileAvailability)) return true;
+          if (!profileAvailability && isAvailableForAssignment(hintAvailability)) return true;
+          return false;
         });
 
       return available[0] || null;
@@ -396,7 +475,7 @@ export function AgentDashboard({ view }) {
 
       try {
         const nextAgent = await pickAvailableAgentForReassign();
-        if (!nextAgent?.userId) {
+        if (!nextAgent?.assignmentAgentId) {
           // If no agent is available, push the parcel back to admin runsheet queue for manual assignment.
           try {
             await shipmentService.assignShipment(shipmentId, null);
@@ -413,22 +492,34 @@ export function AgentDashboard({ view }) {
           if (!options.silent) toast.info('No available agent. Shipment returned to admin runsheet queue');
           return true;
         }
+        const targetAgentId = nextAgent.assignmentAgentId;
 
         try {
           await operationsService.createRunSheet({
-            agentId: nextAgent.userId,
+            agentId: targetAgentId,
             hubId: 'HUB-DEFAULT',
             shipmentTrackingNumbers: [shipmentId]
           });
-        } catch {
-          await shipmentService.assignShipment(shipmentId, nextAgent.userId);
+        } catch (createError) {
+          let assigned = false;
+          const fallbackIds = [...new Set([targetAgentId, ...(nextAgent.assignmentIds || [])].filter(Boolean))];
+          for (const agentId of fallbackIds) {
+            try {
+              await shipmentService.assignShipment(shipmentId, agentId);
+              assigned = true;
+              break;
+            } catch {
+              // try next fallback id
+            }
+          }
+          if (!assigned) throw createError;
         }
 
         await updateShipmentStatus(shipmentId, 'Booked', {
           remarks: reason,
           reassignedByAgentId: currentUser?.userId || currentUser?.id || currentUser?.email,
-          reassignedToAgentId: nextAgent.userId,
-          assignedAgentId: nextAgent.userId
+          reassignedToAgentId: targetAgentId,
+          assignedAgentId: targetAgentId
         });
         await refreshShipments();
         if (!options.silent) {
@@ -497,117 +588,192 @@ export function AgentDashboard({ view }) {
     setShowPodCamera(false);
   }, []);
 
+  const decodeBarcodeValueFromSource = useCallback(async (source) => {
+    if (!isBarcodeSupported) {
+      throw new Error('Barcode scan is not supported on this browser. Use manual entry.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: SCAN_BARCODE_FORMATS });
+    const blob = typeof source === 'string' ? await (await fetch(source)).blob() : source;
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const barcodes = await detector.detect(bitmap);
+      const value = String(barcodes?.[0]?.rawValue || '').trim();
+      return value || '';
+    } finally {
+      if (typeof bitmap.close === 'function') {
+        bitmap.close();
+      }
+    }
+  }, [isBarcodeSupported]);
+
+  const handleBarcodeFile = async (file) => {
+    if (!file) return;
+    setIsBarcodeDecoding(true);
+    try {
+      const decodedValue = await decodeBarcodeValueFromSource(file);
+      if (!decodedValue) {
+        throw new Error('No barcode detected in uploaded image');
+      }
+      setScanId(decodedValue);
+      setScanEntryMode('manual');
+      toast.success(`Barcode detected: ${decodedValue}`);
+    } catch (error) {
+      toast.error(error.message || 'Unable to read barcode');
+    } finally {
+      setIsBarcodeDecoding(false);
+    }
+  };
+
+  const captureBarcodeFromCamera = useCallback(async () => {
+    const imageSrc = barcodeWebcamRef.current?.getScreenshot?.();
+    if (!imageSrc) {
+      toast.error('Unable to capture barcode image');
+      return;
+    }
+
+    setIsBarcodeDecoding(true);
+    try {
+      const decodedValue = await decodeBarcodeValueFromSource(imageSrc);
+      if (!decodedValue) {
+        throw new Error('No barcode detected. Keep barcode inside frame and retry.');
+      }
+      setScanId(decodedValue);
+      setScanEntryMode('manual');
+      setShowBarcodeCamera(false);
+      toast.success(`Barcode detected: ${decodedValue}`);
+    } catch (error) {
+      toast.error(error.message || 'Unable to read barcode');
+    } finally {
+      setIsBarcodeDecoding(false);
+    }
+  }, [decodeBarcodeValueFromSource]);
+
   const handleScan = async (e) => {
     e.preventDefault();
-    if (!scanId) return;
-    if (normalizeStatus(scanStatusMode) === 'DELIVERED' && !podImage) {
+    const enteredScanId = String(scanId || '').trim();
+    if (!enteredScanId) {
+      toast.error('Enter shipment ID or scan barcode');
+      return;
+    }
+
+    let shipment = matchedScanShipment;
+    if (!shipment) {
+      try {
+        const refreshedShipments = await refreshShipments();
+        const normalizedScan = enteredScanId.toUpperCase();
+        shipment = (refreshedShipments || []).find((item) => (
+          getShipmentScanIdentifiers(item).includes(normalizedScan) && isAgentShipment(item)
+        )) || null;
+      } catch {
+        // keep local fallback behavior
+      }
+    }
+
+    if (!shipment) {
+      setScanResult({
+        id: enteredScanId,
+        status: 'Not assigned to this agent',
+        timestamp: new Date().toLocaleString(),
+        success: false
+      });
+      toast.error('Shipment not found in your queue');
+      return;
+    }
+
+    const currentStatus = normalizeStatus(shipment.status);
+    if (TERMINAL_SCAN_STATUSES.has(currentStatus)) {
+      setScanResult({
+        id: shipment.trackingNumber || shipment.id,
+        status: `Already ${shipment.status}`,
+        timestamp: new Date().toLocaleString(),
+        success: false
+      });
+      toast.info(`Shipment is already ${shipment.status}`);
+      return;
+    }
+
+    const allowedStatuses = getNextScanStatusOptions(shipment.status);
+    if (allowedStatuses.length === 0) {
+      setScanResult({
+        id: shipment.trackingNumber || shipment.id,
+        status: `No next status available from ${shipment.status}`,
+        timestamp: new Date().toLocaleString(),
+        success: false
+      });
+      toast.error(`No status update available from ${shipment.status}`);
+      return;
+    }
+
+    const nextStatus = scanStatusMode || allowedStatuses[0];
+    const isAllowedStatus = allowedStatuses.some((statusOption) => (
+      normalizeStatus(statusOption) === normalizeStatus(nextStatus)
+    ));
+    if (!isAllowedStatus) {
+      toast.error(`Choose one of: ${allowedStatuses.join(', ')}`);
+      return;
+    }
+
+    if (normalizeStatus(nextStatus) === 'DELIVERED' && !podImage) {
       toast.error('Proof of delivery image is required for Delivered status');
       return;
     }
 
-    const normalizedScan = String(scanId || '').trim().toUpperCase();
-    const shipment = agentShipments.find(s =>
-        String(s.id || '').toUpperCase() === normalizedScan ||
-        String(s.trackingId || '').toUpperCase() === normalizedScan ||
-        String(s.trackingNumber || '').toUpperCase() === normalizedScan
-    );
+    const targetShipmentId = shipment.shipmentId || shipment.id || shipment.trackingId || shipment.trackingNumber;
+    try {
+      await updateShipmentStatus(targetShipmentId, nextStatus, {
+        remarks: 'Updated via agent scan',
+        proofOfDeliveryImage: normalizeStatus(nextStatus) === 'DELIVERED' ? podImage : null,
+        deliveredBy: currentUser?.name || currentUser?.email || 'Agent',
+        deliveredByAgentId: agentOnboarding.agentId || currentUser?.userId || currentUser?.id || currentUser?.email
+      });
 
-    if (shipment) {
-        if (!isForwardStatusChange(shipment.status, scanStatusMode)) {
-            toast.error(`Invalid transition: ${shipment.status} -> ${scanStatusMode}. Use forward flow or mark as Failed.`);
-            setScanResult({
-                id: shipment.trackingNumber || shipment.id,
-                status: `Invalid transition from ${shipment.status}`,
-                timestamp: new Date().toLocaleString(),
-                success: false
-            });
-            return;
-        }
-        if (normalizeStatus(shipment.status) === normalizeStatus(scanStatusMode)) {
-            setScanResult({
-                id: shipment.trackingNumber || shipment.id,
-                status: `Already ${scanStatusMode}`,
-                timestamp: new Date().toLocaleString(),
-                success: false
-            });
-            toast.info(`Shipment is already ${scanStatusMode}`);
-        } else {
-            try {
-                await updateShipmentStatus(shipment.id, scanStatusMode, {
-                    remarks: 'Updated via agent scan',
-                    proofOfDeliveryImage: normalizeStatus(scanStatusMode) === 'DELIVERED' ? podImage : null,
-                    deliveredBy: currentUser?.name || currentUser?.email || 'Agent',
-                    deliveredByAgentId: agentOnboarding.agentId || currentUser?.userId || currentUser?.id || currentUser?.email
-                });
-                setScanResult({
-                    id: shipment.trackingNumber || shipment.id,
-                    status: scanStatusMode,
-                    timestamp: new Date().toLocaleString(),
-                    success: true
-                });
-                const updatedSnapshot = agentShipments.map((item) => (
-                  item.id === shipment.id || item.trackingId === shipment.trackingId || item.trackingNumber === shipment.trackingNumber
-                    ? { ...item, status: scanStatusMode }
-                    : item
-                ));
-                const metrics = computeAgentPerformance(updatedSnapshot);
-                const normalizedNext = normalizeStatus(scanStatusMode);
-                const nextAvailability =
-                  normalizedNext === 'IN TRANSIT' || normalizedNext === 'OUT FOR DELIVERY' || metrics.inTransitCount > 0
-                    ? 'IN_TRANSIT'
-                    : 'AVAILABLE';
-                setAvailabilityStatus(nextAvailability);
-                try {
-                  await persistAgentProfileSnapshot({
-                    availabilityStatus: nextAvailability,
-                    deliveredCount: metrics.deliveredCount,
-                    failedCount: metrics.failedCount,
-                    inTransitCount: metrics.inTransitCount
-                  });
-                } catch {
-                  // non-blocking
-                }
-                toast.success('Status Updated Successfully');
-            } catch (error) {
-                toast.error(error.message || 'Failed to update shipment status');
-            }
-        }
-    } else {
-        try {
-            await updateShipmentStatus(scanId, scanStatusMode, {
-                remarks: 'Updated via agent scan',
-                proofOfDeliveryImage: normalizeStatus(scanStatusMode) === 'DELIVERED' ? podImage : null,
-                deliveredBy: currentUser?.name || currentUser?.email || 'Agent',
-                deliveredByAgentId: agentOnboarding.agentId || currentUser?.userId || currentUser?.id || currentUser?.email
-            });
-            setScanResult({
-                id: scanId,
-                status: scanStatusMode,
-                timestamp: new Date().toLocaleString(),
-                success: true
-            });
-            try {
-              await persistAgentProfileSnapshot();
-            } catch {
-              // non-blocking
-            }
-            toast.success('Status Updated Successfully');
-            refreshShipments();
-        } catch {
-            setScanResult({
-                id: scanId,
-                status: 'Not Found',
-                timestamp: new Date().toLocaleString(),
-                success: false
-            });
-            toast.error('Shipment ID not found');
-        }
+      setScanResult({
+        id: shipment.trackingNumber || shipment.id,
+        status: nextStatus,
+        timestamp: new Date().toLocaleString(),
+        success: true
+      });
+
+      const shipmentIdentifierSet = new Set(getShipmentScanIdentifiers(shipment));
+      const updatedSnapshot = agentShipments.map((item) => (
+        getShipmentScanIdentifiers(item).some((value) => shipmentIdentifierSet.has(value))
+          ? { ...item, status: nextStatus }
+          : item
+      ));
+      const metrics = computeAgentPerformance(updatedSnapshot);
+      const normalizedNext = normalizeStatus(nextStatus);
+      const nextAvailability =
+        normalizedNext === 'IN TRANSIT' || normalizedNext === 'OUT FOR DELIVERY' || metrics.inTransitCount > 0
+          ? 'IN_TRANSIT'
+          : 'AVAILABLE';
+      setAvailabilityStatus(nextAvailability);
+      try {
+        await persistAgentProfileSnapshot({
+          availabilityStatus: nextAvailability,
+          deliveredCount: metrics.deliveredCount,
+          failedCount: metrics.failedCount,
+          inTransitCount: metrics.inTransitCount
+        });
+      } catch {
+        // non-blocking
+      }
+
+      if (TERMINAL_SCAN_STATUSES.has(normalizeStatus(nextStatus))) {
+        setScanId('');
+        setScanStatusMode('');
+      } else {
+        setScanStatusMode('');
+      }
+      if (normalizeStatus(nextStatus) === 'DELIVERED') {
+        setPodImage('');
+        setShowPodCamera(false);
+      }
+      toast.success(`Status updated to ${nextStatus}`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to update shipment status');
     }
-    setScanId('');
-    if (normalizeStatus(scanStatusMode) === 'DELIVERED') {
-      setPodImage('');
-      setShowPodCamera(false);
-    }
+
     setTimeout(() => setScanResult(null), 3000);
   };
 
@@ -1107,74 +1273,149 @@ export function AgentDashboard({ view }) {
             </div>
 
             <form onSubmit={handleScan} className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
-                <div className="mb-6">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Select Scan Action</label>
-                    <select 
-                        value={scanStatusMode}
-                        onChange={(e) => setScanStatusMode(e.target.value)}
-                        className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium"
-                    >
-                        {SCAN_STATUS_OPTIONS.map((statusOption) => (
-                          <option key={statusOption} value={statusOption}>{statusOption}</option>
-                        ))}
-                    </select>
-                </div>
-
                 <div className="mb-6 text-center">
                    <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
                       <Scan className="w-10 h-10 text-indigo-600" />
                    </div>
-                   <p className="text-sm font-medium text-indigo-600">Ready to Scan ({scanStatusMode})</p>
+                   <p className="text-sm font-medium text-indigo-600">
+                     {matchedScanShipment
+                       ? `Current: ${matchedScanShipment.status}`
+                       : 'Enter shipment ID to start'}
+                   </p>
                 </div>
-                
-                 <div className="space-y-4">
-                   <input 
-                     type="text" 
-                     value={scanId}
-                     onChange={(e) => setScanId(e.target.value)}
-                     placeholder="Scan Barcode or Enter ID"
-                     className="w-full text-center text-lg font-mono py-4 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                     autoFocus
-                   />
-                   {normalizeStatus(scanStatusMode) === 'DELIVERED' && (
-                      <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
-                         <div className="text-sm font-semibold text-slate-700">Proof of Delivery (required)</div>
-                         {podImage ? (
-                            <img src={podImage} alt="POD" className="w-full h-44 object-cover rounded-lg border border-slate-200" />
-                         ) : (
-                            <div className="h-44 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-sm">
-                              Upload or capture delivery image
-                            </div>
-                         )}
-                         <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => podFileInputRef.current?.click()}
-                              className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
-                            >
-                              <Upload className="w-4 h-4" /> Upload
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setShowPodCamera(true)}
-                              className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
-                            >
-                              <Camera className="w-4 h-4" /> Camera
-                            </button>
-                         </div>
-                         <input
-                           ref={podFileInputRef}
-                           type="file"
-                           accept="image/*"
-                           onChange={(e) => handlePodFile(e.target.files?.[0])}
-                           className="hidden"
-                         />
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-xl border border-slate-200 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => setScanEntryMode('manual')}
+                      className={`py-2 rounded-lg text-sm font-semibold ${scanEntryMode === 'manual' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}
+                    >
+                      Manual ID
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScanEntryMode('barcode')}
+                      className={`py-2 rounded-lg text-sm font-semibold ${scanEntryMode === 'barcode' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}
+                    >
+                      Scan Barcode
+                    </button>
+                  </div>
+
+                  {scanEntryMode === 'barcode' && (
+                    <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+                      <div className="text-sm text-slate-600">Choose barcode scan method</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          disabled={isBarcodeDecoding}
+                          onClick={() => barcodeFileInputRef.current?.click()}
+                          className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          <Upload className="w-4 h-4" /> Upload
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBarcodeDecoding}
+                          onClick={() => setShowBarcodeCamera(true)}
+                          className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          <Camera className="w-4 h-4" /> Camera
+                        </button>
                       </div>
-                   )}
-                   <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 transform hover:-translate-y-0.5">
-                      Process Scan
-                   </button>
-                 </div>
+                      {!isBarcodeSupported && (
+                        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          Browser barcode API is unavailable. Enter shipment ID manually.
+                        </div>
+                      )}
+                      <input
+                        ref={barcodeFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleBarcodeFile(e.target.files?.[0])}
+                        className="hidden"
+                      />
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    value={scanId}
+                    onChange={(e) => setScanId(e.target.value)}
+                    placeholder="Enter or scan shipment ID"
+                    className="w-full text-center text-lg font-mono py-4 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                    autoFocus
+                  />
+
+                  {scanId && !matchedScanShipment && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Shipment not found in your assigned queue.
+                    </div>
+                  )}
+
+                  {matchedScanShipment && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-slate-700">Next Status</label>
+                      <select
+                        value={scanStatusMode}
+                        onChange={(e) => setScanStatusMode(e.target.value)}
+                        disabled={nextScanStatusOptions.length === 0}
+                        className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium disabled:opacity-60"
+                      >
+                        {nextScanStatusOptions.length === 0 && (
+                          <option value="">No further status available</option>
+                        )}
+                        {nextScanStatusOptions.map((statusOption) => (
+                          <option key={statusOption} value={statusOption}>{statusOption}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {normalizeStatus(scanStatusMode) === 'DELIVERED' && (
+                    <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+                      <div className="text-sm font-semibold text-slate-700">Proof of Delivery (required)</div>
+                      {podImage ? (
+                        <img src={podImage} alt="POD" className="w-full h-44 object-cover rounded-lg border border-slate-200" />
+                      ) : (
+                        <div className="h-44 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-sm">
+                          Upload or capture delivery image
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => podFileInputRef.current?.click()}
+                          className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
+                        >
+                          <Upload className="w-4 h-4" /> Upload
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowPodCamera(true)}
+                          className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
+                        >
+                          <Camera className="w-4 h-4" /> Camera
+                        </button>
+                      </div>
+                      <input
+                        ref={podFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handlePodFile(e.target.files?.[0])}
+                        className="hidden"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!matchedScanShipment || nextScanStatusOptions.length === 0 || !scanStatusMode}
+                    className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 transform hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
+                  >
+                    {isBarcodeDecoding ? 'Reading Barcode...' : 'Process Scan'}
+                  </button>
+                </div>
              </form>
 
             {scanResult && (
@@ -1191,6 +1432,36 @@ export function AgentDashboard({ view }) {
                      </div>
                   </div>
                </div>
+            )}
+
+            {showBarcodeCamera && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowBarcodeCamera(false)}>
+                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-800">Scan Shipment Barcode</h3>
+                    <button type="button" onClick={() => setShowBarcodeCamera(false)} className="text-slate-500">Close</button>
+                  </div>
+                  <div className="bg-black">
+                    <Webcam
+                      audio={false}
+                      ref={barcodeWebcamRef}
+                      screenshotFormat="image/jpeg"
+                      className="w-full h-full object-cover"
+                      videoConstraints={{ facingMode: 'environment' }}
+                    />
+                  </div>
+                  <div className="p-4 bg-slate-50">
+                    <button
+                      type="button"
+                      disabled={isBarcodeDecoding}
+                      onClick={captureBarcodeFromCamera}
+                      className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {isBarcodeDecoding ? 'Scanning...' : 'Scan Barcode'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {showPodCamera && (
@@ -1369,143 +1640,225 @@ export function AgentDashboard({ view }) {
 
 function QuickBookingForm() {
     const { addShipment, calculateRate } = useShipment();
+    const normalizePhoneInput = (value = '') => {
+      const digits = String(value || '').replace(/\D/g, '');
+      const localDigits = digits.startsWith('91') ? digits.slice(2, 12) : digits.slice(0, 10);
+      return `+91${localDigits}`;
+    };
+    const isValidIndianPhone = (value) => /^\+91\d{10}$/.test(String(value || '').trim());
+    const composeAddressLine = (details = {}) => (
+      [details.doorAddress, details.city, details.state, details.pincode]
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .join(', ')
+    );
+    const normalizeComparable = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const defaultParty = () => ({
+      name: '',
+      phone: '+91',
+      doorAddress: '',
+      city: '',
+      state: 'Tamil Nadu',
+      pincode: ''
+    });
+
     const [formData, setFormData] = useState({
-        sender: { name: '', phone: '', city: '' },
-        receiver: { name: '', phone: '', city: '' },
-        weight: '',
-        type: 'Standard'
+      sender: defaultParty(),
+      receiver: defaultParty(),
+      weight: '',
+      type: 'Standard'
     });
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [trackingId, setTrackingId] = useState('');
+    const estimatedCost = calculateRate(formData.weight || 0, formData.type);
+
+    const handlePartyChange = (section, field, value) => {
+      const nextValue = field === 'phone' ? normalizePhoneInput(value) : value;
+      setFormData((prev) => ({
+        ...prev,
+        [section]: {
+          ...prev[section],
+          [field]: nextValue
+        }
+      }));
+    };
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
-        const cost = calculateRate(formData.weight, formData.type);
+      e.preventDefault();
+      const senderAddress = composeAddressLine(formData.sender);
+      const receiverAddress = composeAddressLine(formData.receiver);
+
+      if (!isValidIndianPhone(formData.sender.phone) || !isValidIndianPhone(formData.receiver.phone)) {
+        toast.error('Phone number must be in +91XXXXXXXXXX format');
+        return;
+      }
+      if (formData.sender.phone === formData.receiver.phone) {
+        toast.error('Sender and receiver phone numbers cannot be the same');
+        return;
+      }
+      if (
+        !formData.sender.doorAddress.trim() || !formData.sender.city.trim() || !formData.sender.state.trim() || !/^\d{6}$/.test(formData.sender.pincode) ||
+        !formData.receiver.doorAddress.trim() || !formData.receiver.city.trim() || !formData.receiver.state.trim() || !/^\d{6}$/.test(formData.receiver.pincode)
+      ) {
+        toast.error('Enter door address, city, state and valid 6-digit pincode');
+        return;
+      }
+      if (normalizeComparable(senderAddress) === normalizeComparable(receiverAddress)) {
+        toast.error('Sender and receiver addresses cannot be the same');
+        return;
+      }
+
+      try {
         const shipment = await addShipment({
-            ...formData,
-            cost: cost,
-            paymentMode: 'COD'
+          sender: formData.sender,
+          receiver: formData.receiver,
+          weight: formData.weight,
+          cost: estimatedCost,
+          type: formData.type,
+          paymentMode: 'COD'
         });
         setTrackingId(shipment?.trackingNumber || shipment?.trackingId || shipment?.id || `SF-${Date.now()}`);
         setIsSubmitted(true);
+      } catch (error) {
+        toast.error(error?.message || 'Failed to create booking');
+      }
     };
 
     if (isSubmitted) {
-        return (
-            <div className="p-12 text-center animate-fade-in-up">
-                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 print:hidden">
-                    <CheckCircle className="w-8 h-8" />
-                </div>
-                <div className="print:hidden">
-                   <h3 className="text-xl font-bold text-slate-900 mb-2">Booking Confirmed!</h3>
-                   <p className="text-slate-500 mb-6">Label generated and sent to printer.</p>
-                </div>
-                
-                <div id="agent-quick-booking-label" className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full printable">
-                   <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-600 print:hidden"></div>
-                   <div className="hidden print:block text-2xl font-bold mb-4 text-center border-b pb-4">SHIPFAST LOGISTICS</div>
-                   <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Tracking ID</p>
-                   <div className="text-4xl font-mono font-bold text-slate-900 tracking-widest mb-4 selection:bg-indigo-100">{trackingId}</div>
-                   
-                   <div className="mb-6 flex justify-center">
-                      <BarcodeGenerator value={trackingId} />
-                   </div>
-                   
-                   <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center text-sm">
-                      <div className="text-left">
-                         <p className="text-xs text-slate-400 font-semibold uppercase">Amount To Pay</p>
-                         <p className="font-bold text-slate-800">₹{calculateRate(formData.weight, formData.type)}</p>
-                         <span className="text-[10px] text-slate-500">(Includes COD Fee)</span>
-                      </div>
-                   </div>
-                   
-                   <div className="mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
-                      <div className="grid grid-cols-2 gap-4">
-                         <div>
-                             <span className="font-bold block mb-1">From:</span>
-                             <p>{formData.sender.name}</p>
-                             <p>{formData.sender.phone}</p>
-                             <p>{formData.sender.city}</p>
-                         </div>
-                         <div>
-                             <span className="font-bold block mb-1">To:</span>
-                             <p>{formData.receiver.name}</p>
-                             <p>{formData.receiver.phone}</p>
-                             <p>{formData.receiver.city}</p>
-                         </div>
-                      </div>
-                      <div className="mt-4 pt-4 border-t">
-                          <p><span className="font-bold">Service:</span> {formData.type}</p>
-                          <p><span className="font-bold">Weight:</span> {formData.weight} kg</p>
-                          <p><span className="font-bold">Payment Method:</span> COD</p>
-                          <p><span className="font-bold">Payment Status:</span> PENDING</p>
-                      </div>
-                   </div>
-                </div>
+      return (
+        <div className="p-12 text-center animate-fade-in-up">
+          <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 print:hidden">
+            <CheckCircle className="w-8 h-8" />
+          </div>
+          <div className="print:hidden">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Booking Confirmed!</h3>
+            <p className="text-slate-500 mb-6">Label generated and sent to printer.</p>
+          </div>
 
-                <div className="flex justify-center gap-4 mt-8 print:hidden">
-                    <button 
-                      onClick={() => printElementById('agent-quick-booking-label', 'Quick Booking Label')}
-                      className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
-                   >
-                     <Printer className="w-5 h-5" />
-                     Print Label
-                   </button>
-                   <button 
-                      onClick={() => setIsSubmitted(false)} 
-                      className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/30"
-                   >
-                     Book Another
-                   </button>
-                </div>
+          <div id="agent-quick-booking-label" className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md mx-auto relative overflow-hidden group print:shadow-none print:border-2 print:max-w-none print:p-4 print:w-full printable">
+            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-600 print:hidden"></div>
+            <div className="hidden print:block text-2xl font-bold mb-4 text-center border-b pb-4">SHIPFAST LOGISTICS</div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Tracking ID</p>
+            <div className="text-4xl font-mono font-bold text-slate-900 tracking-widest mb-4 selection:bg-indigo-100">{trackingId}</div>
+
+            <div className="mb-6 flex justify-center">
+              <BarcodeGenerator value={trackingId} />
             </div>
-        );
+
+            <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center text-sm">
+              <div className="text-left">
+                <p className="text-xs text-slate-400 font-semibold uppercase">Amount To Pay</p>
+                <p className="font-bold text-slate-800">&#8377;{estimatedCost}</p>
+                <span className="text-[10px] text-slate-500">(Includes COD Fee)</span>
+              </div>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="font-bold block mb-1">From:</span>
+                  <p>{formData.sender.name}</p>
+                  <p>{formData.sender.phone}</p>
+                  <p>{composeAddressLine(formData.sender)}</p>
+                </div>
+                <div>
+                  <span className="font-bold block mb-1">To:</span>
+                  <p>{formData.receiver.name}</p>
+                  <p>{formData.receiver.phone}</p>
+                  <p>{composeAddressLine(formData.receiver)}</p>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t">
+                <p><span className="font-bold">Service:</span> {formData.type}</p>
+                <p><span className="font-bold">Weight:</span> {formData.weight} kg</p>
+                <p><span className="font-bold">Payment Method:</span> COD</p>
+                <p><span className="font-bold">Payment Status:</span> PENDING</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-center gap-4 mt-8 print:hidden">
+            <button
+              onClick={() => printElementById('agent-quick-booking-label', 'Quick Booking Label')}
+              className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
+            >
+              <Printer className="w-5 h-5" />
+              Print Label
+            </button>
+            <button
+              onClick={() => {
+                setIsSubmitted(false);
+                setTrackingId('');
+                setFormData({
+                  sender: defaultParty(),
+                  receiver: defaultParty(),
+                  weight: '',
+                  type: 'Standard'
+                });
+              }}
+              className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/30"
+            >
+              Book Another
+            </button>
+          </div>
+        </div>
+      );
     }
 
     return (
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Sender Details</h3>
-                    <input required placeholder="Sender Name" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.name} onChange={e => setFormData({...formData, sender: {...formData.sender, name: e.target.value}})} />
-                    <input required placeholder="Mobile Number" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.phone} onChange={e => setFormData({...formData, sender: {...formData.sender, phone: e.target.value}})} />
-                    <input required placeholder="City" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.city} onChange={e => setFormData({...formData, sender: {...formData.sender, city: e.target.value}})} />
-                </div>
-                <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Receiver Details</h3>
-                    <input required placeholder="Receiver Name" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.name} onChange={e => setFormData({...formData, receiver: {...formData.receiver, name: e.target.value}})} />
-                    <input required placeholder="Mobile Number" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.phone} onChange={e => setFormData({...formData, receiver: {...formData.receiver, phone: e.target.value}})} />
-                    <input required placeholder="Destination City" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.city} onChange={e => setFormData({...formData, receiver: {...formData.receiver, city: e.target.value}})} />
-                </div>
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Sender Details</h3>
+            <input required placeholder="Ilango K" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.name} onChange={e => handlePartyChange('sender', 'name', e.target.value)} />
+            <input required placeholder="+91XXXXXXXXXX" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.phone} onChange={e => handlePartyChange('sender', 'phone', e.target.value)} />
+            <input required placeholder="Door / Street Address" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.doorAddress} onChange={e => handlePartyChange('sender', 'doorAddress', e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <input required placeholder="City" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.city} onChange={e => handlePartyChange('sender', 'city', e.target.value)} />
+              <input required placeholder="State" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.state} onChange={e => handlePartyChange('sender', 'state', e.target.value)} />
             </div>
-            
-            <div className="pt-4 border-t border-slate-100">
-                <div className="flex items-end gap-4">
-                    <div className="flex-1 space-y-2">
-                        <label className="text-sm font-medium text-slate-700">Weight (kg)</label>
-                        <input required type="number" placeholder="0.5" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} />
-                    </div>
-                    <div className="flex-1 space-y-2">
-                        <label className="text-sm font-medium text-slate-700">Service Type</label>
-                        <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
-                            <option>Standard</option>
-                            <option>Express</option>
-                        </select>
-                    </div>
-                    <div className="flex-1">
-                        <div className="text-right mb-1 text-sm text-slate-500">Estimated Cost</div>
-                        <div className="text-2xl font-bold text-slate-900 text-right">₹{calculateRate(formData.weight || 0, formData.type)}</div>
-                    </div>
-                </div>
+            <input required placeholder="Pincode" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.sender.pincode} onChange={e => handlePartyChange('sender', 'pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} />
+          </div>
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Receiver Details</h3>
+            <input required placeholder="Yazhini R" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.name} onChange={e => handlePartyChange('receiver', 'name', e.target.value)} />
+            <input required placeholder="+91XXXXXXXXXX" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.phone} onChange={e => handlePartyChange('receiver', 'phone', e.target.value)} />
+            <input required placeholder="Door / Street Address" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.doorAddress} onChange={e => handlePartyChange('receiver', 'doorAddress', e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <input required placeholder="City" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.city} onChange={e => handlePartyChange('receiver', 'city', e.target.value)} />
+              <input required placeholder="State" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.state} onChange={e => handlePartyChange('receiver', 'state', e.target.value)} />
             </div>
+            <input required placeholder="Pincode" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.receiver.pincode} onChange={e => handlePartyChange('receiver', 'pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} />
+          </div>
+        </div>
 
-            <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20">
-                Confirm Booking & Print Label
-            </button>
-        </form>
+        <div className="pt-4 border-t border-slate-100">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end">
+            <div className="flex-1 space-y-2">
+              <label className="text-sm font-medium text-slate-700">Weight (kg)</label>
+              <input required type="number" min="0.1" step="0.1" placeholder="0.5" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.weight} onChange={e => setFormData({ ...formData, weight: e.target.value })} />
+            </div>
+            <div className="flex-1 space-y-2">
+              <label className="text-sm font-medium text-slate-700">Service Type</label>
+              <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                <option>Standard</option>
+                <option>Express</option>
+                <option>Same Day</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <div className="text-right mb-1 text-sm text-slate-500">Estimated Cost</div>
+              <div className="text-2xl font-bold text-slate-900 text-right">&#8377;{estimatedCost}</div>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20">
+          Confirm Booking & Print Label
+        </button>
+      </form>
     );
 }
-
 function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshShipments }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [generatedSheet, setGeneratedSheet] = useState(null);
@@ -1554,29 +1907,30 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
 
     return (
          <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">Run Sheet Generation</h1>
                 <p className="text-slate-600">Assign pending deliveries to drivers</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 items-stretch md:items-center">
                   {generatedSheet && (
                       <SectionDownloader 
                         title="Download Sheet"
                         className="inline-block"
                       >
-                           <div className="p-8 bg-white" id="run-sheet-content">
-                               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                           <div className="p-4 sm:p-8 bg-white" id="run-sheet-content">
+                               <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6 border-b pb-4">
                                    <div>
                                        <h1 className="text-2xl font-bold text-slate-900">Delivery Run Sheet</h1>
                                        <p className="text-slate-500">ID: {generatedSheet.id}</p>
                                    </div>
-                                   <div className="text-right">
+                                   <div className="text-left sm:text-right">
                                        <p className="font-bold">{generatedSheet.date}</p>
                                        <p className="text-sm text-slate-500">Items: {generatedSheet.items.length}</p>
                                    </div>
                                </div>
-                               <table className="w-full text-left text-sm border-collapse">
+                               <div className="overflow-x-auto">
+                               <table className="w-full min-w-[720px] text-left text-sm border-collapse">
                                    <thead>
                                        <tr className="bg-slate-100">
                                            <th className="p-3 border text-slate-700">Tracking ID</th>
@@ -1606,7 +1960,8 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                        )})}
                                    </tbody>
                                </table>
-                               <div className="mt-8 pt-4 border-t flex justify-between text-sm text-slate-500">
+                               </div>
+                               <div className="mt-8 pt-4 border-t flex flex-col gap-2 sm:flex-row sm:justify-between text-sm text-slate-500">
                                    <div>Generated by System</div>
                                    <div>Authorized Signature _________________</div>
                                </div>
@@ -1625,7 +1980,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-               <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+               <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                   <span className="font-semibold text-slate-700">Pending for Delivery (Today)</span>
                   <span className="text-sm bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">{eligibleForRunSheet.length} Shipments</span>
                </div>
@@ -1633,8 +1988,8 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                         {eligibleForRunSheet.length > 0 ? eligibleForRunSheet.map(s => {
                             const receiverDetails = getPartyDetails(s, 'receiver');
                             return (
-                            <div key={s.id} className="p-4 hover:bg-slate-50 flex items-center gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
-                        <div className="relative flex items-center justify-center p-2">
+                            <div key={s.id} className="p-4 hover:bg-slate-50 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 cursor-pointer" onClick={() => toggleSelection(s.id)}>
+                        <div className="relative flex items-center justify-center p-2 self-start sm:self-auto">
                             <input 
                                 type="checkbox" 
                                 className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" 
@@ -1642,11 +1997,11 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                 onChange={() => {}} 
                             />
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 w-full">
                            <div className="font-medium text-slate-900">{s.id}</div>
                                     <div className="text-sm text-slate-500">{receiverDetails.city} • <span className="text-indigo-600">{s.type}</span></div>
                         </div>
-                        <div className="text-right text-sm">
+                        <div className="text-left sm:text-right text-sm w-full sm:w-auto">
                            <div className="font-medium text-slate-900">COD: ₹{s.cost}</div>
                            <div className="text-slate-500">{s.weight} kg</div>
                         </div>

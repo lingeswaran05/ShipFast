@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CreditCard, DollarSign, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
+import { CreditCard, IndianRupee, Calendar, Download, Search, ArrowUpRight } from 'lucide-react';
 import { useShipment } from '../../context/ShipmentContext';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -159,7 +159,7 @@ export function Payments() {
           <div className="absolute top-0 right-0 w-24 h-24 bg-purple-50 rounded-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
           <div className="flex items-center gap-4 mb-4 relative z-10">
             <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
-              <DollarSign className="w-6 h-6" />
+              <IndianRupee className="w-6 h-6" />
             </div>
             <span className="text-sm font-medium text-slate-500">Total Spent</span>
           </div>

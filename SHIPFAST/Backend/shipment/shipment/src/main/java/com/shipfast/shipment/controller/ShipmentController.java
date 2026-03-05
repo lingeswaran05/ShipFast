@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.shipfast.shipment.dto.AssignShipmentRequest;
 import com.shipfast.shipment.dto.CalculateRateRequest;
 import com.shipfast.shipment.dto.CreateShipmentRequest;
+import com.shipfast.shipment.dto.PricingConfigDto;
 import com.shipfast.shipment.dto.RateCalculationResponse;
 import com.shipfast.shipment.dto.RatingRequest;
 import com.shipfast.shipment.dto.ShipmentListResponse;
@@ -136,6 +137,16 @@ public class ShipmentController {
     @PostMapping("/calculate-rate")
     public RateCalculationResponse calculateRate(@RequestBody CalculateRateRequest request) {
         return shipmentService.calculateRate(request);
+    }
+
+    @GetMapping("/pricing-config")
+    public PricingConfigDto getPricingConfig() {
+        return shipmentService.getPricingConfig();
+    }
+
+    @PutMapping("/pricing-config")
+    public PricingConfigDto updatePricingConfig(@RequestBody PricingConfigDto request) {
+        return shipmentService.updatePricingConfig(request);
     }
 
     private String firstNonBlank(String... values) {
