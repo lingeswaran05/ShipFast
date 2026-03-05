@@ -10,30 +10,50 @@ export function InvoicePage() {
   const { getShipment } = useShipment();
 
   const shipment = getShipment(id);
+  const roundToRupee = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.round(numeric);
+  };
+
+  const resolveInvoiceStatus = (shipmentRecord) => {
+    const paymentMode = String(shipmentRecord?.paymentMode || '').toUpperCase();
+    const paymentStatus = String(shipmentRecord?.paymentStatus || '').toUpperCase();
+    const delivered = String(shipmentRecord?.status || '').toLowerCase() === 'delivered';
+    const isCod = paymentMode === 'COD' || paymentMode === 'CASH';
+    if (isCod) {
+      return (paymentStatus === 'SUCCESS' || paymentStatus === 'PAID' || delivered) ? 'Paid' : 'Pending';
+    }
+    return (paymentStatus === 'SUCCESS' || paymentStatus === 'PAID') ? 'Paid' : 'Pending';
+  };
 
   // Generate invoice data from shipment or mock if not found
   const invoiceData = useMemo(() => {
      if (shipment) {
+         const total = roundToRupee(shipment.cost);
+         const status = resolveInvoiceStatus(shipment);
+         const serviceAmount = roundToRupee(total * 0.82);
+         const taxAmount = Math.max(0, total - serviceAmount);
          return {
              id: `INV-${shipment.id}`,
              date: shipment.date,
              dueDate: shipment.date,
-             status: 'Paid',
+             status,
              sender: {
                  name: shipment.sender.name,
-                 address: `${shipment.sender.city}, India`,
+                 address: shipment.sender.address || 'N/A',
                  email: `${shipment.sender.name.split(' ')[0].toLowerCase()}@example.com`
              },
              receiver: {
                  name: shipment.receiver.name,
-                 address: `${shipment.receiver.city}, India`,
+                 address: shipment.receiver.address || 'N/A',
                  email: `${shipment.receiver.name.split(' ')[0].toLowerCase()}@example.com`
              },
              items: [
-                 { description: `${shipment.type} Delivery Service`, quantity: 1, rate: parseFloat(shipment.cost) * 0.82, amount: parseFloat(shipment.cost) * 0.82 },
-                 { description: 'GST (18%)', quantity: 1, rate: parseFloat(shipment.cost) * 0.18, amount: parseFloat(shipment.cost) * 0.18 }
+                 { description: `${shipment.type} Delivery Service`, quantity: 1, rate: serviceAmount, amount: serviceAmount },
+                 { description: 'Tax', quantity: 1, rate: taxAmount, amount: taxAmount }
              ],
-             total: parseFloat(shipment.cost)
+             total
          };
      }
      
@@ -42,14 +62,14 @@ export function InvoicePage() {
         id: id || 'INV-2025-001',
         date: 'Dec 20, 2025',
         dueDate: 'Dec 20, 2025',
-        status: 'Paid',
+        status: 'Pending',
         sender: { name: 'John Doe', address: '123 Main St, Mumbai, MH', email: 'john@example.com' },
         receiver: { name: 'Jane Smith', address: '456 Park Ave, Delhi, DL', email: 'jane@example.com' },
         items: [
           { description: 'Standard Delivery Service', quantity: 1, rate: 250.00, amount: 250.00 },
           { description: 'GST (18%)', quantity: 1, rate: 45.00, amount: 45.00 }
         ],
-        total: 295.00
+        total: 295
       };
   }, [shipment, id]);
 
@@ -114,13 +134,17 @@ export function InvoicePage() {
           </div>
           <div>
             <div className="text-sm font-medium text-slate-500 mb-1">Status</div>
-            <span className="inline-flex px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-semibold border border-green-200">
+            <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold border ${
+              invoiceData.status === 'Paid'
+                ? 'bg-green-50 text-green-700 border-green-200'
+                : 'bg-amber-50 text-amber-700 border-amber-200'
+            }`}>
               {invoiceData.status}
             </span>
           </div>
           <div>
             <div className="text-sm font-medium text-slate-500 mb-1">Amount Due</div>
-            <div className="text-slate-900 font-bold">Rs.{invoiceData.total.toFixed(2)}</div>
+            <div className="text-slate-900 font-bold">Rs.{invoiceData.status === 'Paid' ? 0 : invoiceData.total}</div>
           </div>
         </div>
 
@@ -158,8 +182,8 @@ export function InvoicePage() {
                 <tr key={index}>
                   <td className="py-4 text-slate-900">{item.description}</td>
                   <td className="py-4 text-right text-slate-600">{item.quantity}</td>
-                  <td className="py-4 text-right text-slate-600">Rs.{item.rate.toFixed(2)}</td>
-                  <td className="py-4 text-right text-slate-900 font-medium">Rs.{item.amount.toFixed(2)}</td>
+                  <td className="py-4 text-right text-slate-600">Rs.{roundToRupee(item.rate)}</td>
+                  <td className="py-4 text-right text-slate-900 font-medium">Rs.{roundToRupee(item.amount)}</td>
                 </tr>
               ))}
             </tbody>
@@ -172,7 +196,7 @@ export function InvoicePage() {
              <div className="border-t border-slate-300 my-2"></div>
             <div className="flex justify-between text-lg font-bold text-slate-900">
               <span>Total</span>
-              <span>Rs.{invoiceData.total.toFixed(2)}</span>
+              <span>Rs.{invoiceData.total}</span>
             </div>
           </div>
         </div>

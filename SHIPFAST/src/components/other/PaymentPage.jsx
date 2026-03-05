@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CreditCard, DollarSign, Shield, Check, ArrowLeft, Smartphone } from 'lucide-react';
+import { CreditCard, IndianRupee, Shield, Check, ArrowLeft, Smartphone } from 'lucide-react';
 
 export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) {
   const [selectedMethod, setSelectedMethod] = useState('paypal');
@@ -38,7 +38,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               <Check className="w-12 h-12 text-white" />
             </div>
             <h2 className="text-3xl font-black text-slate-900">Payment Successful!</h2>
-            <p className="text-lg text-slate-600">Your payment of ₹{amount.toFixed(2)} has been processed successfully</p>
+            <p className="text-lg text-slate-600">Your payment of Rs {amount.toFixed(2)} has been processed successfully</p>
             <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4">
               <p className="text-green-800 font-semibold">
                 Transaction ID: TXN{Math.random().toString(36).substr(2, 9).toUpperCase()}
@@ -84,7 +84,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-white" />
+                    <IndianRupee className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
                     <div className="text-slate-800">PayPal</div>
@@ -144,7 +144,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-white" />
+                    <IndianRupee className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
                     <div className="text-slate-800">Net Banking</div>
@@ -160,13 +160,13 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
                 <div className="space-y-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
                     <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <DollarSign className="w-8 h-8 text-white" />
+                      <IndianRupee className="w-8 h-8 text-white" />
                     </div>
                     <h3 className="text-slate-800 mb-2">PayPal Checkout</h3>
                     <p className="text-slate-600 mb-4">
                       You will be redirected to PayPal to complete your payment securely
                     </p>
-                    <div className="text-slate-500">Amount: ₹{amount.toFixed(2)}</div>
+                    <div className="text-slate-500">Amount: Rs {amount.toFixed(2)}</div>
                   </div>
                 </div>
               )}
@@ -215,7 +215,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
                       type="text"
                       value={cardName}
                       onChange={(e) => setCardName(e.target.value)}
-                      placeholder="John Doe"
+                      placeholder="Senthilnathan P"
                       className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     />
@@ -270,7 +270,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
                 disabled={isProcessing}
                 className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-3 rounded-lg transition-colors"
               >
-                {isProcessing ? 'Processing Payment...' : `Pay ₹${amount.toFixed(2)}`}
+                {isProcessing ? 'Processing Payment...' : `Pay Rs ${amount.toFixed(2)}`}
               </button>
             </form>
           </div>
@@ -288,22 +288,22 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Base Rate</span>
-                <span className="text-slate-800">₹{(amount / 1.2916).toFixed(2)}</span>
+                <span className="text-slate-800">Rs {(amount / 1.2916).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Fuel Surcharge (8%)</span>
-                <span className="text-slate-800">₹{(amount / 1.2916 * 0.08).toFixed(2)}</span>
+                <span className="text-slate-800">Rs {(amount / 1.2916 * 0.08).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">GST (18%)</span>
-                <span className="text-slate-800">₹{(amount / 1.2916 * 0.18).toFixed(2)}</span>
+                <span className="text-slate-800">Rs {(amount / 1.2916 * 0.18).toFixed(2)}</span>
               </div>
             </div>
 
             <div className="border-t border-slate-200 pt-3 mb-4">
               <div className="flex justify-between">
                 <span className="text-slate-800">Total Amount</span>
-                <span className="text-slate-800">₹{amount.toFixed(2)}</span>
+                <span className="text-slate-800">Rs {amount.toFixed(2)}</span>
               </div>
             </div>
 
@@ -331,5 +331,6 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
     </div>
   );
 }
+
 
 

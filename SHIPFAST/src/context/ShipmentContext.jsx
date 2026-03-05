@@ -6,9 +6,11 @@ import { communicationService } from '../lib/communicationService';
 import { shipmentService } from '../lib/shipmentService';
 import { reportingService } from '../lib/reportingService';
 import { operationsService } from '../lib/operationsService';
+import { roleService } from '../lib/roleService';
 
 const ShipmentContext = createContext();
 const ROLE_REQUESTS_KEY = 'sf_role_requests';
+const ACTIVE_ROLE_KEY = 'sf_active_role';
 const ROLE_OVERRIDES_KEY = 'sf_role_overrides';
 const USERS_DIRECTORY_KEY = 'sf_users_directory';
 const PRICING_CONFIG_KEY = 'sf_pricing_config';
@@ -16,6 +18,16 @@ const DISMISSED_NOTIFICATIONS_KEY = 'sf_dismissed_notifications';
 const MAX_ROLE_REQUESTS = 200;
 const AGENT_ONBOARDING_KEY_PREFIX = 'sf_agent_onboarding_';
 const LEGACY_AGENT_ONBOARDING_KEY_PREFIX = 'agent_onboarding_';
+const DEFAULT_PRICING_CONFIG = {
+  profitPercentage: 20,
+  standardRatePerKg: 80,
+  expressMultiplier: 1.75,
+  sameDayMultiplier: 2,
+  distanceSurcharge: 40,
+  fuelSurchargePct: 9,
+  gstPct: 5,
+  codHandlingFee: 50
+};
 
 const parseStored = (key, fallback = []) => {
   try {
@@ -44,6 +56,28 @@ const roleRequestMatchesAnyIdentity = (request = {}, identities = []) => {
   const requestIdentities = getRoleRequestIdentityValues(request);
   return requestIdentities.some((identity) => identities.includes(identity));
 };
+const getStableUserIdentityValues = (user = {}) => (
+  [user?.userId, user?.id]
+    .map(toIdentityValue)
+    .filter(Boolean)
+);
+const getUserEmailIdentityValue = (user = {}) => toIdentityValue(user?.email);
+const roleRequestBelongsToUser = (request = {}, user = {}) => {
+  const stableUserIdentities = getStableUserIdentityValues(user);
+  const requestUserIdentity = toIdentityValue(request?.userId);
+  const requestEmailIdentity = toIdentityValue(request?.email);
+
+  if (stableUserIdentities.length > 0) {
+    if (requestUserIdentity) {
+      return stableUserIdentities.includes(requestUserIdentity);
+    }
+    const userEmailIdentity = getUserEmailIdentityValue(user);
+    return Boolean(userEmailIdentity) && requestEmailIdentity === userEmailIdentity;
+  }
+
+  const fallbackEmailIdentity = getUserEmailIdentityValue(user);
+  return Boolean(fallbackEmailIdentity) && requestEmailIdentity === fallbackEmailIdentity;
+};
 const buildIdentityCandidates = (...values) => (
   [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
 );
@@ -53,6 +87,25 @@ const toStorageSafeDocValue = (value) => {
   // Avoid persisting large inline base64 data in role-request index storage.
   if (text.startsWith('data:')) return null;
   return text;
+};
+const getShipmentOwnerIdentifiers = (user = {}) => {
+  const stableIds = buildIdentityCandidates(user?.userId, user?.id);
+  if (stableIds.length > 0) return stableIds;
+  return buildIdentityCandidates(user?.email);
+};
+const filterCustomerShipments = (shipments = [], user = {}) => {
+  const allowedStableIds = new Set(getShipmentOwnerIdentifiers(user).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  const fallbackEmail = String(user?.email || '').trim().toLowerCase();
+
+  return (shipments || []).filter((shipment) => {
+    const customerIdIdentity = String(shipment?.customerId || shipment?.userId || shipment?.ownerId || '').trim().toLowerCase();
+    if (allowedStableIds.size > 0) {
+      return customerIdIdentity ? allowedStableIds.has(customerIdIdentity) : false;
+    }
+
+    const emailIdentity = String(shipment?.customerEmail || shipment?.email || '').trim().toLowerCase();
+    return Boolean(fallbackEmail) && emailIdentity === fallbackEmail;
+  });
 };
 
 const isQuotaExceededError = (error) => (
@@ -76,12 +129,54 @@ const safeSetLocalStorage = (key, value) => {
   }
 };
 
+const normalizePricingConfig = (next = {}, fallback = DEFAULT_PRICING_CONFIG) => {
+  const source = { ...fallback, ...(next || {}) };
+  const toNumber = (value, defaultValue) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : defaultValue;
+  };
+  const normalizeNonNegative = (value, defaultValue) => Math.max(0, toNumber(value, defaultValue));
+  const normalizePositive = (value, defaultValue) => {
+    const numeric = toNumber(value, defaultValue);
+    return numeric > 0 ? numeric : defaultValue;
+  };
+
+  return {
+    profitPercentage: Math.min(100, normalizeNonNegative(source.profitPercentage, fallback.profitPercentage)),
+    standardRatePerKg: normalizePositive(source.standardRatePerKg, fallback.standardRatePerKg),
+    expressMultiplier: normalizePositive(source.expressMultiplier, fallback.expressMultiplier),
+    sameDayMultiplier: 2,
+    distanceSurcharge: normalizeNonNegative(source.distanceSurcharge, fallback.distanceSurcharge),
+    fuelSurchargePct: normalizeNonNegative(source.fuelSurchargePct, fallback.fuelSurchargePct),
+    gstPct: normalizeNonNegative(source.gstPct, fallback.gstPct),
+    codHandlingFee: normalizeNonNegative(source.codHandlingFee, fallback.codHandlingFee)
+  };
+};
+
 const readRoleRequestDocuments = (request = {}) => ({
   profilePhoto: request?.documents?.profilePhoto || request?.agentDetails?.profilePhoto || null,
   aadharCopy: request?.documents?.aadharCopy || null,
   licenseCopy: request?.documents?.licenseCopy || null,
   rcBookCopy: request?.documents?.rcBookCopy || null
 });
+
+const hasAgentProfileRequestSignal = (profile = {}) => {
+  if (!profile) return false;
+  const hasDocs = Boolean(
+    profile?.profileImage ||
+    profile?.aadharCopy ||
+    profile?.licenseCopy ||
+    profile?.rcBookCopy
+  );
+  const hasDetails = Boolean(
+    profile?.licenseNumber ||
+    profile?.aadharNumber ||
+    profile?.vehicleNumber ||
+    profile?.rcBookNumber
+  );
+  const hasNotes = Boolean(String(profile?.verificationNotes || '').trim());
+  return hasDocs || hasDetails || hasNotes;
+};
 
 const prepareRoleRequestsForStorage = (requests = []) => (
   Array.isArray(requests)
@@ -161,7 +256,22 @@ export function ShipmentProvider({ children }) {
     return Array.isArray(stored) ? stored.slice(0, MAX_ROLE_REQUESTS) : [];
   });
   const [roleOverrides, setRoleOverrides] = useState(parseStored(ROLE_OVERRIDES_KEY, []));
-  const [pricingConfig, setPricingConfig] = useState(parseStored(PRICING_CONFIG_KEY, { profitPercentage: 20 }));
+  const [activeRole, setActiveRole] = useState(() => {
+    try {
+      const stored = localStorage.getItem(ACTIVE_ROLE_KEY);
+      if (!stored) return null;
+      try {
+        return normalizeRole(JSON.parse(stored));
+      } catch {
+        return normalizeRole(stored);
+      }
+    } catch {
+      return null;
+    }
+  });
+  const [pricingConfig, setPricingConfig] = useState(
+    normalizePricingConfig(parseStored(PRICING_CONFIG_KEY, DEFAULT_PRICING_CONFIG), DEFAULT_PRICING_CONFIG)
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -235,6 +345,30 @@ export function ShipmentProvider({ children }) {
   }, [roleOverrides]);
 
   useEffect(() => {
+    const handleStorageSync = (event) => {
+      if (event.key === ROLE_REQUESTS_KEY) {
+        const latest = parseStored(ROLE_REQUESTS_KEY, []);
+        setRoleRequests(Array.isArray(latest) ? latest.slice(0, MAX_ROLE_REQUESTS) : []);
+        return;
+      }
+      if (event.key === ROLE_OVERRIDES_KEY) {
+        const latest = parseStored(ROLE_OVERRIDES_KEY, []);
+        setRoleOverrides(Array.isArray(latest) ? latest : []);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+    return () => {
+      window.removeEventListener('storage', handleStorageSync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeRole) return;
+    safeSetLocalStorage(ACTIVE_ROLE_KEY, String(activeRole));
+  }, [activeRole]);
+
+  useEffect(() => {
     safeSetLocalStorage(PRICING_CONFIG_KEY, JSON.stringify(pricingConfig));
   }, [pricingConfig]);
 
@@ -245,6 +379,74 @@ export function ShipmentProvider({ children }) {
   useEffect(() => {
     clearLegacyOnboardingCopies();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.role) return;
+    const normalized = normalizeRole(currentUser.role);
+    if (normalized === 'agent') {
+      setActiveRole((prev) => (prev === 'customer' || prev === 'agent' ? prev : 'agent'));
+      return;
+    }
+    setActiveRole(normalized);
+  }, [currentUser?.role]);
+
+  const switchActiveRole = (nextRole) => {
+    if (!currentUser?.role) return;
+    const normalized = normalizeRole(nextRole);
+    if (normalizeRole(currentUser.role) !== 'agent') {
+      setActiveRole(normalizeRole(currentUser.role));
+      return;
+    }
+    if (!['agent', 'customer'].includes(normalized)) return;
+    setActiveRole(normalized);
+  };
+
+  const clearStaleSessionRoleArtifacts = (user) => {
+    if (!user) return;
+
+    const stableIdentitySet = new Set(getStableUserIdentityValues(user));
+    const emailIdentity = getUserEmailIdentityValue(user);
+
+    // Remove stale role requests for the same email that belong to a different account id.
+    if (emailIdentity) {
+      setRoleRequests((prev) => (
+        (prev || []).filter((request) => {
+          const requestEmailIdentity = toIdentityValue(request?.email);
+          if (requestEmailIdentity !== emailIdentity) return true;
+          if (stableIdentitySet.size === 0) return false;
+          const requestUserIdentity = toIdentityValue(request?.userId);
+          if (!requestUserIdentity) return false;
+          return stableIdentitySet.has(requestUserIdentity);
+        })
+      ));
+
+      setRoleOverrides((prev) => (
+        (prev || []).filter((override) => {
+          const overrideEmailIdentity = toIdentityValue(override?.email);
+          if (overrideEmailIdentity !== emailIdentity) return true;
+          if (stableIdentitySet.size === 0) return false;
+          const overrideUserIdentity = toIdentityValue(override?.userId || override?.id);
+          return Boolean(overrideUserIdentity) && stableIdentitySet.has(overrideUserIdentity);
+        })
+      ));
+    }
+
+    // Email-keyed onboarding payload can belong to an old deleted account.
+    const staleOnboardingKeys = buildIdentityCandidates(
+      user?.email,
+      String(user?.email || '').toLowerCase()
+    ).flatMap((identity) => [
+      `${AGENT_ONBOARDING_KEY_PREFIX}${identity}`,
+      `${LEGACY_AGENT_ONBOARDING_KEY_PREFIX}${identity}`
+    ]);
+    staleOnboardingKeys.forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // non-blocking cleanup
+      }
+    });
+  };
 
   const syncUserDirectory = (user) => {
     if (!user?.email) return;
@@ -270,11 +472,25 @@ export function ShipmentProvider({ children }) {
 
   const getUserOverride = (user) => {
     if (!user) return null;
-    return roleOverrides.find(
-      override =>
-        (override.userId && override.userId === user.userId) ||
-        (override.email && user.email && override.email === user.email)
-    ) || null;
+    const stableUserIdentities = getStableUserIdentityValues(user);
+    const userEmailIdentity = getUserEmailIdentityValue(user);
+
+    // If the authenticated profile has a stable user id, never match overrides
+    // only by email. This prevents old-account local overrides from leaking
+    // into a newly re-created account with the same email.
+    if (stableUserIdentities.length > 0) {
+      return roleOverrides.find((override) => {
+        const overrideStableIdentities = [override?.userId, override?.id]
+          .map(toIdentityValue)
+          .filter(Boolean);
+        return overrideStableIdentities.some((identity) => stableUserIdentities.includes(identity));
+      }) || null;
+    }
+
+    if (!userEmailIdentity) return null;
+    return roleOverrides.find((override) => (
+      toIdentityValue(override?.email) === userEmailIdentity
+    )) || null;
   };
 
   const applyRoleOverride = (user) => {
@@ -291,8 +507,9 @@ export function ShipmentProvider({ children }) {
   const loadUsersFromDb = async () => {
     try {
       const dbUsers = await authService.getAllUsers();
-      setUsers(dbUsers);
-      return dbUsers;
+      const nextUsers = (dbUsers || []).map((user) => applyRoleOverride(user));
+      setUsers(nextUsers);
+      return nextUsers;
     } catch (error) {
       console.error('Failed to fetch users from DB', error);
       return users;
@@ -329,7 +546,9 @@ export function ShipmentProvider({ children }) {
       if (role === 'admin' || role === 'agent') {
         userShipments = await shipmentService.getAllShipments();
       } else {
-        userShipments = await shipmentService.getShipments(currentUser.userId || currentUser.id || currentUser.email);
+        const ownerIdentifiers = getShipmentOwnerIdentifiers(currentUser);
+        userShipments = ownerIdentifiers.length > 0 ? await shipmentService.getShipments(ownerIdentifiers) : [];
+        userShipments = filterCustomerShipments(userShipments, currentUser);
       }
     } catch (error) {
       console.warn('Failed to load shipments from backend, using empty fallback', error);
@@ -340,6 +559,23 @@ export function ShipmentProvider({ children }) {
     setShipments(userShipments || []);
     setLastDataSyncAt(new Date().toISOString());
     return userShipments;
+  };
+
+  const refreshPricingConfig = async () => {
+    try {
+      const backendConfig = await shipmentService.getPricingConfig();
+      const merged = normalizePricingConfig(
+        { ...pricingConfig, ...backendConfig, sameDayMultiplier: 2 },
+        DEFAULT_PRICING_CONFIG
+      );
+      setPricingConfig(merged);
+      return merged;
+    } catch (error) {
+      console.warn('Failed to load pricing config from backend, using local/default config', error);
+      const fallback = normalizePricingConfig(pricingConfig, DEFAULT_PRICING_CONFIG);
+      setPricingConfig(fallback);
+      return fallback;
+    }
   };
 
   const refreshOperationalData = async () => {
@@ -356,6 +592,7 @@ export function ShipmentProvider({ children }) {
         }
       }
       await refreshShipments();
+      await refreshPricingConfig();
     } finally {
       setIsRefreshing(false);
     }
@@ -369,6 +606,23 @@ export function ShipmentProvider({ children }) {
       const dismissed = new Set(dismissedNotificationIds.map((value) => String(value).trim()));
       const filteredLatest = (latestNotifications || []).filter((item) => !dismissed.has(String(item?.id || '').trim()));
       setNotifications((prev) => mergeNotifications(filteredLatest, prev));
+
+      const roleApproved = filteredLatest.some((item) => (
+        /agent access request was approved by admin/i.test(String(item?.message || ''))
+      ));
+      if (roleApproved && normalizeRole(currentUser?.role) === 'customer') {
+        try {
+          const baseUser = await authService.getProfile();
+          const updatedUser = applyRoleOverride(baseUser);
+          if (normalizeRole(updatedUser?.role) === 'agent') {
+            setCurrentUser(updatedUser);
+            authStorage.setCurrentUser(updatedUser);
+          }
+        } catch {
+          // non-blocking best-effort role refresh
+        }
+      }
+
       return filteredLatest;
     } catch (error) {
       console.error('Failed to fetch notifications from backend', error);
@@ -385,6 +639,7 @@ export function ShipmentProvider({ children }) {
         if (hasAccessToken) {
             try {
               const baseUser = await authService.getProfile();
+              clearStaleSessionRoleArtifacts(baseUser);
               const user = applyRoleOverride(baseUser);
 
               if (user.blocked) {
@@ -400,7 +655,9 @@ export function ShipmentProvider({ children }) {
                   if (role === 'admin' || role === 'agent') {
                     userShipments = await shipmentService.getAllShipments();
                   } else {
-                    userShipments = await shipmentService.getShipments(user.userId || user.id || user.email);
+                    const ownerIdentifiers = getShipmentOwnerIdentifiers(user);
+                    userShipments = ownerIdentifiers.length > 0 ? await shipmentService.getShipments(ownerIdentifiers) : [];
+                    userShipments = filterCustomerShipments(userShipments, user);
                   }
               } catch {
                   userShipments = [];
@@ -419,6 +676,7 @@ export function ShipmentProvider({ children }) {
         } else {
             const localUser = authStorage.getCurrentUser();
             if (localUser) {
+              clearStaleSessionRoleArtifacts(localUser);
               const user = applyRoleOverride(localUser);
               if (!user.blocked) {
                 setCurrentUser(user);
@@ -441,6 +699,7 @@ export function ShipmentProvider({ children }) {
 
         const staffData = await mockService.getStaff();
         setStaff(staffData);
+        await refreshPricingConfig();
         setLastDataSyncAt(new Date().toISOString());
       } catch (error) {
         console.error("Failed to load initial data", error);
@@ -454,6 +713,7 @@ export function ShipmentProvider({ children }) {
   const login = async (email, password) => {
     try {
       const baseUser = await authService.login(email, password);
+      clearStaleSessionRoleArtifacts(baseUser);
       const user = applyRoleOverride(baseUser);
 
       if (user.blocked) {
@@ -476,12 +736,15 @@ export function ShipmentProvider({ children }) {
         if (role === 'admin' || role === 'agent') {
           userShipments = await shipmentService.getAllShipments();
         } else {
-          userShipments = await shipmentService.getShipments(user.userId || user.id || user.email);
+          const ownerIdentifiers = getShipmentOwnerIdentifiers(user);
+          userShipments = ownerIdentifiers.length > 0 ? await shipmentService.getShipments(ownerIdentifiers) : [];
+          userShipments = filterCustomerShipments(userShipments, user);
         }
       } catch {
         userShipments = [];
       }
       setShipments(userShipments);
+      await refreshPricingConfig();
       setLastDataSyncAt(new Date().toISOString());
 
       await refreshUserNotifications(user.userId || user.id);
@@ -507,27 +770,15 @@ export function ShipmentProvider({ children }) {
             pincode: userData.pincode
           });
 
+          clearStaleSessionRoleArtifacts(baseUser);
           const user = applyRoleOverride(baseUser);
           syncUserDirectory(user);
-
-          // Some auth providers return only registration confirmation without login tokens.
-          if (baseUser?.requiresLogin) {
-            addNotification('Registration successful. Please login to continue.', 'customer');
-            return user;
-          }
-
-          setCurrentUser(user);
-          authStorage.setCurrentUser(user);
-
-          let userShipments = [];
-          try {
-            userShipments = await shipmentService.getShipments(user.userId || user.id || user.email);
-          } catch {
-            userShipments = [];
-          }
-          setShipments(userShipments);
-          addNotification(`Welcome to ShipFast, ${user.name}!`, 'customer');
-          return user;
+          // Registration should always redirect to login and start a fresh session.
+          await authService.logout();
+          setCurrentUser(null);
+          setShipments([]);
+          addNotification('Registration successful. Please login to continue.', 'customer');
+          return { ...user, requiresLogin: true };
       } catch (error) {
           console.error("Registration failed", error);
           throw error;
@@ -539,6 +790,12 @@ export function ShipmentProvider({ children }) {
       setCurrentUser(null);
       setShipments([]);
       setNotifications([]);
+      setActiveRole(null);
+      try {
+        localStorage.removeItem(ACTIVE_ROLE_KEY);
+      } catch {
+        // non-blocking cleanup
+      }
   };
 
   const forgotPassword = async (email) => {
@@ -655,8 +912,17 @@ export function ShipmentProvider({ children }) {
           .map((value) => String(value));
         return !identifiers.some((value) => removedIds.has(value));
       }));
-      addNotification('Shipment deleted.', 'customer');
-      await refreshShipments();
+      const latestShipments = await refreshShipments();
+      const stillExists = (latestShipments || []).some((shipment) => {
+        const identifiers = [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+          .filter(Boolean)
+          .map((value) => String(value));
+        return identifiers.some((value) => removedIds.has(value));
+      });
+      if (stillExists) {
+        throw new Error('Shipment delete did not persist in database. Please try again.');
+      }
+      addNotification('Shipment deleted permanently.', 'customer');
       return true;
   };
 
@@ -690,23 +956,9 @@ export function ShipmentProvider({ children }) {
         throw new Error('Only customers can request role upgrade');
       }
 
-      const customerIdentities = [
-        currentUser?.userId,
-        currentUser?.id,
-        currentUser?.email
-      ].map(toIdentityValue).filter(Boolean);
-
-      const existingPending = roleRequests.find(
-        (request) => isPendingRoleRequestStatus(request?.status) && roleRequestMatchesAnyIdentity(request, customerIdentities)
-      );
-
-      if (existingPending) {
-        throw new Error('You already have a pending request');
-      }
-
       const existingApproved = roleRequests.find((request) => {
         if (normalizeRoleRequestStatus(request?.status) !== 'APPROVED') return false;
-        return roleRequestMatchesAnyIdentity(request, customerIdentities);
+        return roleRequestBelongsToUser(request, currentUser);
       });
       if (existingApproved) {
         throw new Error('Your previous request was approved. Please login again.');
@@ -719,11 +971,31 @@ export function ShipmentProvider({ children }) {
       );
       const primaryProfileUserId = customerIdentityCandidates[0] || '';
 
-      const request = {
-        id: `rr-${Date.now()}`,
-        userId: primaryProfileUserId || currentUser.userId || currentUser.id,
-        email: currentUser.email,
-        name: currentUser.name,
+      const backendProfiles = [];
+      for (const identity of customerIdentityCandidates) {
+        const profile = await operationsService.getAgentProfile(identity);
+        if (profile && hasAgentProfileRequestSignal(profile)) {
+          backendProfiles.push({ identity, profile });
+        }
+      }
+      const backendStatuses = backendProfiles
+        .map((item) => {
+          const rawStatus = String(item.profile?.verificationStatus || '').trim();
+          if (!rawStatus) return null;
+          return normalizeRoleRequestStatus(rawStatus);
+        })
+        .filter(Boolean);
+      const hasBackendRejected = backendStatuses.some((status) => status === 'REJECTED');
+
+      const existingPending = roleRequests.find(
+        (request) => isPendingRoleRequestStatus(request?.status) && roleRequestBelongsToUser(request, currentUser)
+      );
+
+      if (existingPending && !hasBackendRejected) {
+        throw new Error('You already have a pending request');
+      }
+
+      const requestPayload = {
         currentRole: normalizeRole(currentUser.role),
         requestedRole: normalizeRole(requestedRole || 'agent'),
         reason: String(reason || '').trim(),
@@ -746,19 +1018,19 @@ export function ShipmentProvider({ children }) {
           aadharCopy: details?.aadharCopy || null,
           licenseCopy: details?.licenseCopy || null,
           rcBookCopy: details?.rcBookCopy || null
-        },
+        }
+      };
+
+      const request = {
+        id: `rr-${Date.now()}`,
+        userId: primaryProfileUserId || currentUser.userId || currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+        ...requestPayload,
         status: 'PENDING',
         createdAt: new Date().toISOString()
       };
 
-      const backendProfiles = [];
-      for (const identity of customerIdentityCandidates) {
-        const profile = await operationsService.getAgentProfile(identity);
-        if (profile) {
-          backendProfiles.push({ identity, profile });
-        }
-      }
-      const backendStatuses = backendProfiles.map((item) => normalizeRoleRequestStatus(item.profile?.verificationStatus || 'PENDING'));
       if (backendStatuses.some((status) => ['VERIFIED', 'APPROVED'].includes(status))) {
         throw new Error('Your previous request was approved. Please login again.');
       }
@@ -767,6 +1039,41 @@ export function ShipmentProvider({ children }) {
         !backendStatuses.some((status) => status === 'REJECTED')
       ) {
           throw new Error('You already have a pending request');
+      }
+
+      if (existingPending && hasBackendRejected) {
+        const reviewedAt = new Date().toISOString();
+        setRoleRequests((prev) => prev.map((request) => {
+          if (!isPendingRoleRequestStatus(request?.status)) return request;
+          if (!roleRequestBelongsToUser(request, currentUser)) return request;
+          return {
+            ...request,
+            status: 'REJECTED',
+            reviewedAt,
+            reviewedBy: 'system'
+          };
+        }));
+      }
+
+      try {
+        const backendRequest = await roleService.requestRoleUpgrade(
+          request.requestedRole,
+          request.reason,
+          {
+            userId: request.userId,
+            email: request.email,
+            name: request.name,
+            agentDetails: request.agentDetails,
+            documents: request.documents
+          }
+        );
+        if (backendRequest) {
+          request.id = backendRequest.id || backendRequest.requestId || request.id;
+          request.status = normalizeRoleRequestStatus(backendRequest.status || request.status);
+          request.createdAt = backendRequest.createdAt || request.createdAt;
+        }
+      } catch (error) {
+        console.warn('Role request API unavailable. Continuing with local request flow.', error);
       }
 
       try {
@@ -897,7 +1204,7 @@ export function ShipmentProvider({ children }) {
       return normalizedRequest;
   };
 
-    const approveRoleRequest = async (requestInput) => {
+  const approveRoleRequest = async (requestInput) => {
       const requestId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
       const requestIdentity = toIdentityValue(
         requestInput?.userId ||
@@ -920,26 +1227,47 @@ export function ShipmentProvider({ children }) {
         throw new Error("Invalid request object provided.");
       }
 
-      // Use the user ID from the request, fallback to email if not present
-      const userIdentifier = requestRecord.userId || requestRecord.email;
+      if (requestId && !String(requestId).startsWith('rr-')) {
+        try {
+          await roleService.approveRequest(requestId);
+        } catch (error) {
+          console.warn('Role approval API unavailable. Continuing with local approval flow.', error);
+        }
+      }
+
+      // Build all possible identities for robust matching and backend updates.
+      const requestIdentityCandidates = buildIdentityCandidates(
+        requestRecord?.userId,
+        requestRecord?.id,
+        requestRecord?.email,
+        requestRecord?.requestRecord?.userId,
+        requestRecord?.requestRecord?.id,
+        requestRecord?.requestRecord?.email
+      );
+
+      const matchedUserByIdentity = (users || []).find((user) => {
+        const userIdentities = [user?.userId, user?.id, user?.email].map(toIdentityValue).filter(Boolean);
+        return requestIdentityCandidates
+          .map(toIdentityValue)
+          .filter(Boolean)
+          .some((identity) => userIdentities.includes(identity));
+      }) || null;
+
+      const identityCandidates = buildIdentityCandidates(
+        ...requestIdentityCandidates,
+        matchedUserByIdentity?.userId,
+        matchedUserByIdentity?.id,
+        matchedUserByIdentity?.email
+      );
+
+      const userIdentifier = identityCandidates[0];
       if (!userIdentifier) {
           throw new Error("No user identifier found in the request.");
       }
       
       const roleToAssign = requestRecord.requestedRole || 'agent';
 
-      const fallbackUser = users.find((user) => {
-        const requestIdentities = [
-          requestRecord.userId,
-          requestRecord.email
-        ].map(toIdentityValue).filter(Boolean);
-        const userIdentities = [
-          user.userId,
-          user.id,
-          user.email
-        ].map(toIdentityValue).filter(Boolean);
-        return requestIdentities.some((identity) => userIdentities.includes(identity));
-      }) || null;
+      const fallbackUser = matchedUserByIdentity;
 
       const profileUserId =
         fallbackUser?.userId ||
@@ -985,15 +1313,73 @@ export function ShipmentProvider({ children }) {
       }
 
       // Call the backend service to update the user's role
+      let roleUpdateFailed = false;
+      let roleUpdateSucceeded = false;
       try {
-          await authService.updateUserRole(userIdentifier, roleToAssign);
+          for (const identity of identityCandidates) {
+            try {
+              await authService.updateUserRole(identity, roleToAssign);
+              roleUpdateSucceeded = true;
+              break;
+            } catch {
+              // try next identity candidate
+            }
+          }
+          if (!roleUpdateSucceeded) {
+            throw new Error('Failed to update user role in DB');
+          }
       } catch (error) {
-          if (String(error.message).includes('found') || String(error.message).includes('Failed to update')) {
+          if (
+            String(error.message).includes('found') ||
+            String(error.message).includes('Failed to update') ||
+            String(error.message).includes('404')
+          ) {
               console.warn("Backend update failed (likely mock user). Applying locally:", error.message);
+              roleUpdateFailed = true;
           } else {
               throw error;
           }
       }
+
+      // Remove stale overrides for this identity set first.
+      setRoleOverrides(prev => {
+        const identitySet = new Set(identityCandidates.map(toIdentityValue).filter(Boolean));
+        const filtered = prev.filter((override) => {
+          const overrideIdentities = [override?.userId, override?.id, override?.email]
+            .map(toIdentityValue)
+            .filter(Boolean);
+          return !overrideIdentities.some((identity) => identitySet.has(identity));
+        });
+
+        if (roleUpdateFailed) {
+          filtered.push({
+            userId: requestRecord?.userId || matchedUserByIdentity?.userId || matchedUserByIdentity?.id || userIdentifier,
+            id: requestRecord?.id || matchedUserByIdentity?.id || undefined,
+            email: requestRecord?.email || matchedUserByIdentity?.email || '',
+            role: normalizeRole(roleToAssign),
+            blocked: false,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        return filtered;
+      });
+
+      // Immediately update in-memory user directory so UI moves user to agent list now.
+      setUsers((prev) => {
+        const identitySet = new Set(identityCandidates.map(toIdentityValue).filter(Boolean));
+        return (prev || []).map((user) => {
+          const userIdentities = [user?.userId, user?.id, user?.email]
+            .map(toIdentityValue)
+            .filter(Boolean);
+          if (!userIdentities.some((identity) => identitySet.has(identity))) return user;
+          return {
+            ...user,
+            role: normalizeRole(roleToAssign),
+            updatedAt: new Date().toISOString()
+          };
+        });
+      });
 
       // Update the local state for role requests
       const reviewedAt = new Date().toISOString();
@@ -1028,7 +1414,7 @@ export function ShipmentProvider({ children }) {
 
       await loadUsersFromDb();
 
-      const targetUserId = requestRecord.userId || requestRecord.email;
+      const targetUserId = requestRecord.userId || requestRecord.email || matchedUserByIdentity?.userId || matchedUserByIdentity?.email;
       if (targetUserId) {
         try {
           await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was approved by admin.');
@@ -1073,6 +1459,14 @@ export function ShipmentProvider({ children }) {
         throw new Error('Role request not found');
       }
 
+      if (requestId && !String(requestId).startsWith('rr-')) {
+        try {
+          await roleService.rejectRequest(requestId);
+        } catch (error) {
+          console.warn('Role rejection API unavailable. Continuing with local rejection flow.', error);
+        }
+      }
+
       const matchedUser = (users || []).find((user) => {
         const requestIdentities = getRoleRequestIdentityValues(requestRecord);
         const userIdentities = [user?.userId, user?.id, user?.email].map(toIdentityValue).filter(Boolean);
@@ -1101,7 +1495,8 @@ export function ShipmentProvider({ children }) {
           await operationsService.verifyAgentProfile(identity, {
             verified: false,
             verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
-            verificationNotes: 'Rejected by admin'
+            verificationNotes: 'Rejected by admin',
+            verificationStatus: 'REJECTED'
           });
         } catch {
           // non-blocking backend verification update
@@ -1138,7 +1533,7 @@ export function ShipmentProvider({ children }) {
       const targetUserId = targetIdentityCandidates[0] || requestRecord?.userId || requestRecord?.email;
       if (targetUserId) {
         try {
-          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was rejected by admin.');
+          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your request was rejected. Please contact admin by ticket.');
         } catch {
           // non-blocking notification
         }
@@ -1146,18 +1541,81 @@ export function ShipmentProvider({ children }) {
       addNotification('Agent request rejected. User remains customer.', 'admin');
   };
 
-  const updatePricingConfig = (nextConfig = {}) => {
-      setPricingConfig((prev) => {
-        const profitCandidate = Number(nextConfig?.profitPercentage ?? prev?.profitPercentage ?? 20);
-        const normalizedProfit = Number.isFinite(profitCandidate)
-          ? Math.min(100, Math.max(0, profitCandidate))
-          : 20;
-        return {
-          ...prev,
-          ...nextConfig,
-          profitPercentage: normalizedProfit
-        };
-      });
+  const cancelRoleRequest = async (requestInput) => {
+      const requestId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
+      const requestIdentity = toIdentityValue(
+        requestInput?.userId ||
+        requestInput?.email ||
+        requestId
+      );
+      const requestIdentitySet = [...new Set([
+        ...getRoleRequestIdentityValues(requestInput || {}),
+        requestIdentity
+      ].filter(Boolean))];
+
+      const requestRecord = typeof requestInput === 'object'
+        ? requestInput
+        : (roleRequests || []).find((request) => {
+          const sameId = requestId && String(request?.id || '') === String(requestId);
+          const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
+          return sameId || sameIdentity;
+        });
+
+      if (!requestRecord) {
+        throw new Error('Role request not found');
+      }
+
+      if (requestId) {
+        await roleService.cancelRequest(requestId);
+      }
+
+      const reviewedAt = new Date().toISOString();
+      setRoleRequests((prev) => prev.filter((request) => {
+        const sameId = requestId && String(request?.id || '') === String(requestId);
+        const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
+        return !(sameId || sameIdentity);
+      }));
+
+      const identityCandidates = buildIdentityCandidates(
+        requestRecord?.userId,
+        requestRecord?.email,
+        requestRecord?.id
+      );
+      for (const identity of identityCandidates) {
+        try {
+          await operationsService.verifyAgentProfile(identity, {
+            verified: false,
+            verificationNotes: 'Cancelled by customer',
+            verificationStatus: 'CANCELLED'
+          });
+        } catch {
+          // non-blocking cleanup
+        }
+      }
+
+      addNotification('Role request cancelled.', 'customer');
+      return { ...requestRecord, status: 'CANCELLED', reviewedAt };
+  };
+
+  const updatePricingConfig = async (nextConfig = {}) => {
+      const localDraft = normalizePricingConfig(
+        { ...pricingConfig, ...(nextConfig || {}), sameDayMultiplier: 2 },
+        DEFAULT_PRICING_CONFIG
+      );
+      setPricingConfig(localDraft);
+
+      try {
+        const backendSaved = await shipmentService.updatePricingConfig(localDraft);
+        const merged = normalizePricingConfig(
+          { ...localDraft, ...(backendSaved || {}), sameDayMultiplier: 2 },
+          DEFAULT_PRICING_CONFIG
+        );
+        setPricingConfig(merged);
+        return merged;
+      } catch (error) {
+        console.warn('Failed to persist pricing config to backend. Keeping local config.', error);
+        return localDraft;
+      }
   };
 
   const updateUserRole = async (targetUser, role) => {
@@ -1215,17 +1673,66 @@ export function ShipmentProvider({ children }) {
 
       await authService.removeUserAccess(target.userId || target.id || target.email);
 
-      setRoleOverrides(prev => {
-        const next = prev.filter(o => !(o.email === target.email || (o.userId && o.userId === target.userId)));
-        next.push({
-          userId: target.userId || target.id,
-          email: target.email,
-          role: 'customer',
-          blocked: true,
-          updatedAt: new Date().toISOString()
-        });
-        return next;
+      const rawIdentityCandidates = buildIdentityCandidates(
+        target.userId,
+        target.id,
+        target.email,
+        String(target.email || '').toLowerCase()
+      );
+      const identityCandidates = rawIdentityCandidates.map(toIdentityValue).filter(Boolean);
+
+      setRoleOverrides(prev => (
+        prev.filter((o) => {
+          const overrideIds = [o.userId, o.email].map(toIdentityValue).filter(Boolean);
+          return !overrideIds.some((id) => identityCandidates.includes(id));
+        })
+      ));
+
+      setRoleRequests((prev) => (
+        prev.filter((request) => !roleRequestMatchesAnyIdentity(request, identityCandidates))
+      ));
+
+      setUsers((prev) => (
+        prev.filter((user) => {
+          const userIds = [user.userId, user.id, user.email].map(toIdentityValue).filter(Boolean);
+          return !userIds.some((id) => identityCandidates.includes(id));
+        })
+      ));
+
+      rawIdentityCandidates.forEach((identity) => {
+        try {
+          localStorage.removeItem(`${AGENT_ONBOARDING_KEY_PREFIX}${identity}`);
+          localStorage.removeItem(`${LEGACY_AGENT_ONBOARDING_KEY_PREFIX}${identity}`);
+        } catch {
+          // non-blocking cleanup
+        }
       });
+
+      try {
+        const pendingPayload = await roleService.getPendingRequests();
+        const pendingRequests = Array.isArray(pendingPayload)
+          ? pendingPayload
+          : pendingPayload?.requests || pendingPayload?.content || [];
+        await Promise.allSettled(
+          (pendingRequests || []).map(async (request) => {
+            const requestId = request?.id || request?.requestId || request?._id;
+            const requestIdentity = toIdentityValue(request?.userId || request?.user?.id || request?.email || request?.user?.email || requestId);
+            if (!requestId) return;
+            if (!requestIdentity || !identityCandidates.includes(requestIdentity)) return;
+            await roleService.cancelRequest(requestId);
+          })
+        );
+      } catch {
+        // non-blocking: backend cleanup best-effort
+      }
+
+      for (const identity of rawIdentityCandidates) {
+        try {
+          await operationsService.deleteAgentProfile(identity);
+        } catch {
+          // non-blocking cleanup
+        }
+      }
 
       await loadUsersFromDb();
 
@@ -1524,9 +2031,17 @@ export function ShipmentProvider({ children }) {
     };
   
   const calculateRate = (weight, serviceType) => {
-      const w = parseFloat(weight) || 1;
-      const baseRate = serviceType === 'Express' ? 100 : 50;
-      return (w * 50) + baseRate;
+      const w = Number(weight) || 0;
+      const normalizedService = String(serviceType || 'Standard').toLowerCase().replace(/[_-]/g, ' ').trim();
+      let baseRate = Math.max(0, w * Number(pricingConfig?.standardRatePerKg || DEFAULT_PRICING_CONFIG.standardRatePerKg));
+      if (normalizedService === 'express') {
+        baseRate *= Number(pricingConfig?.expressMultiplier || DEFAULT_PRICING_CONFIG.expressMultiplier);
+      } else if (normalizedService === 'same day' || normalizedService === 'sameday') {
+        baseRate *= Number(pricingConfig?.expressMultiplier || DEFAULT_PRICING_CONFIG.expressMultiplier) * 2;
+      }
+      const fuel = (baseRate * Number(pricingConfig?.fuelSurchargePct || DEFAULT_PRICING_CONFIG.fuelSurchargePct)) / 100;
+      const gst = (baseRate * Number(pricingConfig?.gstPct || DEFAULT_PRICING_CONFIG.gstPct)) / 100;
+      return Math.round(baseRate + fuel + gst);
   };
 
   const clearAllData = () => {
@@ -1596,6 +2111,7 @@ export function ShipmentProvider({ children }) {
       getShipment,
       refreshShipments,
       refreshOperationalData,
+      refreshPricingConfig,
       addBranch,
       removeBranch,
       updateBranch,
@@ -1612,6 +2128,7 @@ export function ShipmentProvider({ children }) {
       markRoleRequestPending,
       approveRoleRequest,
       rejectRoleRequest,
+      cancelRoleRequest,
       updateUserRole,
       removeUserAccess,
       forgotPassword,
@@ -1626,6 +2143,8 @@ export function ShipmentProvider({ children }) {
       deleteSupportTicket,
       refreshUserNotifications,
       getRoleNotifications,
+      activeRole,
+      switchActiveRole,
       dismissNotification,
       notifyAdminFromAgent,
       updatePricingConfig,

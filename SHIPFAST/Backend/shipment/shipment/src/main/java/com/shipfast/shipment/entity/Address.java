@@ -12,6 +12,10 @@ import lombok.NoArgsConstructor;
 public class Address {
 
     private String name;
+    private String doorAddress;
+    private String city;
+    private String state;
+    private String pincode;
     private String address;
     private String phone;
 }

@@ -6,6 +6,7 @@ import java.util.List;
 import com.shipfast.shipment.dto.AssignShipmentRequest;
 import com.shipfast.shipment.dto.CalculateRateRequest;
 import com.shipfast.shipment.dto.CreateShipmentRequest;
+import com.shipfast.shipment.dto.PricingConfigDto;
 import com.shipfast.shipment.dto.RateCalculationResponse;
 import com.shipfast.shipment.dto.RatingRequest;
 import com.shipfast.shipment.dto.ShipmentListResponse;
@@ -41,4 +42,8 @@ public interface ShipmentService {
     Shipment addRating(String shipmentId, RatingRequest request);
 
     RateCalculationResponse calculateRate(CalculateRateRequest request);
+
+    PricingConfigDto getPricingConfig();
+
+    PricingConfigDto updatePricingConfig(PricingConfigDto request);
 }

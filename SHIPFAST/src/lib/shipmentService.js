@@ -44,7 +44,8 @@ const endpointAvailability = {
   mine: true,
   create: true,
   update: true,
-  rate: true
+  rate: true,
+  pricing: true
 };
 
 api.interceptors.request.use((config) => {
@@ -58,24 +59,35 @@ api.interceptors.request.use((config) => {
 
 const splitAddress = (value = '') => {
   const parts = String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
-  if (parts.length === 0) return { address: '', city: '', pincode: '' };
-  if (parts.length === 1) return { address: parts[0], city: parts[0], pincode: '' };
+  if (parts.length === 0) return { doorAddress: '', city: '', state: '', pincode: '', address: '' };
+  if (parts.length === 1) return { doorAddress: parts[0], city: '', state: '', pincode: '', address: parts[0] };
   if (parts.length === 2) {
     const secondLooksLikePincode = /^[0-9]{4,8}$/.test(parts[1]);
     if (secondLooksLikePincode) {
-      return { address: parts[0], city: parts[0], pincode: parts[1] };
+      return { doorAddress: parts[0], city: '', state: '', pincode: parts[1], address: parts[0] };
     }
-    return { address: parts[0], city: parts[1], pincode: '' };
+    return { doorAddress: parts[0], city: parts[1], state: '', pincode: '', address: parts[0] };
+  }
+  if (parts.length === 3) {
+    return {
+      doorAddress: parts[0],
+      city: parts[1],
+      state: '',
+      pincode: parts[2].replace(/[^\d]/g, '').slice(0, 6),
+      address: parts[0]
+    };
   }
   return {
-    address: parts.slice(0, parts.length - 2).join(', ') || parts[0],
-    city: parts[parts.length - 2] || '',
-    pincode: parts[parts.length - 1] || ''
+    doorAddress: parts.slice(0, parts.length - 3).join(', ') || parts[0],
+    city: parts[parts.length - 3] || '',
+    state: parts[parts.length - 2] || '',
+    pincode: (parts[parts.length - 1] || '').replace(/[^\d]/g, '').slice(0, 6),
+    address: parts.slice(0, parts.length - 3).join(', ') || parts[0]
   };
 };
 
-const composeAddress = (address, city, pincode) => {
-  return [address, city, pincode].map((item) => String(item || '').trim()).filter(Boolean).join(', ');
+const composeAddress = (doorAddress, city, state, pincode) => {
+  return [doorAddress, city, state, pincode].map((item) => String(item || '').trim()).filter(Boolean).join(', ');
 };
 
 const normalizeServiceType = (value) => {
@@ -106,12 +118,56 @@ const resolveUserIdentifier = (userId) => {
 };
 
 const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
+const asUniqueIdentityList = (values = []) => (
+  [...new Set((Array.isArray(values) ? values : [values]).map((value) => String(value || '').trim()).filter(Boolean))]
+);
+const matchesIdentity = (shipment = {}, allowedIdentitySet = new Set()) => {
+  if (!allowedIdentitySet || allowedIdentitySet.size === 0) return false;
+  const candidates = [
+    shipment.customerId,
+    shipment.userId,
+    shipment.customerEmail,
+    shipment.email,
+    shipment.ownerId
+  ]
+    .map(toIdentityValue)
+    .filter(Boolean);
+  return candidates.some((candidate) => allowedIdentitySet.has(candidate));
+};
+const dedupeShipments = (list = []) => {
+  const seen = new Set();
+  const result = [];
+  for (const item of list || []) {
+    const key = String(item?.shipmentId || item?.trackingNumber || item?.trackingId || item?.id || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+};
+const roundToRupee = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.round(numeric);
+};
+
+const defaultPricingConfig = () => ({
+  standardRatePerKg: 80,
+  expressMultiplier: 1.75,
+  sameDayMultiplier: 2,
+  distanceSurcharge: 40,
+  fuelSurchargePct: 9,
+  gstPct: 5,
+  codHandlingFee: 50
+});
 
 const mapShipment = (shipment = {}) => {
   const sender = shipment.sender || {};
   const receiver = shipment.recipient || shipment.receiver || {};
-  const senderParsed = splitAddress(sender.addressLine || sender.address || '');
-  const receiverParsed = splitAddress(receiver.addressLine || receiver.address || '');
+  const senderRawAddress = sender.addressLine || sender.address || '';
+  const receiverRawAddress = receiver.addressLine || receiver.address || '';
+  const senderParsed = splitAddress(senderRawAddress);
+  const receiverParsed = splitAddress(receiverRawAddress);
   const createdAt = shipment.createdAt ? new Date(shipment.createdAt) : new Date();
   const deliveredAt = shipment.deliveredAt ? new Date(shipment.deliveredAt) : null;
   const paymentMode = shipment.paymentMethod || shipment.paymentMode || 'ONLINE';
@@ -123,8 +179,14 @@ const mapShipment = (shipment = {}) => {
   const paymentStatus = shipment.paymentStatus || inferredPaymentStatus;
   const originCity = sender.city || senderParsed.city || shipment.originCity || '';
   const destinationCity = receiver.city || receiverParsed.city || shipment.destinationCity || '';
-  const senderAddress = senderParsed.address || sender.address || sender.addressLine || '';
-  const receiverAddress = receiverParsed.address || receiver.address || receiver.addressLine || '';
+  const senderDoorAddress = sender.doorAddress || senderParsed.doorAddress || '';
+  const receiverDoorAddress = receiver.doorAddress || receiverParsed.doorAddress || '';
+  const senderState = sender.state || senderParsed.state || '';
+  const receiverState = receiver.state || receiverParsed.state || '';
+  const senderPincode = sender.pincode || senderParsed.pincode || '';
+  const receiverPincode = receiver.pincode || receiverParsed.pincode || '';
+  const senderAddress = senderRawAddress || composeAddress(senderDoorAddress, originCity, senderState, senderPincode);
+  const receiverAddress = receiverRawAddress || composeAddress(receiverDoorAddress, destinationCity, receiverState, receiverPincode);
   const mappedHistory = Array.isArray(shipment.history)
     ? shipment.history.map((event) => ({
       status: normalizeShipmentStatus(event.status),
@@ -157,7 +219,7 @@ const mapShipment = (shipment = {}) => {
     paymentMode,
     paymentStatus,
     paymentCollectedAt: shipment.paymentCollectedAt || null,
-    cost: Number(shipment.cost ?? shipment.totalCost ?? 0) || 0,
+    cost: roundToRupee(shipment.cost ?? shipment.totalCost ?? 0),
     date: createdAt.toISOString().split('T')[0],
     createdAt: shipment.createdAt || createdAt.toISOString(),
     updatedAt: shipment.updatedAt || shipment.createdAt || createdAt.toISOString(),
@@ -175,16 +237,20 @@ const mapShipment = (shipment = {}) => {
     sender: {
       name: sender.name || '',
       phone: sender.phone || '',
+      doorAddress: senderDoorAddress,
       address: senderAddress,
       city: originCity,
-      pincode: senderParsed.pincode
+      state: senderState,
+      pincode: senderPincode
     },
     receiver: {
       name: receiver.name || '',
       phone: receiver.phone || '',
+      doorAddress: receiverDoorAddress,
       address: receiverAddress,
       city: destinationCity,
-      pincode: receiverParsed.pincode
+      state: receiverState,
+      pincode: receiverPincode
     },
     weight: shipment.packageDetails?.weight || shipment.weight || 0
   };
@@ -205,9 +271,26 @@ const isUnavailableError = (error) => {
 
 const fallbackRate = ({ weight = 0, serviceType = 'Standard' } = {}) => {
   const normalizedWeight = Number(weight || 0);
-  const base = String(serviceType || '').toLowerCase() === 'express' ? 100 : 50;
-  const totalCost = Math.max(0, (normalizedWeight * 50) + base);
-  return { totalCost };
+  const pricing = defaultPricingConfig();
+  const normalizedService = String(serviceType || '').toLowerCase().replace(/[_-]/g, ' ').trim();
+  const distanceSurcharge = 0;
+  let baseRate = Math.max(0, normalizedWeight * pricing.standardRatePerKg) + distanceSurcharge;
+  if (normalizedService === 'express') {
+    baseRate *= pricing.expressMultiplier;
+  } else if (normalizedService === 'same day' || normalizedService === 'sameday') {
+    baseRate *= pricing.expressMultiplier * pricing.sameDayMultiplier;
+  }
+  const fuelSurcharge = (baseRate * pricing.fuelSurchargePct) / 100;
+  const gst = (baseRate * pricing.gstPct) / 100;
+  return {
+    baseRate: roundToRupee(baseRate),
+    fuelSurcharge: roundToRupee(fuelSurcharge),
+    gst: roundToRupee(gst),
+    totalCost: roundToRupee(baseRate + fuelSurcharge + gst),
+    estimatedDeliveryDays: normalizedService === 'same day' || normalizedService === 'sameday'
+      ? 1
+      : (normalizedService === 'express' ? 2 : 4)
+  };
 };
 
 export const shipmentService = {
@@ -238,49 +321,44 @@ export const shipmentService = {
 
   async getShipments(userId) {
     if (!endpointAvailability.mine) return [];
+    const requestedIdentifiers = asUniqueIdentityList(userId);
+    const fallbackIdentifier = resolveUserIdentifier(null);
+    const identityList = asUniqueIdentityList(
+      requestedIdentifiers.length > 0 ? requestedIdentifiers : [fallbackIdentifier]
+    );
+    if (identityList.length === 0) return [];
+
+    const allowedIdentitySet = new Set(identityList.map(toIdentityValue).filter(Boolean));
+    let collected = [];
+    let lastError = null;
+
+    for (const identifier of identityList) {
+      try {
+        const response = await withShipmentBaseFallback((client) => client.get('/mine', {
+          params: { userId: identifier }
+        }));
+        const payload = response?.data;
+        const list = Array.isArray(payload) ? payload : payload?.data || [];
+        collected = collected.concat(list.map(mapShipment));
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (collected.length > 0) {
+      return dedupeShipments(collected).filter((item) => matchesIdentity(item, allowedIdentitySet));
+    }
+
+    if (!lastError) return [];
+
+    if (isUnavailableError(lastError)) {
+      endpointAvailability.mine = false;
+      return [];
+    }
+
     try {
-      const identifier = resolveUserIdentifier(userId);
-      if (!identifier) return [];
-      const response = await withShipmentBaseFallback((client) => client.get('/mine', {
-        params: { userId: identifier }
-      }));
-      const payload = response?.data;
-      const list = Array.isArray(payload) ? payload : payload?.data || [];
-      return list.map(mapShipment);
+      throw lastError;
     } catch (error) {
-      const identifier = resolveUserIdentifier(userId);
-
-      if (identifier) {
-        try {
-          const all = await this.getAllShipments();
-          const current = authStorage.getCurrentUser() || {};
-          const identities = [
-            identifier,
-            current.userId,
-            current.id,
-            current.email
-          ].map(toIdentityValue).filter(Boolean);
-          return all.filter((item) => {
-            const candidates = [
-              item.customerId,
-              item.userId,
-              item.createdBy,
-              item.ownerId,
-              item.customerEmail,
-              item.email,
-              item.customerName
-            ].map(toIdentityValue);
-            return identities.some((identity) => candidates.includes(identity));
-          });
-        } catch {
-          // Continue to error handling below
-        }
-      }
-
-      if (isUnavailableError(error)) {
-        endpointAvailability.mine = false;
-        return [];
-      }
       throw new Error(getErrorMessage(error, 'Failed to load shipments'));
     }
   },
@@ -320,12 +398,30 @@ export const shipmentService = {
       sender: {
         name: payload.sender?.name,
         phone: payload.sender?.phone,
-        address: composeAddress(payload.sender?.address, payload.sender?.city, payload.sender?.pincode)
+        doorAddress: payload.sender?.doorAddress || payload.sender?.address,
+        city: payload.sender?.city,
+        state: payload.sender?.state,
+        pincode: payload.sender?.pincode,
+        address: composeAddress(
+          payload.sender?.doorAddress || payload.sender?.address,
+          payload.sender?.city,
+          payload.sender?.state,
+          payload.sender?.pincode
+        )
       },
       recipient: {
         name: payload.receiver?.name,
         phone: payload.receiver?.phone,
-        address: composeAddress(payload.receiver?.address, payload.receiver?.city, payload.receiver?.pincode)
+        doorAddress: payload.receiver?.doorAddress || payload.receiver?.address,
+        city: payload.receiver?.city,
+        state: payload.receiver?.state,
+        pincode: payload.receiver?.pincode,
+        address: composeAddress(
+          payload.receiver?.doorAddress || payload.receiver?.address,
+          payload.receiver?.city,
+          payload.receiver?.state,
+          payload.receiver?.pincode
+        )
       },
       packageDetails: {
         weight: Number(payload.weight || payload.package?.weight || 0),
@@ -430,6 +526,64 @@ export const shipmentService = {
         return fallbackRate(request);
       }
       throw new Error(getErrorMessage(error, 'Failed to calculate shipment rate'));
+    }
+  },
+
+  async getPricingConfig() {
+    if (!endpointAvailability.pricing) {
+      return defaultPricingConfig();
+    }
+    try {
+      const response = await withShipmentBaseFallback((client) => client.get('/pricing-config'));
+      return {
+        ...defaultPricingConfig(),
+        ...(response?.data || {})
+      };
+    } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.pricing = false;
+        return defaultPricingConfig();
+      }
+      throw new Error(getErrorMessage(error, 'Failed to load pricing configuration'));
+    }
+  },
+
+  async updatePricingConfig(payload = {}) {
+    if (!endpointAvailability.pricing) {
+      return {
+        ...defaultPricingConfig(),
+        ...(payload || {}),
+        sameDayMultiplier: 2
+      };
+    }
+    try {
+      const requestBody = {
+        standardRatePerKg: Number(payload.standardRatePerKg),
+        expressMultiplier: Number(payload.expressMultiplier),
+        sameDayMultiplier: 2,
+        distanceSurcharge: Number(payload.distanceSurcharge),
+        fuelSurchargePct: Number(payload.fuelSurchargePct),
+        gstPct: Number(payload.gstPct),
+        codHandlingFee: Number(payload.codHandlingFee)
+      };
+      const response = await withShipmentBaseFallback((client) => client.put('/pricing-config', {
+        ...requestBody
+      }));
+      return {
+        ...defaultPricingConfig(),
+        ...(response?.data || {}),
+        sameDayMultiplier: 2
+      };
+    } catch (error) {
+      if (isUnavailableError(error)) {
+        endpointAvailability.pricing = false;
+        return {
+          ...defaultPricingConfig(),
+          ...(payload || {}),
+          sameDayMultiplier: 2
+        };
+      }
+      throw new Error(getErrorMessage(error, 'Failed to save pricing configuration'));
     }
   }
 };

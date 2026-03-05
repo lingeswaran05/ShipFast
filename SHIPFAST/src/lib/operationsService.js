@@ -141,5 +141,15 @@ export const operationsService = {
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to verify agent profile'));
     }
+  },
+
+  async deleteAgentProfile(userId) {
+    if (!userId) throw new Error('Agent user id is required');
+    try {
+      const response = await withOperationsFallback((client) => client.delete(`/agents/profile/${encodeURIComponent(userId)}`));
+      return getPayload(response);
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to delete agent profile'));
+    }
   }
 };

@@ -1,9 +1,16 @@
 package com.shipfast.auth.service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriUtils;
 
 import com.shipfast.auth.dto.AuthResponse;
 import com.shipfast.auth.dto.ChangePasswordRequest;
@@ -41,6 +48,10 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordResetOtpRepository otpRepository;
     private final BCryptPasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    @Value("${operations.service.url:http://localhost:8082/api/operations}")
+    private String operationsServiceUrl;
 
     public AuthServiceImpl(
             EmailService emailService,
@@ -358,9 +369,36 @@ public class AuthServiceImpl implements AuthService {
         UserAuth user = userAuthRepository.findByEmail(emailOrId)
                 .orElseGet(() -> userAuthRepository.findByUserId(emailOrId)
                 .orElseThrow(() -> new CustomException("User not found")));
-        
+
+        hardDeleteOperationsProfiles(user);
         userProfileRepository.findByUserId(user.getUserId()).ifPresent(userProfileRepository::delete);
         refreshTokenRepository.deleteByUserId(user.getUserId());
         userAuthRepository.delete(user);
+    }
+
+    private void hardDeleteOperationsProfiles(UserAuth user) {
+        List<String> identities = List.of(
+                user.getUserId() != null ? user.getUserId().trim() : "",
+                user.getEmail() != null ? user.getEmail().trim() : ""
+        );
+
+        for (String identity : identities) {
+            if (identity == null || identity.isBlank()) {
+                continue;
+            }
+
+            String encodedIdentity = UriUtils.encodePathSegment(identity, java.nio.charset.StandardCharsets.UTF_8);
+            String endpoint = String.format("%s/agents/profile/%s", operationsServiceUrl, encodedIdentity);
+            try {
+                restTemplate.delete(endpoint);
+            } catch (HttpClientErrorException error) {
+                if (error.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    continue;
+                }
+                throw new CustomException("Failed to hard delete user operational profile");
+            } catch (RestClientException error) {
+                throw new CustomException("Failed to hard delete user operational profile");
+            }
+        }
     }
 }

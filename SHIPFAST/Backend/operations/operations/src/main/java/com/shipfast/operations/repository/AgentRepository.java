@@ -8,5 +8,6 @@ import java.util.Optional;
 
 public interface AgentRepository extends MongoRepository<AgentProfile, String> {
     Optional<AgentProfile> findByUserId(String userId);
+    void deleteByUserId(String userId);
     List<AgentProfile> findByVerificationStatus(String verificationStatus);
 }

@@ -3,6 +3,7 @@ package com.shipfast.operations.controller;
 import com.shipfast.operations.dto.*;
 import com.shipfast.operations.service.OperationsService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -41,6 +42,12 @@ public class OperationsController {
     public AgentProfileResponse verifyAgentProfile(@PathVariable String userId,
                                                    @RequestBody AgentVerificationRequest request) {
         return service.verifyAgentProfile(userId, request);
+    }
+
+    @DeleteMapping("/agents/profile/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAgentProfile(@PathVariable String userId) {
+        service.deleteAgentProfile(userId);
     }
 
     @PostMapping("/agents/{agentIdentifier}/rating")

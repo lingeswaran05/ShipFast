@@ -3,12 +3,13 @@ import { useShipment } from '../../context/ShipmentContext';
 import logo from '../../assets/logo.png';
 
 export function Logo({ className = "", imageSize = "h-14", textSize = "text-3xl" }) {
-  const { currentUser } = useShipment();
+  const { currentUser, activeRole } = useShipment();
+  const effectiveRole = activeRole || currentUser?.role;
 
   const getDestination = () => {
     if (!currentUser) return '/';
-    if (currentUser.role === 'admin') return '/admin';
-    if (currentUser.role === 'agent') return '/agent';
+    if (effectiveRole === 'admin') return '/admin';
+    if (effectiveRole === 'agent') return '/agent';
     return '/dashboard';
   };
 
