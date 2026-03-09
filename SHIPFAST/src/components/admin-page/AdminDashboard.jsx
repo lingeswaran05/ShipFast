@@ -11,6 +11,18 @@ import { operationsService } from '../../lib/operationsService';
 import { roleService } from '../../lib/roleService';
 import { shipmentService } from '../../lib/shipmentService';
 
+const isCodShipment = (shipment = {}) => (
+  ['cod', 'cash'].includes(String(shipment.paymentMode || shipment.paymentMethod || '').toLowerCase())
+);
+const isPaymentSettled = (shipment = {}) => {
+  if (!isCodShipment(shipment)) return true;
+  const paymentStatus = String(shipment.paymentStatus || '').toUpperCase();
+  return ['SUCCESS', 'PAID', 'COMPLETED'].includes(paymentStatus);
+};
+const getRealizedRevenue = (shipment = {}) => (
+  isPaymentSettled(shipment) ? (Number(shipment.cost) || 0) : 0
+);
+
 export function AdminDashboard({ view }) {
 
   const navigate = useNavigate();
@@ -42,7 +54,10 @@ export function AdminDashboard({ view }) {
         removeUserAccess,
         updatePricingConfig,
         refreshOperationalData,
-        createSupportTicket
+        createSupportTicket,
+        deleteShipment,
+        deleteAllShipments,
+        assignShipmentToAgent
     } = useShipment();
   
   const [showBranchModal, setShowBranchModal] = useState(false);
@@ -86,6 +101,12 @@ export function AdminDashboard({ view }) {
   const [staffVisibleCount, setStaffVisibleCount] = useState(5);
   const [userVisibleCount, setUserVisibleCount] = useState(5);
   const [pendingVisibleCount, setPendingVisibleCount] = useState(5);
+  const [shipmentSearch, setShipmentSearch] = useState('');
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState('ALL');
+  const [shipmentVisibleCount, setShipmentVisibleCount] = useState(10);
+  const [shipmentAgentDrafts, setShipmentAgentDrafts] = useState({});
+  const [shipmentActionState, setShipmentActionState] = useState({});
+  const [isDeletingAllShipments, setIsDeletingAllShipments] = useState(false);
   const vehicleFileInputRef = useRef(null);
 
   const agentUsers = useMemo(() => {
@@ -456,7 +477,7 @@ export function AdminDashboard({ view }) {
 
   const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
   const profitPercentage = Number(pricingConfig?.profitPercentage ?? 20);
-  const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
+  const totalRevenue = shipments.reduce((acc, s) => acc + getRealizedRevenue(s), 0);
   const totalProfit = (totalRevenue * (Number.isFinite(profitPercentage) ? profitPercentage : 20)) / 100;
   const activeBranchCount = (contextBranches || []).filter(b => String(b.status || '').toLowerCase() === 'active').length;
   const hubCount = (contextBranches || []).filter(b => String(b.type || '').toLowerCase() === 'hub').length;
@@ -577,6 +598,67 @@ export function AdminDashboard({ view }) {
     setPendingVisibleCount(5);
   }, [staffSearch, staffAudienceFilter, view]);
 
+  useEffect(() => {
+    setShipmentVisibleCount(10);
+  }, [shipmentSearch, shipmentStatusFilter, view]);
+
+  const getShipmentIdentifier = (shipment = {}) => shipment.trackingNumber || shipment.trackingId || shipment.shipmentId || shipment.id;
+  const normalizeShipmentStatusValue = (value = '') => String(value || '').toUpperCase().replace(/ /g, '_').trim();
+  const formatShipmentStatus = (value = '') => String(value || '').replace(/_/g, ' ').trim();
+
+  const allShipmentStatusOptions = useMemo(() => {
+    const statuses = [...new Set((shipments || [])
+      .map((shipment) => normalizeShipmentStatusValue(shipment.status))
+      .filter(Boolean))];
+    return ['ALL', ...statuses];
+  }, [shipments]);
+
+  const managedShipments = useMemo(() => (
+    [...(shipments || [])].sort((a, b) => {
+      const timeA = new Date(a?.createdAt || a?.date || 0).getTime();
+      const timeB = new Date(b?.createdAt || b?.date || 0).getTime();
+      return timeB - timeA;
+    })
+  ), [shipments]);
+
+  const filteredManagedShipments = useMemo(() => {
+    const query = String(shipmentSearch || '').trim().toLowerCase();
+    return managedShipments.filter((shipment) => {
+      const statusKey = normalizeShipmentStatusValue(shipment.status);
+      if (shipmentStatusFilter !== 'ALL' && statusKey !== shipmentStatusFilter) return false;
+      if (!query) return true;
+      const receiver = shipment.receiver || shipment.receiverAddress || {};
+      const sender = shipment.sender || shipment.senderAddress || {};
+      return [
+        getShipmentIdentifier(shipment),
+        shipment.customerName,
+        shipment.customerEmail,
+        shipment.assignedAgentId,
+        sender.city,
+        receiver.city,
+        shipment.status
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [managedShipments, shipmentSearch, shipmentStatusFilter]);
+
+  const visibleManagedShipments = useMemo(
+    () => filteredManagedShipments.slice(0, shipmentVisibleCount),
+    [filteredManagedShipments, shipmentVisibleCount]
+  );
+
+  const adminShipmentMetrics = useMemo(() => {
+    const total = shipments.length;
+    const delivered = shipments.filter((shipment) => String(shipment.status || '').toLowerCase() === 'delivered').length;
+    const assigned = shipments.filter((shipment) => Boolean(shipment.assignedAgentId || shipment.assignedToAgentId)).length;
+    const unassigned = Math.max(total - assigned, 0);
+    const codAmount = shipments
+      .filter((shipment) => isCodShipment(shipment) && isPaymentSettled(shipment))
+      .reduce((sum, shipment) => sum + (Number(shipment.cost) || 0), 0);
+    return { total, delivered, assigned, unassigned, codAmount };
+  }, [shipments]);
+
   const shipmentKpis = useMemo(() => {
     const total = shipments.length;
     const delivered = shipments.filter((s) => String(s.status || '').toLowerCase() === 'delivered').length;
@@ -587,7 +669,11 @@ export function AdminDashboard({ view }) {
     const deliveryRate = total > 0 ? Math.round((delivered / total) * 100) : 0;
     const avgRevenue = total > 0 ? totalRevenue / total : 0;
     const codDelivered = shipments
-      .filter((s) => String(s.status || '').toLowerCase() === 'delivered' && ['cod', 'cash'].includes(String(s.paymentMode || '').toLowerCase()))
+      .filter((s) =>
+        String(s.status || '').toLowerCase() === 'delivered'
+        && isCodShipment(s)
+        && isPaymentSettled(s)
+      )
       .reduce((sum, s) => sum + (Number(s.cost) || 0), 0);
 
     return { total, delivered, inProgress, failed, deliveryRate, avgRevenue, codDelivered };
@@ -616,15 +702,32 @@ export function AdminDashboard({ view }) {
       setDeleteConfirmation({ isOpen: true, type, id, title, message });
   };
 
-  const executeDelete = () => {
-    if (deleteConfirmation.type === 'branch') {
-        removeBranch(deleteConfirmation.id);
-    } else if (deleteConfirmation.type === 'vehicle') {
-        removeVehicle(deleteConfirmation.id);
-    } else if (deleteConfirmation.type === 'staff') {
-        removeStaff(deleteConfirmation.id);
+  const executeDelete = async () => {
+    try {
+      if (deleteConfirmation.type === 'branch') {
+        await Promise.resolve(removeBranch(deleteConfirmation.id));
+        toast.success('Branch deleted');
+      } else if (deleteConfirmation.type === 'vehicle') {
+        await Promise.resolve(removeVehicle(deleteConfirmation.id));
+        toast.success('Vehicle deleted');
+      } else if (deleteConfirmation.type === 'staff') {
+        await Promise.resolve(removeStaff(deleteConfirmation.id));
+        toast.success('Staff deleted');
+      } else if (deleteConfirmation.type === 'shipment') {
+        await deleteShipment(deleteConfirmation.id);
+        toast.success('Shipment deleted permanently');
+      } else if (deleteConfirmation.type === 'shipments-all') {
+        setIsDeletingAllShipments(true);
+        const result = await deleteAllShipments();
+        setShipmentAgentDrafts({});
+        toast.success(`Deleted ${result?.deletedCount || 0} shipment(s) from database`);
+      }
+    } catch (error) {
+      toast.error(error.message || 'Delete action failed');
+    } finally {
+      setIsDeletingAllShipments(false);
+      setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' });
     }
-    setDeleteConfirmation({ isOpen: false, type: '', id: null, title: '', message: '' });
   };
 
   const handleVehicleSubmit = async (e) => {
@@ -780,7 +883,7 @@ export function AdminDashboard({ view }) {
                         .join(' | ');
                     return signals.some((signal) => haystack.includes(signal));
                 });
-                const revenue = relatedShipments.reduce((sum, shipment) => sum + (Number(shipment.cost) || 0), 0);
+                const revenue = relatedShipments.reduce((sum, shipment) => sum + getRealizedRevenue(shipment), 0);
                 const delivered = relatedShipments.filter((shipment) => String(shipment.status || '').toLowerCase() === 'delivered').length;
 
                 return {
@@ -794,35 +897,6 @@ export function AdminDashboard({ view }) {
             .slice(0, 3);
     }, [contextBranches, shipments]);
 
-    const pendingVerificationAgents = useMemo(() => {
-      const requestRows = (roleRequests || [])
-        .filter((request) => String(request?.status || '').toUpperCase() === 'PENDING_VERIFICATION')
-        .map((request) => ({
-          id: request.userId || request.email || request.id,
-          userId: request.userId,
-          email: request.email,
-          name: request.name,
-          role: 'agent',
-          agentDetails: request.agentDetails || {},
-          documents: request.documents || {},
-          requestRecord: request
-        }));
-
-      const agentRows = (users || [])
-        .filter((user) => String(user.role || '').toLowerCase() === 'agent')
-        .filter((agent) => getAgentViewData(agent).verificationStatus === 'PENDING');
-
-      const merged = [];
-      const seen = new Set();
-      [...requestRows, ...agentRows].forEach((entry) => {
-        const key = getAgentKey(entry);
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        merged.push(entry);
-      });
-      return merged;
-    }, [users, roleRequests, agentProfiles]);
-
     const serviceTypeBreakdown = useMemo(() => {
       const grouped = {};
       (shipments || []).forEach((shipment) => {
@@ -831,7 +905,7 @@ export function AdminDashboard({ view }) {
           grouped[service] = { service, count: 0, revenue: 0 };
         }
         grouped[service].count += 1;
-        grouped[service].revenue += Number(shipment.cost) || 0;
+        grouped[service].revenue += getRealizedRevenue(shipment);
       });
 
       const totalCount = Math.max(shipments.length, 1);
@@ -855,7 +929,7 @@ export function AdminDashboard({ view }) {
         }
         grouped[city].volume += 1;
         if (String(shipment.status || '').toLowerCase() === 'delivered') grouped[city].delivered += 1;
-        grouped[city].revenue += Number(shipment.cost) || 0;
+        grouped[city].revenue += getRealizedRevenue(shipment);
       });
 
       return Object.values(grouped)
@@ -871,7 +945,7 @@ export function AdminDashboard({ view }) {
           grouped[status] = { status, count: 0, revenue: 0 };
         }
         grouped[status].count += 1;
-        grouped[status].revenue += Number(shipment.cost) || 0;
+        grouped[status].revenue += getRealizedRevenue(shipment);
       });
       return Object.values(grouped).sort((a, b) => b.count - a.count);
     }, [shipments]);
@@ -1006,6 +1080,50 @@ export function AdminDashboard({ view }) {
         } catch (error) {
             toast.error(error.message || 'Failed to remove access');
         }
+    };
+
+    const handleAssignManagedShipment = async (shipment) => {
+        const shipmentId = getShipmentIdentifier(shipment);
+        const selectedAgentId = String(
+          shipmentAgentDrafts[shipmentId] ||
+          shipment.assignedAgentId ||
+          shipment.assignedToAgentId ||
+          ''
+        ).trim();
+        if (!shipmentId) return toast.error('Invalid shipment identifier');
+        if (!selectedAgentId) return toast.error('Select an agent before assigning');
+
+        const actionKey = `assign:${shipmentId}`;
+        setShipmentActionState((prev) => ({ ...prev, [actionKey]: true }));
+        try {
+          await assignShipmentToAgent(shipmentId, selectedAgentId);
+          toast.success(`Shipment ${shipmentId} assigned successfully`);
+          await handleRefresh();
+        } catch (error) {
+          toast.error(error.message || 'Failed to assign shipment');
+        } finally {
+          setShipmentActionState((prev) => ({ ...prev, [actionKey]: false }));
+        }
+    };
+
+    const requestDeleteManagedShipment = (shipment) => {
+        const shipmentId = getShipmentIdentifier(shipment);
+        if (!shipmentId) return toast.error('Invalid shipment identifier');
+        confirmDelete(
+          'shipment',
+          shipmentId,
+          'Delete Shipment',
+          `Delete shipment ${shipmentId} from database permanently?`
+        );
+    };
+
+    const requestDeleteAllManagedShipments = () => {
+        confirmDelete(
+          'shipments-all',
+          'ALL',
+          'Delete All Shipments',
+          `This will permanently delete all ${shipments.length} shipment records from database. Continue?`
+        );
     };
 
     const handleRefresh = async () => {
@@ -1236,7 +1354,7 @@ export function AdminDashboard({ view }) {
                                 <option value="">Assign Agent</option>
                                 {agentUsers.map((agent) => {
                                     const key = agent.userId || agent.id || agent.email;
-                                    const label = agent.name || agent.email || key;
+                                    const label = agent.name || agent.email || 'Unnamed Agent';
                                     return (
                                       <option key={key} value={key}>{label}</option>
                                     );
@@ -1507,9 +1625,9 @@ export function AdminDashboard({ view }) {
                         <tbody className="divide-y divide-slate-100">
                             <tr className="hover:bg-slate-50">
                                 <td className="px-6 py-4 font-medium text-slate-900">Total Revenue</td>
-                                <td className="px-6 py-4 text-emerald-600 font-bold">₹{Math.round(totalRevenue).toLocaleString()}</td>
+                                <td className="px-6 py-4 text-emerald-600 font-bold">&#8377;{Math.round(totalRevenue).toLocaleString()}</td>
                                 <td className="px-6 py-4 text-slate-500">Live</td>
-                                <td className="px-6 py-4 text-slate-600">₹{Math.round(totalRevenue).toLocaleString()}</td>
+                                <td className="px-6 py-4 text-slate-600">&#8377;{Math.round(totalRevenue).toLocaleString()}</td>
                                 <td className="px-6 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Database</span></td>
                             </tr>
                             <tr className="hover:bg-slate-50">
@@ -1557,7 +1675,7 @@ export function AdminDashboard({ view }) {
                       </div>
                     </div>
                     <div className="text-right">
-                                            <div className="font-bold text-slate-900">₹{branch._revenue.toLocaleString()}</div>
+                                            <div className="font-bold text-slate-900">&#8377;{branch._revenue.toLocaleString()}</div>
                                             <div className="text-sm text-green-600 font-medium">+{branch._performance}%</div>
                     </div>
                   </div>
@@ -1688,9 +1806,9 @@ export function AdminDashboard({ view }) {
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                   <h3 className="text-sm font-semibold text-slate-800">Pricing Logic</h3>
                   <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                    <li>Standard: `weight × standard rate + distance surcharge (if inter-zone)`</li>
-                    <li>Express: `Standard × express multiplier`</li>
-                    <li>Same Day: `Express × 2`</li>
+                    <li>Standard: `weight Ã— standard rate + distance surcharge (if inter-zone)`</li>
+                    <li>Express: `Standard Ã— express multiplier`</li>
+                    <li>Same Day: `Express Ã— 2`</li>
                     <li>Final total: `Base + fuel surcharge + GST + COD fee (only for COD)`</li>
                     <li>All totals are rounded to whole rupees.</li>
                   </ul>
@@ -2067,120 +2185,6 @@ export function AdminDashboard({ view }) {
                                       </div>
                                     )}
                                 </div>
-                                
-                                {/* New Section: Agent Document Verification */}
-                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
-                                    <div className="p-4 border-b border-slate-100 bg-slate-50">
-                                        <h3 className="font-bold text-slate-900">Agent Document Verification</h3>
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left">
-                                            <thead className="bg-slate-50 border-b border-slate-200">
-                                                <tr>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Agent</th>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Aadhaar</th>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">License</th>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehicle Details</th>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Verification</th>
-                                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {pendingVerificationAgents.map(agent => {
-                                                    const viewData = getAgentViewData(agent);
-                                                    return (
-                                                      <tr key={`doc-${agent.email || viewData.key}`} className="hover:bg-slate-50">
-                                                          <td className="px-6 py-4 font-medium text-slate-900">
-                                                            <button
-                                                              type="button"
-                                                              onClick={() => openAgentDetails(agent)}
-                                                              className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
-                                                            >
-                                                              {agent.name || 'N/A'}
-                                                            </button>
-                                                            <br />
-                                                            <span className="text-xs text-slate-500">{agent.email || viewData.key}</span>
-                                                          </td>
-                                                          <td className="px-6 py-4">
-                                                              {viewData.docs?.aadharCopy ? (
-                                                                  <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded">Uploaded</span>
-                                                              ) : (
-                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
-                                                              )}
-                                                          </td>
-                                                          <td className="px-6 py-4">
-                                                              {viewData.docs?.licenseCopy ? (
-                                                                  <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded">Uploaded</span>
-                                                              ) : (
-                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
-                                                              )}
-                                                          </td>
-                                                          <td className="px-6 py-4 text-sm text-slate-600">
-                                                              {viewData.profile?.vehicleNumber ? (
-                                                                  <>
-                                                                    <span className="font-medium">Reg:</span> {viewData.profile.vehicleNumber} <br/>
-                                                                    <span className="font-medium">Lic:</span> {viewData.profile.licenseNumber || 'N/A'}
-                                                                  </>
-                                                              ) : (
-                                                                  <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Pending</span>
-                                                              )}
-                                                          </td>
-                                                          <td className="px-6 py-4">
-                                                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
-                                                              viewData.verificationStatus === 'VERIFIED'
-                                                                ? 'bg-green-100 text-green-700'
-                                                                : viewData.verificationStatus === 'REJECTED'
-                                                                  ? 'bg-red-100 text-red-700'
-                                                                  : 'bg-amber-100 text-amber-700'
-                                                            }`}>
-                                                              {viewData.verificationStatus}
-                                                            </span>
-                                                          </td>
-                                                          <td className="px-6 py-4 text-right">
-                                                            <div className="inline-flex gap-2">
-                                                              <button
-                                                                type="button"
-                                                                onClick={() => handleSendVerificationNote(agent)}
-                                                                className="px-3 py-1.5 text-xs font-semibold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
-                                                              >
-                                                                Send Note
-                                                              </button>
-                                                              <button
-                                                                type="button"
-                                                                onClick={() => openAgentDetails(agent)}
-                                                                className="px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
-                                                              >
-                                                                View
-                                                              </button>
-                                                              <button
-                                                                type="button"
-                                                                onClick={() => handleVerifyFromQueue(agent)}
-                                                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700"
-                                                              >
-                                                                Verify
-                                                              </button>
-                                                              <button
-                                                                type="button"
-                                                                onClick={() => handleRejectFromQueue(agent)}
-                                                                className="px-3 py-1.5 text-xs font-semibold bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
-                                                              >
-                                                                Reject
-                                                              </button>
-                                                            </div>
-                                                          </td>
-                                                      </tr>
-                                                    );
-                                                })}
-                                                {pendingVerificationAgents.length === 0 && (
-                                                    <tr>
-                                                        <td colSpan="6" className="px-6 py-8 text-center text-slate-500">No pending verifications.</td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                
                 {staffAudienceFilter === 'staff' && (
                   <>
                     <button 
@@ -2232,6 +2236,189 @@ export function AdminDashboard({ view }) {
                     )}
                   </>
                 )}
+             </div>
+        )}
+
+                {view === 'shipments' && (
+             <div className="space-y-6">
+                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-800">Shipment Management</h1>
+                        <p className="text-slate-600">Manage all shipments: delete, assign/reassign agents, and monitor live totals</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={handleRefresh}
+                          disabled={isRefreshing}
+                          className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={requestDeleteAllManagedShipments}
+                          disabled={isDeletingAllShipments || shipments.length === 0}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60"
+                        >
+                          {isDeletingAllShipments ? 'Deleting...' : `Delete All (${shipments.length})`}
+                        </button>
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="text-xs uppercase tracking-wider text-slate-500">Total Shipments</div>
+                      <div className="text-2xl font-bold text-slate-900 mt-2">{adminShipmentMetrics.total}</div>
+                    </div>
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="text-xs uppercase tracking-wider text-slate-500">Delivered</div>
+                      <div className="text-2xl font-bold text-emerald-600 mt-2">{adminShipmentMetrics.delivered}</div>
+                    </div>
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="text-xs uppercase tracking-wider text-slate-500">Assigned</div>
+                      <div className="text-2xl font-bold text-indigo-600 mt-2">{adminShipmentMetrics.assigned}</div>
+                    </div>
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="text-xs uppercase tracking-wider text-slate-500">Unassigned</div>
+                      <div className="text-2xl font-bold text-amber-600 mt-2">{adminShipmentMetrics.unassigned}</div>
+                    </div>
+                 </div>
+
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col md:flex-row gap-3">
+                    <input
+                      value={shipmentSearch}
+                      onChange={(e) => setShipmentSearch(e.target.value)}
+                      placeholder="Search by tracking id, city, customer, agent..."
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <select
+                      value={shipmentStatusFilter}
+                      onChange={(e) => setShipmentStatusFilter(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {allShipmentStatusOptions.map((status) => (
+                        <option key={`shipment-status-${status}`} value={status}>
+                          {status === 'ALL' ? 'All Statuses' : formatShipmentStatus(status)}
+                        </option>
+                      ))}
+                    </select>
+                 </div>
+
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tracking</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Route</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Assign / Change Agent</th>
+                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {visibleManagedShipments.length > 0 ? visibleManagedShipments.map((shipment) => {
+                            const shipmentId = getShipmentIdentifier(shipment);
+                            const assignedAgentId = String(shipment.assignedAgentId || shipment.assignedToAgentId || '').trim();
+                            const selectedAgentId = String(shipmentAgentDrafts[shipmentId] ?? assignedAgentId).trim();
+                            const assignActionKey = `assign:${shipmentId}`;
+                            const isAssigning = Boolean(shipmentActionState[assignActionKey]);
+                            const hasAssignedOption = assignedAgentId && agentUsers.some((agent) => (
+                              [agent.userId, agent.id, agent.email]
+                                .filter(Boolean)
+                                .map((value) => String(value).trim().toLowerCase())
+                                .includes(assignedAgentId.toLowerCase())
+                            ));
+                            const receiver = shipment.receiver || shipment.receiverAddress || {};
+                            const sender = shipment.sender || shipment.senderAddress || {};
+                            return (
+                              <tr key={`admin-shipment-${shipmentId}`} className="hover:bg-slate-50">
+                                <td className="px-4 py-3 font-mono text-slate-700">{shipmentId}</td>
+                                <td className="px-4 py-3">
+                                  <div className="font-medium text-slate-900">{sender.name || shipment.customerName || shipment.customerEmail || 'N/A'}</div>
+                                  <div className="text-xs text-slate-500">{sender.phone || shipment.customerEmail || '-'}</div>
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {sender.city || 'N/A'} to {receiver.city || 'N/A'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
+                                    {formatShipmentStatus(shipment.status || 'Unknown')}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-medium text-slate-900">
+                                  Rs {Math.round(Number(shipment.cost) || 0).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <select
+                                      value={selectedAgentId}
+                                      onChange={(e) => setShipmentAgentDrafts((prev) => ({ ...prev, [shipmentId]: e.target.value }))}
+                                      className="min-w-[180px] px-2 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                      <option value="">Select agent</option>
+                                      {hasAssignedOption ? null : (assignedAgentId ? (
+                                        <option value={assignedAgentId}>
+                                          {userNameById[assignedAgentId] || assignedAgentId}
+                                        </option>
+                                      ) : null)}
+                                      {agentUsers.map((agent) => {
+                                        const agentKey = agent.userId || agent.id || agent.email;
+                                        const agentLabel = agent.name || agent.email || 'Unnamed Agent';
+                                        return (
+                                          <option key={`manage-agent-${agentKey}`} value={agentKey}>
+                                            {agentLabel}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAssignManagedShipment(shipment)}
+                                      disabled={!selectedAgentId || isAssigning}
+                                      className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+                                    >
+                                      {isAssigning ? 'Saving...' : (assignedAgentId ? 'Change' : 'Assign')}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => requestDeleteManagedShipment(shipment)}
+                                    className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr>
+                              <td className="px-4 py-8 text-center text-slate-500" colSpan="7">
+                                No shipments found for current filters.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                 </div>
+
+                 {filteredManagedShipments.length > shipmentVisibleCount && (
+                   <div className="flex justify-center">
+                     <button
+                       type="button"
+                       onClick={() => setShipmentVisibleCount((prev) => (prev >= filteredManagedShipments.length ? 10 : filteredManagedShipments.length))}
+                       className="px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white hover:bg-slate-50"
+                     >
+                       {shipmentVisibleCount >= filteredManagedShipments.length ? 'Show Less' : `Show More (${filteredManagedShipments.length - shipmentVisibleCount})`}
+                     </button>
+                   </div>
+                 )}
              </div>
         )}
 
@@ -2475,16 +2662,18 @@ export function AdminDashboard({ view }) {
 
 function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff, users = [], agentProfiles = {}, onRefresh }) {
     const [selectedIds, setSelectedIds] = useState([]);
-    const [selectedAgentId, setSelectedAgentId] = useState('AUTO');
+    const [selectedAgentId, setSelectedAgentId] = useState('');
     const [generatedSheet, setGeneratedSheet] = useState(null);
     const [statusFilter, setStatusFilter] = useState('PENDING');
     const [searchTerm, setSearchTerm] = useState('');
     const [visibleQueueCount, setVisibleQueueCount] = useState(5);
     const [recentlyAssignedIds, setRecentlyAssignedIds] = useState([]);
+    const [liveProfileIndex, setLiveProfileIndex] = useState({});
 
     const normalizeStatus = (value) => String(value || '').toUpperCase().replace(/_/g, ' ').trim();
     const normalizeAvailability = (value) => String(value || '').toUpperCase().replace(/ /g, '_').trim();
-    const isAssignableAvailability = (value) => ['AVAILABLE', 'ACTIVE'].includes(normalizeAvailability(value));
+    const isLoggedInSession = (value) => ['online', 'logged_in', 'logged-in'].includes(String(value || '').toLowerCase());
+    const isOnlineAvailability = (value) => ['AVAILABLE', 'ACTIVE', 'READY', 'IN_TRANSIT'].includes(normalizeAvailability(value));
     const isPendingStatus = (status) => ['BOOKED', 'RECEIVED AT HUB'].includes(normalizeStatus(status));
     const isInProgressStatus = (status) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalizeStatus(status));
     const isSuccessStatus = (status) => normalizeStatus(status) === 'DELIVERED';
@@ -2502,30 +2691,76 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
       ].map((value) => String(value || '').trim()).filter(Boolean))]
     );
 
+    useEffect(() => {
+      let cancelled = false;
+      const indexProfiles = (profiles = []) => {
+        const next = {};
+        (profiles || []).forEach((profile = {}) => {
+          [profile.userId, profile.email, profile.agentId, profile.id]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+            .forEach((key) => {
+              next[key] = profile;
+              next[key.toLowerCase()] = profile;
+            });
+        });
+        return next;
+      };
+      const loadLiveProfiles = async () => {
+        try {
+          const profiles = await operationsService.getAgents();
+          if (cancelled) return;
+          setLiveProfileIndex(indexProfiles(profiles));
+        } catch {
+          if (cancelled) return;
+          setLiveProfileIndex({});
+        }
+      };
+      loadLiveProfiles();
+      const intervalId = setInterval(loadLiveProfiles, 15000);
+      return () => {
+        cancelled = true;
+        clearInterval(intervalId);
+      };
+    }, []);
+
     const mappedAgents = useMemo(() => {
         const blockedNames = new Set(['kyle reese', 'kyle rease', 'kyle resse']);
-        const fromUsers = (users || [])
+        const byKey = new Map();
+        (users || [])
           .filter((user) => String(user?.role || '').toLowerCase() === 'agent')
           .filter((user) => !blockedNames.has(String(user?.name || '').trim().toLowerCase()))
-          .map((user) => ({
-            id: user.id || user.userId || user.email,
-            userId: user.userId || user.id,
-            email: user.email,
-            name: user.name || user.email || 'Agent',
-            branch: user.branch || '',
-            status: user.status || 'active',
-            role: 'agent'
-          }));
-        const byKey = new Map();
-        fromUsers.forEach((item) => {
-          const key = item.userId || item.id || item.email;
-          if (!key || byKey.has(key)) return;
-          byKey.set(key, item);
-        });
+          .forEach((user) => {
+            const key = user.userId || user.id || user.email;
+            if (!key || byKey.has(key)) return;
+            byKey.set(key, {
+              id: user.id || user.userId || user.email,
+              userId: user.userId || user.id,
+              email: user.email,
+              name: user.name || user.email || 'Unnamed Agent',
+              branch: user.branch || '',
+              status: user.status || 'active',
+              sessionStatus: String(user.sessionStatus || ''),
+              role: 'agent'
+            });
+          });
         return Array.from(byKey.values())
           .map((staff) => {
             const userKey = staff.userId || staff.id || staff.email;
-            const profile = agentProfiles[userKey] || null;
+            const lookupKeys = [
+              userKey,
+              staff.userId,
+              staff.id,
+              staff.email
+            ].map((value) => String(value || '').trim()).filter(Boolean);
+            const profile = lookupKeys
+              .map((key) => {
+                const lowerKey = key.toLowerCase();
+                return agentProfiles[key] || agentProfiles[lowerKey] || liveProfileIndex[key] || liveProfileIndex[lowerKey];
+              })
+              .find(Boolean) || null;
+            const availabilityStatus = String(profile?.availabilityStatus || 'OFFLINE').toUpperCase();
+            const normalizedUserStatus = String(staff.status || '').toLowerCase();
             return {
               ...staff,
               userKey,
@@ -2540,16 +2775,27 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                 email: staff.email
               }),
               verificationStatus: String(profile?.verificationStatus || '').toUpperCase() || 'PENDING',
-              availabilityStatus: String(profile?.availabilityStatus || 'AVAILABLE').toUpperCase()
+              availabilityStatus,
+              isLoggedIn: isOnlineAvailability(availabilityStatus)
             };
           })
           .filter((staff) => staff.assignmentAgentId);
-    }, [users, agentProfiles]);
+    }, [users, agentProfiles, liveProfileIndex]);
 
+    const selectableAgents = useMemo(() => (
+      mappedAgents.filter((agent) => {
+        const userStatus = String(agent.status || 'active').toLowerCase();
+        return Boolean(agent.assignmentAgentId) && userStatus !== 'inactive';
+      })
+    ), [mappedAgents]);
+
+    const dropdownAgents = useMemo(() => (
+      [...selectableAgents].sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || '')))
+    ), [selectableAgents]);
     const agentNameByAssignmentId = useMemo(() => {
       const map = {};
       mappedAgents.forEach((agent) => {
-        const name = agent.name || agent.email || agent.userKey || 'Agent';
+        const name = agent.name || agent.email || 'Agent';
         getAgentIdentityCandidates(agent).forEach((key) => {
           map[key] = name;
           map[normalizeIdentity(key)] = name;
@@ -2561,7 +2807,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
     const getAssignedAgentName = (assignedId) => {
       const raw = String(assignedId || '').trim();
       if (!raw) return 'Awaiting assignment';
-      return agentNameByAssignmentId[raw] || agentNameByAssignmentId[normalizeIdentity(raw)] || raw;
+      return agentNameByAssignmentId[raw] || agentNameByAssignmentId[normalizeIdentity(raw)] || 'Assigned Agent';
     };
 
     const shipmentMetrics = useMemo(() => {
@@ -2640,43 +2886,26 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
         setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
     };
 
-    const getActiveAgents = () =>
-      mappedAgents.filter((agent) => {
-        const userStatus = String(agent.status || 'active').toLowerCase();
-        const availability = normalizeAvailability(agent.availabilityStatus || 'AVAILABLE');
-        const verification = String(agent.verificationStatus || '').toUpperCase();
-        if (!agent.assignmentAgentId) return false;
-        if (userStatus === 'inactive') return false;
-        if (!isAssignableAvailability(availability)) return false;
-        if (verification === 'REJECTED') return false;
-        return true;
-      });
-
     useEffect(() => {
-      if (selectedAgentId === 'AUTO') return;
-      const activeAgentIds = new Set(getActiveAgents().map((agent) => agent.assignmentAgentId).filter(Boolean));
-      if (!activeAgentIds.has(selectedAgentId)) {
-        setSelectedAgentId('AUTO');
+      const assignableIds = new Set(selectableAgents.map((agent) => agent.assignmentAgentId).filter(Boolean));
+      if (!assignableIds.has(selectedAgentId)) {
+        setSelectedAgentId('');
       }
-    }, [selectedAgentId, mappedAgents]);
+    }, [selectedAgentId, selectableAgents]);
 
     const handleAssign = async () => {
         if (selectedIds.length === 0) return toast.error('Select shipments to assign');
-        if (selectedAgentId === 'AUTO') {
-            await handleAutoDistribute();
-            return;
-        }
         if (!selectedAgentId) return toast.error('Please select an agent to assign the run sheet.');
 
         const selectedShipments = assignableShipments.filter((s) => selectedIds.includes(getShipmentIdentifier(s)));
         if (selectedShipments.length === 0) return toast.error('No pending shipments selected');
 
-        const selectedAgent = mappedAgents.find((agent) => (
+        const selectedAgent = selectableAgents.find((agent) => (
           getAgentIdentityCandidates(agent).some((identity) => normalizeIdentity(identity) === normalizeIdentity(selectedAgentId))
         ));
-        if (!selectedAgent || !getActiveAgents().some((agent) => agent.assignmentAgentId === selectedAgent.assignmentAgentId)) {
-          setSelectedAgentId('AUTO');
-          return toast.error('Selected agent is unavailable. Please choose an active agent.');
+        if (!selectedAgent) {
+          setSelectedAgentId('');
+          return toast.error('Selected agent is not available. Please choose another agent.');
         }
         const targetAgentId = selectedAgent.assignmentAgentId;
         const agentName = selectedAgent?.name || selectedAgent?.email || 'Selected Agent';
@@ -2736,172 +2965,15 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
         }
     };
 
-    const handleSendVerificationNote = async (agent) => {
-      const viewData = getAgentViewData(agent);
-      const targetUserId = [
-        viewData?.requestData?.userId,
-        viewData?.requestData?.email,
-        agent?.userId,
-        agent?.id,
-        agent?.email,
-        viewData?.key
-      ].map((value) => String(value || '').trim()).find(Boolean);
-      if (!targetUserId) {
-        toast.error('Unable to find user for ticket');
-        return;
-      }
-      const message = window.prompt('Enter pending reason to send as a ticket');
-      const trimmed = String(message || '').trim();
-      if (!trimmed) {
-        toast.error('Please enter a note before sending');
-        return;
-      }
-      try {
-        await createSupportTicket({
-          userId: targetUserId,
-          subject: `Verification Note - ${agent?.name || agent?.email || targetUserId}`,
-          category: 'Verification',
-          priority: 'Medium',
-          message: trimmed,
-          senderName: currentUser?.name || currentUser?.email || 'Admin',
-          senderRole: 'admin'
-        });
-        toast.success('Verification note sent successfully');
-      } catch (error) {
-        toast.error(error.message || 'Failed to send ticket');
-      }
-    };
-
-    const buildFallbackRoleRequest = (agent) => {
-      const viewData = getAgentViewData(agent);
-      const identity = [
-        viewData?.requestData?.userId,
-        viewData?.requestData?.email,
-        agent?.userId,
-        agent?.id,
-        agent?.email,
-        viewData?.key
-      ].map((value) => String(value || '').trim()).find(Boolean);
-
-      if (!identity) return null;
-
-      const safeId = String(identity).replace(/[^a-zA-Z0-9_-]/g, '_');
-      return {
-        id: viewData?.requestData?.id || `rr-fallback-${safeId}`,
-        userId: viewData?.requestData?.userId || agent?.userId || agent?.id || identity,
-        email: viewData?.requestData?.email || agent?.email || '',
-        name: agent?.name || viewData?.requestData?.name || agent?.email || identity,
-        currentRole: String(viewData?.requestData?.currentRole || agent?.role || 'customer').toLowerCase(),
-        requestedRole: String(viewData?.requestData?.requestedRole || 'agent').toLowerCase(),
-        reason: viewData?.requestData?.reason || '',
-        agentDetails: viewData?.requestData?.agentDetails || agent?.agentDetails || {},
-        documents: viewData?.requestData?.documents || viewData?.docs || agent?.documents || {},
-        status: 'PENDING_VERIFICATION'
-      };
-    };
-
-    const handleVerifyFromQueue = async (agent) => {
-      const linkedRequest = agent?.requestRecord || (roleRequests || []).find((request) => {
-        const status = String(request?.status || '').toUpperCase();
-        if (!['PENDING', 'PENDING_VERIFICATION'].includes(status)) return false;
-        return matchesRequestIdentity(request, getAgentKey(agent));
-      });
-      if (linkedRequest) {
-        await handleApproveRequest(linkedRequest);
-        return;
-      }
-      const fallbackRequest = buildFallbackRoleRequest(agent);
-      if (!fallbackRequest) {
-        toast.error('Unable to resolve role request for approval');
-        return;
-      }
-      await handleApproveRequest(fallbackRequest);
-    };
-
-    const handleRejectFromQueue = async (agent) => {
-      const linkedRequest = agent?.requestRecord || (roleRequests || []).find((request) => {
-        const status = String(request?.status || '').toUpperCase();
-        if (!['PENDING', 'PENDING_VERIFICATION'].includes(status)) return false;
-        return matchesRequestIdentity(request, getAgentKey(agent));
-      });
-      if (linkedRequest) {
-        await handleRejectRequest(linkedRequest);
-        return;
-      }
-      const fallbackRequest = buildFallbackRoleRequest(agent);
-      if (!fallbackRequest) {
-        toast.error('Unable to resolve role request for rejection');
-        return;
-      }
-      await handleRejectRequest(fallbackRequest);
-    };
-
-    const handleAutoDistribute = async () => {
-        const targetIds = selectedIds.length > 0 ? selectedIds : assignableShipments.map((s) => getShipmentIdentifier(s));
-        if (targetIds.length === 0) return toast.error('No pending shipments to assign');
-
-        const activeAgents = getActiveAgents();
-        if (activeAgents.length === 0) return toast.error('No active agents available');
-
-        const loadMap = {};
-        activeAgents.forEach((agent) => {
-            const agentId = agent.assignmentAgentId;
-            const agentIdentitySet = new Set(getAgentIdentityCandidates(agent).map(normalizeIdentity));
-            loadMap[agentId] = shipments.filter((shipment) => {
-              const assignedIdentity = normalizeIdentity(shipment.assignedAgentId || shipment.assignedToAgentId);
-              return assignedIdentity && agentIdentitySet.has(assignedIdentity);
-            }).length;
-        });
-
-        const successfullyAssignedIds = [];
-        for (const shipmentId of targetIds) {
-            const nextAgent = activeAgents.reduce((least, candidate) => {
-                const leastId = least.assignmentAgentId;
-                const candidateId = candidate.assignmentAgentId;
-                return loadMap[candidateId] < loadMap[leastId] ? candidate : least;
-            });
-            const nextAgentId = nextAgent.assignmentAgentId;
-            try {
-              await operationsService.createRunSheet({
-                  agentId: nextAgentId,
-                  hubId: defaultHubId,
-                  shipmentTrackingNumbers: [shipmentId]
-              });
-              loadMap[nextAgentId] += 1;
-              successfullyAssignedIds.push(shipmentId);
-            } catch (error) {
-              const assignmentIds = getAgentIdentityCandidates(nextAgent);
-              for (const agentId of assignmentIds) {
-                try {
-                  await shipmentService.assignShipment(shipmentId, agentId);
-                  loadMap[nextAgentId] += 1;
-                  successfullyAssignedIds.push(shipmentId);
-                  break;
-                } catch {
-                  // try next identifier
-                }
-              }
-            }
-        }
-
-        if (successfullyAssignedIds.length === 0) {
-          toast.error('No shipments could be auto-assigned');
-        } else {
-          toast.success(`Auto-assigned ${successfullyAssignedIds.length} shipments`);
-        }
-        setSelectedIds([]);
-        if (successfullyAssignedIds.length > 0) {
-          setRecentlyAssignedIds((prev) => [...new Set([...prev, ...successfullyAssignedIds])]);
-        }
-        await onRefresh?.();
-    };
-
     return (
          <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">Admin Run Sheet Master</h1>
                 <p className="text-slate-600">Global shipment orchestration with live assignment controls</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Agents in list: {dropdownAgents.length}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2 md:gap-4 items-stretch md:items-center">
                   {generatedSheet && (
@@ -2964,10 +3036,13 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                       value={selectedAgentId}
                       onChange={(e) => setSelectedAgentId(e.target.value)}
                   >
-                      <option value="AUTO">Auto Select (Recommended)</option>
-                      {getActiveAgents().map((agent) => (
+                      <option value="">Select Agent</option>
+                      {dropdownAgents.length === 0 && (
+                        <option value="" disabled>No agents found</option>
+                      )}
+                      {dropdownAgents.map((agent) => (
                           <option key={`opt-${agent.assignmentAgentId}`} value={agent.assignmentAgentId}>
-                              {agent.name || agent.email} ({agent.branch || 'Unassigned'}) [{isAssignableAvailability(agent.availabilityStatus) ? 'ACTIVE' : (agent.availabilityStatus || 'OFFLINE')}]
+                              {agent.name || agent.email}
                           </option>
                       ))}
                    </select>
@@ -2978,12 +3053,6 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                   >
                     <FileText className="w-4 h-4" />
                     Assign ({selectedIds.length})
-                  </button>
-                  <button
-                    onClick={handleAutoDistribute}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20 flex items-center gap-2 h-10"
-                  >
-                    Auto-Distribute
                   </button>
               </div>
             </div>
@@ -3108,6 +3177,3 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
          </div>
     );
 }
-
-
-

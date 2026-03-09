@@ -122,7 +122,7 @@ export function InvoicePage() {
           </div>
           <div>
             <div className="text-sm font-medium text-slate-500 mb-1">Amount Due</div>
-            <div className="text-slate-900 font-bold">₹{invoiceData.total.toFixed(2)}</div>
+            <div className="text-slate-900 font-bold">&#8377;{invoiceData.total.toFixed(2)}</div>
           </div>
         </div>
 
@@ -160,8 +160,8 @@ export function InvoicePage() {
                 <tr key={index}>
                   <td className="py-4 text-slate-900">{item.description}</td>
                   <td className="py-4 text-right text-slate-600">{item.quantity}</td>
-                  <td className="py-4 text-right text-slate-600">₹{item.rate.toFixed(2)}</td>
-                  <td className="py-4 text-right text-slate-900 font-medium">₹{item.amount.toFixed(2)}</td>
+                  <td className="py-4 text-right text-slate-600">&#8377;{item.rate.toFixed(2)}</td>
+                  <td className="py-4 text-right text-slate-900 font-medium">&#8377;{item.amount.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -174,7 +174,7 @@ export function InvoicePage() {
              <div className="border-t border-slate-300 my-2"></div>
             <div className="flex justify-between text-lg font-bold text-slate-900">
               <span>Total</span>
-              <span>₹{invoiceData.total.toFixed(2)}</span>
+              <span>&#8377;{invoiceData.total.toFixed(2)}</span>
             </div>
           </div>
         </div>

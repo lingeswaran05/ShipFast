@@ -314,9 +314,9 @@ export function BookingForm({ onViewInvoice }) {
   };
 
   const services = [
-    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `₹${getCalculatedPrice('standard')}`, icon: Truck },
-    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `₹${getCalculatedPrice('express')}`, icon: Package },
-    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `₹${getCalculatedPrice('sameday')}`, icon: Calendar },
+    { id: 'standard', name: 'Standard Delivery', time: '3-5 Days', price: `\u20b9${getCalculatedPrice('standard')}`, icon: Truck },
+    { id: 'express', name: 'Express Priority', time: '1-2 Days', price: `\u20b9${getCalculatedPrice('express')}`, icon: Package },
+    { id: 'sameday', name: 'Same Day Delivery', time: 'Today', price: `\u20b9${getCalculatedPrice('sameday')}`, icon: Calendar },
   ];
 
   if (bookingSuccess) {
@@ -352,8 +352,8 @@ export function BookingForm({ onViewInvoice }) {
              </div>
              <div className="text-right">
                 <p className="text-xs text-slate-400 font-semibold uppercase">Amount {formData.paymentMode === 'cash' ? 'To Pay' : 'Paid'}</p>
-                <p className="font-bold text-slate-800">₹{roundToRupee(finalAmount || getTotalPrice())}</p>
-                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee ₹{roundToRupee(codHandlingFee)})</span>}
+                <p className="font-bold text-slate-800">&#8377;{roundToRupee(finalAmount || getTotalPrice())}</p>
+                {formData.paymentMode === 'cash' && <span className="text-[10px] text-slate-500">(Includes COD Fee &#8377;{roundToRupee(codHandlingFee)})</span>}
              </div>
           </div>
           <div className="hidden print:block mt-8 pt-6 border-t border-slate-100 text-left text-sm text-slate-600">
@@ -621,7 +621,7 @@ export function BookingForm({ onViewInvoice }) {
                 <div>
                    <label className="block text-sm font-semibold text-slate-700 mb-1">Declared Value</label>
                    <div className="relative">
-                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-semibold">₹</span>
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-semibold">&#8377;</span>
                      <input 
                        type="number" 
                        className="w-full pl-8 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-purple-500 focus:bg-white transition-all font-medium"
@@ -765,7 +765,7 @@ export function BookingForm({ onViewInvoice }) {
                       <div className="space-y-3 text-sm">
                          <div className="flex justify-between">
                             <span className="text-slate-500">Base Rate</span>
-                            <span className="font-medium text-slate-900">₹{getCalculatedPrice(formData.service)}</span>
+                            <span className="font-medium text-slate-900">&#8377;{getCalculatedPrice(formData.service)}</span>
                          </div>
                          <div className="flex justify-between">
                             <span className="text-slate-500">Tax & Fees</span>
@@ -774,12 +774,12 @@ export function BookingForm({ onViewInvoice }) {
                          {formData.paymentMode === 'cash' && (
                            <div className="flex justify-between">
                               <span className="text-slate-500">Cash Handling Fee</span>
-                              <span className="font-medium text-slate-900">₹{roundToRupee(codHandlingFee)}</span>
+                              <span className="font-medium text-slate-900">&#8377;{roundToRupee(codHandlingFee)}</span>
                            </div>
                          )}
                          <div className="border-t border-slate-100 pt-3 flex justify-between text-lg font-bold">
                             <span className="text-slate-900">Total</span>
-                            <span className="text-purple-600">₹{getTotalPrice()}</span>
+                            <span className="text-purple-600">&#8377;{getTotalPrice()}</span>
                          </div>
                          <div className="text-xs text-slate-500">Live backend calculated rate</div>
                       </div>

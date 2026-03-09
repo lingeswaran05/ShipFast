@@ -9,7 +9,7 @@ export function SettingsPage() {
    const { currentUser, shipments, updateProfile, requestRoleUpgrade, cancelRoleRequest, roleRequests } = useShipment();
   const toIdentityValue = (value) => String(value || '').trim().toLowerCase();
   const normalizeRequestStatus = (value) => {
-    const status = String(value || 'PENDING').toUpperCase();
+    const status = String(value || '').toUpperCase();
     if (status === 'VERIFIED') return 'APPROVED';
     return status;
   };
@@ -23,11 +23,31 @@ export function SettingsPage() {
     const userEmail = toIdentityValue(currentUser?.email);
 
     if (stableIds.length > 0) {
-      if (requestUserId) return stableIds.includes(requestUserId);
+      if (requestUserId) {
+        const stableMatch = stableIds.includes(requestUserId);
+        if (!stableMatch) return false;
+        if (requestEmail && userEmail) return requestEmail === userEmail;
+        return true;
+      }
       return Boolean(userEmail) && requestEmail === userEmail;
     }
 
     return Boolean(userEmail) && requestEmail === userEmail;
+  };
+  const profileBelongsToCurrentCustomer = (profile = {}, requestedIdentity = '') => {
+    const expectedIdentities = [...new Set([
+      ...getStableIdentityValues(currentUser),
+      toIdentityValue(currentUser?.email),
+      toIdentityValue(requestedIdentity)
+    ].filter(Boolean))];
+    if (expectedIdentities.length === 0) return false;
+
+    const profileIdentities = [profile?.userId, profile?.email, profile?.id]
+      .map(toIdentityValue)
+      .filter(Boolean);
+    if (profileIdentities.length === 0) return false;
+
+    return profileIdentities.some((identity) => expectedIdentities.includes(identity));
   };
   const isPendingRequestStatus = (value) => ['PENDING', 'PENDING_VERIFICATION'].includes(normalizeRequestStatus(value));
   const [isEditing, setIsEditing] = useState(false);
@@ -72,8 +92,11 @@ export function SettingsPage() {
     successRate: 0
   });
   const [agentDocs, setAgentDocs] = useState({});
-  const [backendRoleRequest, setBackendRoleRequest] = useState(null);
-  
+
+  // DB-driven request status — no localStorage/session dependency
+  const [backendRequestStatus, setBackendRequestStatus] = useState(null);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
   // Profile Picture State
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [showWebcam, setShowWebcam] = useState(false);
@@ -88,6 +111,7 @@ export function SettingsPage() {
     role: currentUser?.role || 'customer'
   });
 
+  // Load agent profile details (for agent role users)
   useEffect(() => {
     if (currentUser?.role !== 'agent') return;
     const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
@@ -111,28 +135,16 @@ export function SettingsPage() {
         totalRatings: Number(profile.totalRatings || 0),
         successRate: Number(profile.successRate || 0)
       });
+      setAgentDocs((prev) => ({
+        profilePhoto: prev?.profilePhoto || profile.profileImage || null,
+        aadharCopy: prev?.aadharCopy || profile.aadharCopy || null,
+        licenseCopy: prev?.licenseCopy || profile.licenseCopy || null,
+        rcBookCopy: prev?.rcBookCopy || profile.rcBookCopy || null
+      }));
     });
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
 
-  useEffect(() => {
-    if (currentUser?.role !== 'agent') return;
-    const userKey = currentUser?.userId || currentUser?.id || currentUser?.email || 'default';
-    const possibleKeys = [`sf_agent_onboarding_${userKey}`, `agent_onboarding_${userKey}`];
-    let docs = {};
-    for (const key of possibleKeys) {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-        if (parsed && Object.keys(parsed).length > 0) {
-          docs = parsed;
-          break;
-        }
-      } catch {
-        docs = {};
-      }
-    }
-    setAgentDocs(docs);
-  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
-
+  // Compute agent shipment insights from local state
   useEffect(() => {
     if (currentUser?.role !== 'agent') return;
     const normalize = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
@@ -153,9 +165,9 @@ export function SettingsPage() {
       return candidates.some((candidate) => identityValues.has(candidate));
     });
 
-    const deliveredCount = myShipments.filter((shipment) => normalize(shipment.status) === 'DELIVERED').length;
-    const failedCount = myShipments.filter((shipment) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalize(shipment.status))).length;
-    const inTransitCount = myShipments.filter((shipment) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalize(shipment.status))).length;
+    const deliveredCount = myShipments.filter((s) => normalize(s.status) === 'DELIVERED').length;
+    const failedCount = myShipments.filter((s) => ['FAILED', 'FAILED ATTEMPT', 'CANCELLED'].includes(normalize(s.status))).length;
+    const inTransitCount = myShipments.filter((s) => ['IN TRANSIT', 'OUT FOR DELIVERY'].includes(normalize(s.status))).length;
     const totalClosed = deliveredCount + failedCount;
     const successRate = totalClosed > 0 ? (deliveredCount / totalClosed) * 100 : 0;
 
@@ -168,113 +180,34 @@ export function SettingsPage() {
     }));
   }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, agentInsights.agentId, shipments]);
 
-  const hasProfileRequestSignal = (profile = {}) => {
-    if (!profile) return false;
-    const hasDocs = Boolean(
-      profile.profileImage ||
-      profile.aadharCopy ||
-      profile.licenseCopy ||
-      profile.rcBookCopy
-    );
-    const hasDetails = Boolean(
-      profile.licenseNumber ||
-      profile.aadharNumber ||
-      profile.vehicleNumber ||
-      profile.rcBookNumber
-    );
-    const hasNotes = Boolean(String(profile.verificationNotes || '').trim());
-    return hasDocs || hasDetails || hasNotes;
+  // ─── Backend-driven request status check ────────────────────────────────────
+  // Fetches the REAL agent request status from the DB on mount.
+  // No localStorage / session data is consulted — truth comes from the server.
+  const refreshBackendRequestStatus = async () => {
+    if (currentUser?.role !== 'customer') {
+      setBackendRequestStatus({ status: 'NONE', hasPending: 'false' });
+      return;
+    }
+    const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+    if (!userId) {
+      setBackendRequestStatus({ status: 'NONE', hasPending: 'false' });
+      return;
+    }
+    setIsCheckingStatus(true);
+    try {
+      const result = await operationsService.getAgentRequestStatus(userId);
+      setBackendRequestStatus(result || { status: 'NONE', hasPending: 'false' });
+    } catch {
+      setBackendRequestStatus({ status: 'NONE', hasPending: 'false' });
+    } finally {
+      setIsCheckingStatus(false);
+    }
   };
 
   useEffect(() => {
-    if (currentUser?.role !== 'customer') {
-      setBackendRoleRequest(null);
-      return;
-    }
-    const identityCandidates = [...new Set([
-      currentUser?.userId,
-      currentUser?.id,
-      currentUser?.email
-    ].map((value) => String(value || '').trim()).filter(Boolean))];
-    if (identityCandidates.length === 0) {
-      setBackendRoleRequest(null);
-      return;
-    }
-
-    // Only infer backend request state when there is an actual local request record
-    // for this customer. This prevents old/ex-agent profiles from showing
-    // "approved" to customers who never submitted a request.
-    const hasLocalRequest = (roleRequests || []).some((request) => {
-      return requestBelongsToCurrentCustomer(request);
-    });
-
-    if (!hasLocalRequest) {
-      setBackendRoleRequest(null);
-      return;
-    }
-
-    let cancelled = false;
-    const loadRoleRequestStatus = async () => {
-      try {
-        const profileResults = await Promise.all(
-          identityCandidates.map(async (identity) => {
-            const profile = await operationsService.getAgentProfile(identity);
-            return profile ? { identity, profile } : null;
-          })
-        );
-        if (cancelled) return;
-
-        const availableProfiles = profileResults
-          .filter(Boolean)
-          .filter((item) => hasProfileRequestSignal(item.profile));
-        if (availableProfiles.length === 0) {
-          setBackendRoleRequest(null);
-          return;
-        }
-
-        const normalizeProfileStatus = (profile) => normalizeRequestStatus(profile?.verificationStatus || 'PENDING');
-        const byUpdatedAtDesc = (a, b) => (
-          new Date(b?.profile?.verifiedAt || b?.profile?.updatedAt || b?.profile?.joinDate || 0).getTime() -
-          new Date(a?.profile?.verifiedAt || a?.profile?.updatedAt || a?.profile?.joinDate || 0).getTime()
-        );
-
-        const preferredByStatus = ['REJECTED', 'APPROVED', 'PENDING', 'PENDING_VERIFICATION'];
-        let selected = null;
-        for (const status of preferredByStatus) {
-          const sameStatus = availableProfiles
-            .filter((item) => normalizeProfileStatus(item.profile) === status)
-            .sort(byUpdatedAtDesc);
-          if (sameStatus.length > 0) {
-            selected = sameStatus[0];
-            break;
-          }
-        }
-        if (!selected) selected = [...availableProfiles].sort(byUpdatedAtDesc)[0];
-
-        const profile = selected.profile;
-        const status = normalizeProfileStatus(profile);
-        setBackendRoleRequest({
-          id: `backend-${profile.userId || selected.identity}`,
-          userId: profile.userId || selected.identity,
-          email: currentUser?.email || '',
-          name: currentUser?.name || currentUser?.email || selected.identity,
-          requestedRole: 'agent',
-          status,
-          reason: profile.verificationNotes || '',
-          createdAt: profile.joinDate || profile.updatedAt || profile.verifiedAt || new Date().toISOString(),
-          reviewedAt: profile.verifiedAt || profile.updatedAt || null,
-          reviewedBy: profile.verifiedBy || null
-        });
-      } catch {
-        if (!cancelled) setBackendRoleRequest(null);
-      }
-    };
-
-    loadRoleRequestStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email, currentUser?.name, roleRequests]);
+    refreshBackendRequestStatus();
+  }, [currentUser?.role, currentUser?.userId, currentUser?.id, currentUser?.email]);
+  // ────────────────────────────────────────────────────────────────────────────
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -380,44 +313,24 @@ export function SettingsPage() {
     setShowPhotoOptions(false);
   };
 
-  const myLocalRoleRequests = useMemo(() => (
-      (roleRequests || [])
-        .filter((request) => requestBelongsToCurrentCustomer(request))
-        .sort((a, b) => {
-          const aTime = new Date(a?.reviewedAt || a?.createdAt || 0).getTime();
-          const bTime = new Date(b?.reviewedAt || b?.createdAt || 0).getTime();
-          return bTime - aTime;
-        })
-   ), [roleRequests, currentUser?.userId, currentUser?.id, currentUser?.email]);
+  // ─── DB-driven request status — derived from backendRequestStatus (fetched from server) ───
+  // backendRequestStatus = { status: "NONE"|"PENDING"|"VERIFIED"|"REJECTED"|"CANCELLED", hasPending: "true"|"false" }
+  const dbStatus = String(backendRequestStatus?.status || 'NONE').toUpperCase();
+  const dbHasPending = backendRequestStatus?.hasPending === 'true' || dbStatus === 'PENDING';
+  // Normalize VERIFIED -> APPROVED to match UI convention
+  const normalizedDbStatus = dbStatus === 'VERIFIED' ? 'APPROVED' : dbStatus;
 
-   const latestLocalRoleRequest = myLocalRoleRequests[0] || null;
-   const latestRoleRequest = useMemo(() => {
-      if (!latestLocalRoleRequest) return backendRoleRequest;
-      if (!backendRoleRequest) return latestLocalRoleRequest;
-
-      const localStatus = normalizeRequestStatus(latestLocalRoleRequest?.status);
-      const backendStatus = normalizeRequestStatus(backendRoleRequest?.status);
-      const localTime = new Date(latestLocalRoleRequest?.reviewedAt || latestLocalRoleRequest?.createdAt || 0).getTime();
-      const backendTime = new Date(backendRoleRequest?.reviewedAt || backendRoleRequest?.createdAt || 0).getTime();
-
-      if (backendStatus === 'APPROVED') {
-        return { ...latestLocalRoleRequest, ...backendRoleRequest };
-      }
-
-      if (['REJECTED', 'APPROVED'].includes(backendStatus) && isPendingRequestStatus(localStatus)) {
-        return { ...latestLocalRoleRequest, ...backendRoleRequest };
-      }
-
-      if (backendTime >= localTime) {
-        return { ...latestLocalRoleRequest, ...backendRoleRequest };
-      }
-
-      return latestLocalRoleRequest;
-   }, [latestLocalRoleRequest, backendRoleRequest]);
-
-   const latestRoleRequestStatus = normalizeRequestStatus(latestRoleRequest?.status || '');
-   const myPendingRoleRequest = latestRoleRequest && isPendingRequestStatus(latestRoleRequestStatus) ? latestRoleRequest : null;
-   const canSubmitRoleRequest = latestRoleRequestStatus !== 'APPROVED' && !myPendingRoleRequest;
+  // Synthetic latestRoleRequest object — mirrors the shape used in JSX below
+  const latestRoleRequest = (backendRequestStatus && normalizedDbStatus !== 'NONE') ? {
+    status: normalizedDbStatus,
+    reviewedAt: null
+  } : null;
+  const latestRoleRequestStatus = normalizedDbStatus;
+  const myPendingRoleRequest = dbHasPending ? latestRoleRequest : null;
+  const canSubmitRoleRequest = !isCheckingStatus &&
+    normalizedDbStatus !== 'APPROVED' &&
+    !dbHasPending;
+  // ───────────────────────────────────────────────────────────────────────
 
    const handleRoleRequest = async () => {
       const hasMandatoryDetails = Boolean(
@@ -472,6 +385,8 @@ export function SettingsPage() {
             licenseCopy: null,
             rcBookCopy: null
           });
+          // Refresh DB status so the UI immediately reflects the new PENDING state
+          await refreshBackendRequestStatus();
       } catch (error) {
          toast.error(error.message || 'Failed to submit request');
       } finally {
@@ -482,8 +397,20 @@ export function SettingsPage() {
    const handleCancelRequest = async () => {
      if (!myPendingRoleRequest) return;
      try {
-       await cancelRoleRequest(myPendingRoleRequest);
+       // Cancel via backend: mark agent profile as CANCELLED
+       const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+       if (userId) {
+         await operationsService.verifyAgentProfile(userId, {
+           verified: false,
+           verificationNotes: 'Cancelled by customer',
+           verificationStatus: 'CANCELLED'
+         });
+       }
+       // Also cancel in local state for consistency
+       try { await cancelRoleRequest(myPendingRoleRequest); } catch { /* non-blocking */ }
        toast.success('Request cancelled. You can submit a new request now.');
+       // Refresh DB status so the form re-appears immediately
+       await refreshBackendRequestStatus();
      } catch (error) {
        toast.error(error.message || 'Failed to cancel request');
      }
@@ -790,7 +717,13 @@ export function SettingsPage() {
                   <p className="text-sm text-slate-500 mt-1">Request admin approval to work as an agent (driver/manager).</p>
                </div>
                <div className="p-6 space-y-4">
-                  {latestRoleRequest && (
+                  {isCheckingStatus && (
+                    <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                      <div className="w-4 h-4 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin"></div>
+                      Checking request status...
+                    </div>
+                  )}
+                  {!isCheckingStatus && latestRoleRequest && (
                      <div className={`p-4 rounded-lg border text-sm ${
                        myPendingRoleRequest
                          ? 'border-amber-200 bg-amber-50 text-amber-800'

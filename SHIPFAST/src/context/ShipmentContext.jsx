@@ -66,18 +66,45 @@ const roleRequestBelongsToUser = (request = {}, user = {}) => {
   const stableUserIdentities = getStableUserIdentityValues(user);
   const requestUserIdentity = toIdentityValue(request?.userId);
   const requestEmailIdentity = toIdentityValue(request?.email);
+  const userEmailIdentity = getUserEmailIdentityValue(user);
 
   if (stableUserIdentities.length > 0) {
     if (requestUserIdentity) {
-      return stableUserIdentities.includes(requestUserIdentity);
+      const stableMatch = stableUserIdentities.includes(requestUserIdentity);
+      if (!stableMatch) return false;
+      if (requestEmailIdentity && userEmailIdentity) {
+        return requestEmailIdentity === userEmailIdentity;
+      }
+      return true;
     }
-    const userEmailIdentity = getUserEmailIdentityValue(user);
     return Boolean(userEmailIdentity) && requestEmailIdentity === userEmailIdentity;
   }
 
-  const fallbackEmailIdentity = getUserEmailIdentityValue(user);
-  return Boolean(fallbackEmailIdentity) && requestEmailIdentity === fallbackEmailIdentity;
+  return Boolean(userEmailIdentity) && requestEmailIdentity === userEmailIdentity;
 };
+const getUserIdentityValues = (user = {}) => (
+  [...new Set([
+    ...getStableUserIdentityValues(user),
+    getUserEmailIdentityValue(user)
+  ].filter(Boolean))]
+);
+const agentProfileBelongsToUser = (profile = {}, user = {}, requestedIdentity = '') => {
+  const expectedIdentities = [...new Set([
+    ...getUserIdentityValues(user),
+    toIdentityValue(requestedIdentity)
+  ].filter(Boolean))];
+  if (expectedIdentities.length === 0) return false;
+
+  const profileIdentities = [profile?.userId, profile?.email, profile?.id]
+    .map(toIdentityValue)
+    .filter(Boolean);
+  if (profileIdentities.length === 0) return false;
+
+  return profileIdentities.some((identity) => expectedIdentities.includes(identity));
+};
+const getRoleRequestEventTime = (record = {}) => (
+  new Date(record?.reviewedAt || record?.verifiedAt || record?.updatedAt || record?.createdAt || record?.joinDate || 0).getTime()
+);
 const buildIdentityCandidates = (...values) => (
   [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
 );
@@ -607,22 +634,6 @@ export function ShipmentProvider({ children }) {
       const filteredLatest = (latestNotifications || []).filter((item) => !dismissed.has(String(item?.id || '').trim()));
       setNotifications((prev) => mergeNotifications(filteredLatest, prev));
 
-      const roleApproved = filteredLatest.some((item) => (
-        /agent access request was approved by admin/i.test(String(item?.message || ''))
-      ));
-      if (roleApproved && normalizeRole(currentUser?.role) === 'customer') {
-        try {
-          const baseUser = await authService.getProfile();
-          const updatedUser = applyRoleOverride(baseUser);
-          if (normalizeRole(updatedUser?.role) === 'agent') {
-            setCurrentUser(updatedUser);
-            authStorage.setCurrentUser(updatedUser);
-          }
-        } catch {
-          // non-blocking best-effort role refresh
-        }
-      }
-
       return filteredLatest;
     } catch (error) {
       console.error('Failed to fetch notifications from backend', error);
@@ -868,26 +879,77 @@ export function ShipmentProvider({ children }) {
       }
   };
 
+  const resolveShipmentCandidateIds = (shipmentOrId) => {
+      const requestedId = typeof shipmentOrId === 'string' || typeof shipmentOrId === 'number'
+        ? String(shipmentOrId || '').trim()
+        : '';
+      const shipmentObject = shipmentOrId && typeof shipmentOrId === 'object' ? shipmentOrId : null;
+      const targetShipment = shipmentObject || shipments.find((shipment) => (
+        [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+          .filter(Boolean)
+          .map((value) => String(value))
+          .includes(requestedId)
+      ));
+      return [...new Set([
+        targetShipment?.shipmentId,
+        requestedId,
+        targetShipment?.id,
+        targetShipment?.trackingId,
+        targetShipment?.trackingNumber
+      ].filter(Boolean).map((value) => String(value).trim()).filter(Boolean))];
+  };
+
+  const assignShipmentToAgent = async (id, agentId, runSheetId = null) => {
+      const targetAgentId = String(agentId || '').trim();
+      if (!targetAgentId) throw new Error('Agent id is required');
+      const candidateIds = resolveShipmentCandidateIds(id);
+      if (candidateIds.length === 0) throw new Error('Shipment id is required');
+
+      let assignedShipment = null;
+      let lastError = null;
+      for (const candidateId of candidateIds) {
+        try {
+          assignedShipment = await shipmentService.assignShipment(candidateId, targetAgentId, runSheetId);
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!assignedShipment) {
+        throw lastError || new Error('Failed to assign shipment');
+      }
+
+      const updatedIdentifiers = new Set([
+        ...candidateIds,
+        assignedShipment?.shipmentId,
+        assignedShipment?.id,
+        assignedShipment?.trackingId,
+        assignedShipment?.trackingNumber
+      ].filter(Boolean).map((value) => String(value)));
+      const assignedAgentValue = assignedShipment?.assignedAgentId || targetAgentId;
+      setShipments((prev) => prev.map((shipment) => {
+        const identifiers = [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+          .filter(Boolean)
+          .map((value) => String(value));
+        if (!identifiers.some((value) => updatedIdentifiers.has(value))) return shipment;
+        return {
+          ...shipment,
+          ...assignedShipment,
+          assignedAgentId: assignedAgentValue
+        };
+      }));
+
+      addNotification(`Shipment ${assignedShipment?.trackingNumber || assignedShipment?.shipmentId || candidateIds[0]} assigned to agent.`, 'admin');
+      return assignedShipment;
+  };
+
   const deleteShipment = async (id) => {
       const requestedId = String(id || '').trim();
       if (!requestedId) {
         throw new Error('Shipment id is required');
       }
 
-      const targetShipment = shipments.find((shipment) => (
-        [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
-          .filter(Boolean)
-          .map((value) => String(value))
-          .includes(requestedId)
-      ));
-
-      const candidateIds = [...new Set([
-        targetShipment?.shipmentId,
-        requestedId,
-        targetShipment?.id,
-        targetShipment?.trackingId,
-        targetShipment?.trackingNumber
-      ].filter(Boolean).map((value) => String(value)))];
+      const candidateIds = resolveShipmentCandidateIds(requestedId);
 
       let deleted = false;
       let lastError = null;
@@ -926,6 +988,67 @@ export function ShipmentProvider({ children }) {
       return true;
   };
 
+  const deleteAllShipments = async (targetShipments = null) => {
+      const sourceShipments = Array.isArray(targetShipments) ? targetShipments : shipments;
+      const queue = Array.isArray(sourceShipments) ? sourceShipments.filter(Boolean) : [];
+      if (queue.length === 0) {
+        return { deletedCount: 0, failedCount: 0, failures: [] };
+      }
+
+      let deletedCount = 0;
+      const failures = [];
+      const deletedIdentifiers = new Set();
+
+      for (const shipment of queue) {
+        const candidateIds = resolveShipmentCandidateIds(shipment);
+        if (candidateIds.length === 0) {
+          failures.push({ id: 'UNKNOWN', message: 'Missing shipment identifiers' });
+          continue;
+        }
+
+        let deleted = false;
+        let lastError = null;
+        for (const candidateId of candidateIds) {
+          try {
+            await shipmentService.deleteShipment(candidateId);
+            deleted = true;
+            deletedCount += 1;
+            candidateIds.forEach((value) => deletedIdentifiers.add(String(value)));
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        if (!deleted) {
+          failures.push({
+            id: candidateIds[0],
+            message: lastError?.message || 'Failed to delete shipment'
+          });
+        }
+      }
+
+      if (deletedIdentifiers.size > 0) {
+        setShipments((prev) => prev.filter((shipment) => {
+          const identifiers = [shipment.shipmentId, shipment.id, shipment.trackingId, shipment.trackingNumber]
+            .filter(Boolean)
+            .map((value) => String(value));
+          return !identifiers.some((value) => deletedIdentifiers.has(value));
+        }));
+      }
+
+      const latestShipments = await refreshShipments();
+      if ((latestShipments || []).length > 0 && failures.length === 0) {
+        throw new Error(`Shipment purge incomplete. ${latestShipments.length} shipment(s) still in database.`);
+      }
+      if (failures.length > 0) {
+        throw new Error(`Deleted ${deletedCount} shipment(s). Failed to delete ${failures.length} shipment(s).`);
+      }
+
+      addNotification('All shipment records deleted permanently.', 'admin');
+      return { deletedCount, failedCount: 0, failures: [] };
+  };
+
   const rateShipment = async (id, rating, comment = '') => {
       try {
         const updatedShipment = await shipmentService.addShipmentRating(id, rating, comment);
@@ -956,12 +1079,28 @@ export function ShipmentProvider({ children }) {
         throw new Error('Only customers can request role upgrade');
       }
 
-      const existingApproved = roleRequests.find((request) => {
-        if (normalizeRoleRequestStatus(request?.status) !== 'APPROVED') return false;
-        return roleRequestBelongsToUser(request, currentUser);
-      });
-      if (existingApproved) {
+      const myRoleRequests = (roleRequests || [])
+        .filter((request) => roleRequestBelongsToUser(request, currentUser))
+        .sort((a, b) => getRoleRequestEventTime(b) - getRoleRequestEventTime(a));
+      const latestLocalRoleRequest = myRoleRequests[0] || null;
+      const latestLocalStatus = latestLocalRoleRequest
+        ? normalizeRoleRequestStatus(latestLocalRoleRequest?.status)
+        : '';
+      if (latestLocalStatus === 'APPROVED') {
         throw new Error('Your previous request was approved. Please login again.');
+      }
+      if (['REJECTED', 'CANCELLED'].includes(latestLocalStatus)) {
+        const reviewedAt = new Date().toISOString();
+        setRoleRequests((prev) => prev.map((request) => {
+          if (!roleRequestBelongsToUser(request, currentUser)) return request;
+          if (!isPendingRoleRequestStatus(request?.status)) return request;
+          return {
+            ...request,
+            status: 'REJECTED',
+            reviewedAt,
+            reviewedBy: 'system-sync'
+          };
+        }));
       }
 
       const customerIdentityCandidates = buildIdentityCandidates(
@@ -971,27 +1110,49 @@ export function ShipmentProvider({ children }) {
       );
       const primaryProfileUserId = customerIdentityCandidates[0] || '';
 
-      const backendProfiles = [];
-      for (const identity of customerIdentityCandidates) {
-        const profile = await operationsService.getAgentProfile(identity);
-        if (profile && hasAgentProfileRequestSignal(profile)) {
-          backendProfiles.push({ identity, profile });
-        }
+      const backendRequestStatus = primaryProfileUserId
+        ? await operationsService.getAgentRequestStatus(primaryProfileUserId)
+        : null;
+      const hasBackendStatus = Boolean(backendRequestStatus && typeof backendRequestStatus === 'object');
+      const normalizedBackendStatus = normalizeRoleRequestStatus(backendRequestStatus?.status || 'NONE');
+      const effectiveBackendStatus = normalizedBackendStatus === 'VERIFIED' ? 'APPROVED' : normalizedBackendStatus;
+      const backendHasPending = hasBackendStatus
+        && (backendRequestStatus?.hasPending === 'true' || isPendingRoleRequestStatus(effectiveBackendStatus));
+
+      if (effectiveBackendStatus === 'APPROVED') {
+        throw new Error('Your previous request was approved. Please login again.');
       }
-      const backendStatuses = backendProfiles
-        .map((item) => {
-          const rawStatus = String(item.profile?.verificationStatus || '').trim();
-          if (!rawStatus) return null;
-          return normalizeRoleRequestStatus(rawStatus);
-        })
-        .filter(Boolean);
-      const hasBackendRejected = backendStatuses.some((status) => status === 'REJECTED');
+      if (backendHasPending) {
+        throw new Error('You already have a pending request');
+      }
 
-      const existingPending = roleRequests.find(
-        (request) => isPendingRoleRequestStatus(request?.status) && roleRequestBelongsToUser(request, currentUser)
-      );
-
-      if (existingPending && !hasBackendRejected) {
+      // If backend says request is no longer pending, reconcile stale local pending state.
+      if (hasBackendStatus && isPendingRoleRequestStatus(latestLocalStatus)) {
+        const reviewedAt = new Date().toISOString();
+        const reviewedBy = 'system-sync';
+        if (effectiveBackendStatus === 'NONE') {
+          setRoleRequests((prev) => prev.filter((request) => {
+            const isMine = roleRequestBelongsToUser(request, currentUser);
+            const isPending = isPendingRoleRequestStatus(request?.status);
+            return !(isMine && isPending);
+          }));
+        } else {
+          const targetStatus = ['APPROVED', 'REJECTED', 'CANCELLED'].includes(effectiveBackendStatus)
+            ? effectiveBackendStatus
+            : 'CANCELLED';
+          setRoleRequests((prev) => prev.map((request) => {
+            if (!roleRequestBelongsToUser(request, currentUser)) return request;
+            if (!isPendingRoleRequestStatus(request?.status)) return request;
+            return {
+              ...request,
+              status: targetStatus,
+              reviewedAt,
+              reviewedBy
+            };
+          }));
+        }
+      } else if (!hasBackendStatus && isPendingRoleRequestStatus(latestLocalStatus)) {
+        // Backend status unavailable: fall back to local pending guard.
         throw new Error('You already have a pending request');
       }
 
@@ -1030,30 +1191,6 @@ export function ShipmentProvider({ children }) {
         status: 'PENDING',
         createdAt: new Date().toISOString()
       };
-
-      if (backendStatuses.some((status) => ['VERIFIED', 'APPROVED'].includes(status))) {
-        throw new Error('Your previous request was approved. Please login again.');
-      }
-      if (
-        backendStatuses.some((status) => ['PENDING', 'PENDING_VERIFICATION'].includes(status)) &&
-        !backendStatuses.some((status) => status === 'REJECTED')
-      ) {
-          throw new Error('You already have a pending request');
-      }
-
-      if (existingPending && hasBackendRejected) {
-        const reviewedAt = new Date().toISOString();
-        setRoleRequests((prev) => prev.map((request) => {
-          if (!isPendingRoleRequestStatus(request?.status)) return request;
-          if (!roleRequestBelongsToUser(request, currentUser)) return request;
-          return {
-            ...request,
-            status: 'REJECTED',
-            reviewedAt,
-            reviewedBy: 'system'
-          };
-        }));
-      }
 
       try {
         const backendRequest = await roleService.requestRoleUpgrade(
@@ -1265,7 +1402,7 @@ export function ShipmentProvider({ children }) {
           throw new Error("No user identifier found in the request.");
       }
       
-      const roleToAssign = requestRecord.requestedRole || 'agent';
+      const roleToAssign = 'agent';
 
       const fallbackUser = matchedUserByIdentity;
 
@@ -1417,24 +1554,13 @@ export function ShipmentProvider({ children }) {
       const targetUserId = requestRecord.userId || requestRecord.email || matchedUserByIdentity?.userId || matchedUserByIdentity?.email;
       if (targetUserId) {
         try {
-          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was approved by admin.');
+          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your agent access request was approved by admin. Please logout and login again to continue as agent.');
         } catch {
           // non-blocking notification
         }
       }
       addNotification('Agent request approved successfully.', 'admin');
 
-      // If the approved user is the one currently logged in, refresh their session data.
-      if (toIdentityValue(currentUser?.email || currentUser?.userId || currentUser?.id) === toIdentityValue(targetUserId)) {
-        try {
-          const baseUser = await authService.getProfile();
-          const user = applyRoleOverride(baseUser);
-          setCurrentUser(user);
-          authStorage.setCurrentUser(user);
-        } catch {
-          // best-effort session refresh
-        }
-      }
   };
 
   const rejectRoleRequest = async (requestInput) => {
@@ -1573,7 +1699,8 @@ export function ShipmentProvider({ children }) {
       setRoleRequests((prev) => prev.filter((request) => {
         const sameId = requestId && String(request?.id || '') === String(requestId);
         const sameIdentity = requestIdentitySet.length > 0 && roleRequestMatchesAnyIdentity(request, requestIdentitySet);
-        return !(sameId || sameIdentity);
+        const sameUserPending = roleRequestBelongsToUser(request, currentUser) && isPendingRoleRequestStatus(request?.status);
+        return !(sameId || sameIdentity || sameUserPending);
       }));
 
       const identityCandidates = buildIdentityCandidates(
@@ -2105,7 +2232,9 @@ export function ShipmentProvider({ children }) {
       register,
       addShipment,
       updateShipmentStatus,
+      assignShipmentToAgent,
       deleteShipment,
+      deleteAllShipments,
       rateShipment,
       cancelShipment,
       getShipment,

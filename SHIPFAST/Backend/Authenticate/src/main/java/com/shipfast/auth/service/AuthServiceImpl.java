@@ -2,6 +2,7 @@ package com.shipfast.auth.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -144,6 +145,10 @@ public class AuthServiceImpl implements AuthService {
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash()))
             throw new CustomException("Invalid credentials");
 
+        user.setActive(true);
+        userAuthRepository.save(user);
+        syncAgentAvailability(user, "AVAILABLE");
+
         refreshTokenRepository.deleteByUserId(user.getUserId());
         refreshTokenRepository.flush();
 
@@ -182,7 +187,18 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void logout(RefreshRequest request) {
-        refreshTokenRepository.deleteByToken(request.getRefreshToken());
+        if (request != null && request.getRefreshToken() != null && !request.getRefreshToken().isBlank()) {
+            refreshTokenRepository.findByToken(request.getRefreshToken())
+                    .ifPresent(token -> userAuthRepository.findByUserId(token.getUserId()).ifPresent(user -> {
+                        user.setActive(false);
+                        userAuthRepository.save(user);
+                        syncAgentAvailability(user, "OFFLINE");
+                    }));
+            refreshTokenRepository.deleteByToken(request.getRefreshToken());
+            return;
+        }
+
+        // Missing refresh token: skip token/user session updates.
     }
 
     // ================= PROFILE =================
@@ -314,6 +330,23 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenRepository.save(refreshToken);
     }
 
+    private void syncAgentAvailability(UserAuth user, String availability) {
+        if (user == null || user.getRole() != UserRole.AGENT) return;
+        String userId = user.getUserId();
+        if (userId == null || userId.isBlank()) return;
+
+        String endpoint = String.format(
+                "%s/agents/profile/%s",
+                operationsServiceUrl,
+                UriUtils.encodePathSegment(userId, java.nio.charset.StandardCharsets.UTF_8)
+        );
+        try {
+            restTemplate.put(endpoint, Map.of("availabilityStatus", availability));
+        } catch (RestClientException ignored) {
+            // keep authentication flow non-blocking even if operations service is temporarily unavailable
+        }
+    }
+
     private UserProfileResponse mapToProfileResponse(UserAuth user, UserProfile profile) {
 
         return new UserProfileResponse(
@@ -325,7 +358,8 @@ public class AuthServiceImpl implements AuthService {
                 profile.getCity(),
                 profile.getState(),
                 profile.getPincode(),
-                user.getRole().name()
+                user.getRole().name(),
+                user.isActive() ? "active" : "inactive"
         );
     }
 

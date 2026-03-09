@@ -91,6 +91,7 @@ const mapProfileToCurrentUser = (profile = {}) => {
     state: profile.state || '',
     pincode: profile.pincode || '',
     role: normalizeRole(profile.role),
+    status: String(profile.status || 'active').toLowerCase(),
     profilePic: safeJsonParse(localStorage.getItem(CURRENT_USER_KEY))?.profilePic || null
   };
 };
@@ -143,6 +144,18 @@ const extractTokens = (payload = {}) => {
 };
 
 const mapAnyUserToCurrentUser = (user = {}) => ({
+  // Auth DB exposes login presence via isActive / is_active.
+  // Mirror it into sessionStatus for admin run-sheet filtering.
+  ...(() => {
+    const activeFlag = user?.isActive ?? user?.is_active ?? user?.active;
+    const isActive = typeof activeFlag === 'boolean'
+      ? activeFlag
+      : String(user?.status || '').toLowerCase() === 'active';
+    return {
+      isActive,
+      sessionStatus: isActive ? 'online' : 'offline'
+    };
+  })(),
   id: user.userId || user.id || user.userAuthId || user.authId || user.email,
   userId: user.userId || user.id || user.userAuthId || user.authId,
   name: user.fullName || user.name || '',

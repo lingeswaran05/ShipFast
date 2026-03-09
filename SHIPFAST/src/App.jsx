@@ -99,6 +99,7 @@ function AppRoutes() {
     { path: '/admin/fleet', label: 'Fleet', icon: Truck },
     { path: '/admin/staff', label: 'Staff', icon: Users },
     { path: '/admin/pricing', label: 'Pricing', icon: IndianRupee },
+    { path: '/admin/shipments', label: 'Shipments', icon: Package },
     { path: '/admin/runsheets', label: 'Runsheets', icon: Package },
     { path: '/admin/tickets', label: 'Tickets', icon: MessageSquare },
     { path: '/admin/performance', label: 'Analytics', icon: TrendingUp },
@@ -153,6 +154,7 @@ function AppRoutes() {
         <Route path="fleet" element={<AdminDashboard view="fleet" />} />
         <Route path="staff" element={<AdminDashboard view="staff" />} />
         <Route path="pricing" element={<AdminDashboard view="pricing" />} />
+        <Route path="shipments" element={<AdminDashboard view="shipments" />} />
         <Route path="runsheets" element={<AdminDashboard view="runsheets" />} />
         <Route path="tickets" element={<AdminDashboard view="tickets" />} />
         <Route path="performance" element={<AdminDashboard view="performance" />} />

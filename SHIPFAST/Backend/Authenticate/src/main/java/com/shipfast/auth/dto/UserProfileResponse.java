@@ -16,4 +16,5 @@ public class UserProfileResponse {
     private String state;
     private String pincode;
     private String role;
+    private String status;
 }

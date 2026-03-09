@@ -236,21 +236,27 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
 
         String currentStatus = normalizeStatus(shipment.getStatus());
-        if (hasText(currentStatus) && currentStatus.equalsIgnoreCase(nextStatus)) {
+        boolean hasPaymentUpdate = hasText(request.getPaymentStatus()) || hasText(request.getPaymentCollectedAt());
+        boolean sameStatusUpdate = hasText(currentStatus) && currentStatus.equalsIgnoreCase(nextStatus);
+        if (sameStatusUpdate && !hasPaymentUpdate) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shipment is already " + currentStatus);
         }
 
-        if ("Cancelled".equalsIgnoreCase(nextStatus) && hasText(customerId) && !customerId.equals(shipment.getCustomerId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can cancel only your own shipment");
-        }
-        if (!isAllowedStatusTransition(currentStatus, nextStatus)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, buildTransitionErrorMessage(currentStatus, nextStatus));
+        if (!sameStatusUpdate) {
+            if ("Cancelled".equalsIgnoreCase(nextStatus) && hasText(customerId) && !customerId.equals(shipment.getCustomerId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can cancel only your own shipment");
+            }
+            if (!isAllowedStatusTransition(currentStatus, nextStatus)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, buildTransitionErrorMessage(currentStatus, nextStatus));
+            }
+            shipment.setStatus(nextStatus);
         }
 
-        shipment.setStatus(nextStatus);
         shipment.setUpdatedAt(LocalDateTime.now());
         if ("Delivered".equalsIgnoreCase(nextStatus)) {
-            shipment.setDeliveredAt(LocalDateTime.now());
+            if (shipment.getDeliveredAt() == null) {
+                shipment.setDeliveredAt(LocalDateTime.now());
+            }
             if (hasText(request.getProofOfDeliveryImage())) {
                 shipment.setProofOfDeliveryImage(request.getProofOfDeliveryImage());
             }
@@ -268,9 +274,12 @@ public class ShipmentServiceImpl implements ShipmentService {
                 shipment.setAssignedAgentId(shipment.getDeliveredByAgentId());
             }
             if (!hasText(request.getPaymentStatus())) {
-                shipment.setPaymentStatus("SUCCESS");
-                if (shipment.getPaymentCollectedAt() == null) {
-                    shipment.setPaymentCollectedAt(LocalDateTime.now());
+                boolean codPayment = isCodPaymentMethod(shipment.getPaymentMethod());
+                if (!codPayment) {
+                    shipment.setPaymentStatus("SUCCESS");
+                    if (shipment.getPaymentCollectedAt() == null) {
+                        shipment.setPaymentCollectedAt(LocalDateTime.now());
+                    }
                 }
             }
         }

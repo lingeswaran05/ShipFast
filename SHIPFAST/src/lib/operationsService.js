@@ -143,6 +143,23 @@ export const operationsService = {
     }
   },
 
+  /**
+   * Checks the real agent request status from the DB for the given userId.
+   * Returns { status: "PENDING"|"VERIFIED"|"REJECTED"|"CANCELLED"|"NONE", hasPending: "true"|"false" }
+   * Returns null if the backend is unreachable.
+   */
+  async getAgentRequestStatus(userId) {
+    if (!userId) return null;
+    try {
+      const response = await withOperationsFallback((client) =>
+        client.get(`/agents/profile/${encodeURIComponent(userId)}/request-status`)
+      );
+      return getPayload(response);
+    } catch {
+      return null;
+    }
+  },
+
   async deleteAgentProfile(userId) {
     if (!userId) throw new Error('Agent user id is required');
     try {

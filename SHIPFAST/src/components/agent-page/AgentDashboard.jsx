@@ -863,19 +863,6 @@ export function AgentDashboard({ view }) {
         }
     };
 
-    const handleToggleAvailability = async () => {
-        const currentAvailability = normalizeAvailability(availabilityStatus);
-        const nextAvailability = isAvailableForAssignment(currentAvailability) ? 'OFFLINE' : 'AVAILABLE';
-        setAvailabilityStatus(nextAvailability);
-        try {
-            await persistAgentProfileSnapshot({ availabilityStatus: nextAvailability });
-            toast.success(nextAvailability === 'OFFLINE' ? 'Availability disabled' : 'Availability enabled');
-        } catch (error) {
-            setAvailabilityStatus(currentAvailability || 'AVAILABLE');
-            toast.error(error.message || 'Failed to update availability');
-        }
-    };
-
     useEffect(() => {
       if (view !== 'notifications' || !currentUser) return;
       let mounted = true;
@@ -1146,17 +1133,6 @@ export function AgentDashboard({ view }) {
                         <option value="Delivered">Delivered</option>
                         <option value="Failed">Failed</option>
                     </select>
-                    <button
-                        type="button"
-                        onClick={handleToggleAvailability}
-                        className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                            isAvailableForAssignment(availabilityStatus)
-                              ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                              : 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                        }`}
-                    >
-                        {isAvailableForAssignment(availabilityStatus) ? 'Disable' : 'Enable'}
-                    </button>
                 </div>
             </div>
                 <div className="space-y-4">
@@ -1199,7 +1175,7 @@ export function AgentDashboard({ view }) {
                                             </div>
                                         </div>
                                         <div className="text-right">
-                                            <div className="font-bold text-xl text-slate-900">₹{shipment.cost}</div>
+                                            <div className="font-bold text-xl text-slate-900">&#8377;{shipment.cost}</div>
                                             <div className="text-xs text-slate-400">Value</div>
                                         </div>
                                     </div>
@@ -1953,7 +1929,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                                </td>
                                                <td className="p-3 border">{s.type}</td>
                                                <td className="p-3 border text-right font-mono">
-                                                   {isCodPayment(s) ? `₹${s.cost}` : '-'}
+                                                   {isCodPayment(s) ? `\u20b9${s.cost}` : '-'}
                                                </td>
                                                <td className="p-3 border"></td>
                                            </tr>
@@ -2002,7 +1978,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                     <div className="text-sm text-slate-500">{receiverDetails.city} • <span className="text-indigo-600">{s.type}</span></div>
                         </div>
                         <div className="text-left sm:text-right text-sm w-full sm:w-auto">
-                           <div className="font-medium text-slate-900">COD: ₹{s.cost}</div>
+                           <div className="font-medium text-slate-900">COD: &#8377;{s.cost}</div>
                            <div className="text-slate-500">{s.weight} kg</div>
                         </div>
                      </div>

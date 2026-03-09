@@ -206,7 +206,7 @@ export function MyShipments() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="font-medium text-slate-900">₹{shipment.cost}</div>
+                    <div className="font-medium text-slate-900">&#8377;{shipment.cost}</div>
                     <div className="text-xs text-slate-400">Paid</div>
                   </td>
                   <td className="px-6 py-4 text-right">
