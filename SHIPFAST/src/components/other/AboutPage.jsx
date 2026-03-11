@@ -3,7 +3,7 @@ import { Building2, Truck, ShieldCheck, Users } from 'lucide-react';
 
 export function AboutPage() {
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto space-y-8">
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
           <h1 className="text-3xl font-bold text-slate-900">About ShipFast</h1>

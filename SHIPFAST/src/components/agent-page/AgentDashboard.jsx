@@ -1912,7 +1912,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                            <th className="p-3 border text-slate-700">Tracking ID</th>
                                            <th className="p-3 border text-slate-700">Receiver / Address</th>
                                            <th className="p-3 border text-slate-700">Type</th>
-                                           <th className="p-3 border text-slate-700 text-right">COD Amount</th>
+                                           <th className="p-3 border text-slate-700">COD Amount</th>
                                            <th className="p-3 border text-slate-700">Signature</th>
                                        </tr>
                                    </thead>
@@ -1928,7 +1928,7 @@ function RunSheetView({ todaysDeliveries, currentUser, agentIdentifier, refreshS
                                                    <div className="text-xs text-slate-400">Ph: {receiverDetails.phone}</div>
                                                </td>
                                                <td className="p-3 border">{s.type}</td>
-                                               <td className="p-3 border text-right font-mono">
+                                               <td className="p-3 border font-mono">
                                                    {isCodPayment(s) ? `\u20b9${s.cost}` : '-'}
                                                </td>
                                                <td className="p-3 border"></td>

@@ -804,6 +804,10 @@ export function ShipmentProvider({ children }) {
       setActiveRole(null);
       try {
         localStorage.removeItem(ACTIVE_ROLE_KEY);
+        // Clear local notifications so next login starts fresh
+        localStorage.removeItem('sf_local_notifications');
+        localStorage.removeItem(DISMISSED_NOTIFICATIONS_KEY);
+        setDismissedNotificationIds([]);
       } catch {
         // non-blocking cleanup
       }

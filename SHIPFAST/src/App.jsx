@@ -11,6 +11,8 @@ import { TermsPage } from './components/other/TermsPage';
 import { PrivacyPage } from './components/other/PrivacyPage';
 
 import { DashboardLayout } from './components/layout/DashboardLayout';
+import { PublicLayout } from './components/layout/PublicLayout';
+import { AnimatedPage } from './components/layout/AnimatedPage';
 
 import { CustomerDashboard } from './components/customer-page/CustomerDashboard';
 import { AdminDashboard } from './components/admin-page/AdminDashboard';
@@ -117,71 +119,73 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<Homepage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegistrationPage />} />
-      <Route path="/signup" element={<RegistrationPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/track" element={<TrackingPortal />} />
-      
-      {/* Placeholder Routes */}
-      <Route path="/about" element={<AboutPage />} />
-      <Route path="/privacy" element={<PrivacyPage />} />
-      <Route path="/terms" element={<TermsPage />} />
-      <Route path="/contact" element={<ContactPage />} />
+        <Route path="/" element={<AnimatedPage><Homepage /></AnimatedPage>} />
+        <Route path="/login" element={<AnimatedPage><LoginPage /></AnimatedPage>} />
+        <Route path="/register" element={<AnimatedPage><RegistrationPage /></AnimatedPage>} />
+        <Route path="/signup" element={<AnimatedPage><RegistrationPage /></AnimatedPage>} />
+        <Route path="/forgot-password" element={<AnimatedPage><ForgotPasswordPage /></AnimatedPage>} />
+        <Route path="/track" element={<AnimatedPage><TrackingPortal /></AnimatedPage>} />
+        
+        {/* Public Pages with Layout */}
+        <Route element={<PublicLayout />}>
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+        </Route>
 
-      <Route path="/dashboard" element={
-        <ProtectedRoute allowedRole="customer">
-          <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={customerSidebar} />
-        </ProtectedRoute>
-      }>
-        <Route index element={<CustomerDashboard />} />
-        <Route path="book" element={<BookingForm />} />
-        <Route path="shipments" element={<MyShipments />} />
-        <Route path="payments" element={<Payments />} />
-        <Route path="support" element={<SupportPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="invoice/:id" element={<InvoicePage />} />
-      </Route>
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRole="customer">
+            <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={customerSidebar} />
+          </ProtectedRoute>
+        }>
+          <Route index element={<CustomerDashboard />} />
+          <Route path="book" element={<BookingForm />} />
+          <Route path="shipments" element={<MyShipments />} />
+          <Route path="payments" element={<Payments />} />
+          <Route path="support" element={<SupportPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="invoice/:id" element={<InvoicePage />} />
+        </Route>
 
-      <Route path="/admin" element={
-        <ProtectedRoute allowedRole="admin">
-          <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={adminSidebar} />
-        </ProtectedRoute>
-      }>
-        <Route index element={<AdminDashboard view="overview" />} />
-        <Route path="branches" element={<AdminDashboard view="branches" />} />
-        <Route path="fleet" element={<AdminDashboard view="fleet" />} />
-        <Route path="staff" element={<AdminDashboard view="staff" />} />
-        <Route path="pricing" element={<AdminDashboard view="pricing" />} />
-        <Route path="shipments" element={<AdminDashboard view="shipments" />} />
-        <Route path="runsheets" element={<AdminDashboard view="runsheets" />} />
-        <Route path="tickets" element={<AdminDashboard view="tickets" />} />
-        <Route path="performance" element={<AdminDashboard view="performance" />} />
-        <Route path="reports" element={<AdminDashboard view="reports" />} />
-        <Route path="settings" element={<SettingsPage />} />
-      </Route>
+        <Route path="/admin" element={
+          <ProtectedRoute allowedRole="admin">
+            <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={adminSidebar} />
+          </ProtectedRoute>
+        }>
+          <Route index element={<AdminDashboard view="overview" />} />
+          <Route path="branches" element={<AdminDashboard view="branches" />} />
+          <Route path="fleet" element={<AdminDashboard view="fleet" />} />
+          <Route path="staff" element={<AdminDashboard view="staff" />} />
+          <Route path="pricing" element={<AdminDashboard view="pricing" />} />
+          <Route path="shipments" element={<AdminDashboard view="shipments" />} />
+          <Route path="runsheets" element={<AdminDashboard view="runsheets" />} />
+          <Route path="tickets" element={<AdminDashboard view="tickets" />} />
+          <Route path="performance" element={<AdminDashboard view="performance" />} />
+          <Route path="reports" element={<AdminDashboard view="reports" />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
 
-      <Route path="/agent" element={
-        <ProtectedRoute allowedRole="agent">
-          <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={agentSidebar} />
-        </ProtectedRoute>
-      }>
-        <Route index element={<AgentDashboard view="overview" />} />
-        <Route path="quick-book" element={<AgentDashboard view="quick-book" />} />
-        <Route path="scan" element={<AgentDashboard view="scan" />} />
-        <Route path="runsheets" element={<AgentDashboard view="runsheets" />} />
-        <Route path="cash" element={<AgentDashboard view="cash" />} />
-        <Route path="notifications" element={<AgentDashboard view="notifications" />} />
-        <Route path="settings" element={<SettingsPage />} />
-      </Route>
+        <Route path="/agent" element={
+          <ProtectedRoute allowedRole="agent">
+            <DashboardLayout user={currentUser} onLogout={logout} sidebarItems={agentSidebar} />
+          </ProtectedRoute>
+        }>
+          <Route index element={<AgentDashboard view="overview" />} />
+          <Route path="quick-book" element={<AgentDashboard view="quick-book" />} />
+          <Route path="scan" element={<AgentDashboard view="scan" />} />
+          <Route path="runsheets" element={<AgentDashboard view="runsheets" />} />
+          <Route path="cash" element={<AgentDashboard view="cash" />} />
+          <Route path="notifications" element={<AgentDashboard view="notifications" />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
 
-      <Route path="*" element={
-        currentUser
-          ? <Navigate to={effectiveRole === 'admin' ? '/admin' : effectiveRole === 'agent' ? '/agent' : '/dashboard'} replace />
-          : <Navigate to="/" replace />
-      } />
-    </Routes>
+        <Route path="*" element={
+          currentUser
+            ? <Navigate to={effectiveRole === 'admin' ? '/admin' : effectiveRole === 'agent' ? '/agent' : '/dashboard'} replace />
+            : <Navigate to="/" replace />
+        } />
+      </Routes>
   );
 }
 

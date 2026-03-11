@@ -1806,10 +1806,10 @@ export function AdminDashboard({ view }) {
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                   <h3 className="text-sm font-semibold text-slate-800">Pricing Logic</h3>
                   <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                    <li>Standard: `weight Ã— standard rate + distance surcharge (if inter-zone)`</li>
-                    <li>Express: `Standard Ã— express multiplier`</li>
-                    <li>Same Day: `Express Ã— 2`</li>
-                    <li>Final total: `Base + fuel surcharge + GST + COD fee (only for COD)`</li>
+                    <li><span className="font-medium text-slate-800">Standard:</span> Weight × Base Rate + Inter-Zone Surcharge</li>
+                    <li><span className="font-medium text-slate-800">Express:</span> Standard Total × Express Multiplier</li>
+                    <li><span className="font-medium text-slate-800">Same Day:</span> Express Total × 2</li>
+                    <li><span className="font-medium text-slate-800">Final Total:</span> Base Price + (Base Price × Fuel Surcharge %) + (Base Price × GST %) + COD Fee</li>
                     <li>All totals are rounded to whole rupees.</li>
                   </ul>
                 </div>
@@ -3000,7 +3000,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                                            <th className="p-3 border text-slate-700">Tracking ID</th>
                                            <th className="p-3 border text-slate-700">Receiver / Address</th>
                                            <th className="p-3 border text-slate-700">Type</th>
-                                           <th className="p-3 border text-slate-700 text-right">COD Amount</th>
+                                           <th className="p-3 border text-slate-700">COD Amount</th>
                                            <th className="p-3 border text-slate-700">Signature</th>
                                        </tr>
                                    </thead>
@@ -3016,7 +3016,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
                                                    <div className="text-slate-500">{receiverDetails.address || ''}, {receiverDetails.city || ''}</div>
                                                </td>
                                                <td className="p-3 border">{s.type}</td>
-                                               <td className="p-3 border text-right font-mono">{s.paymentMode === 'Cash' || s.paymentMode === 'COD' ? `Rs ${s.cost}` : '-'}</td>
+                                               <td className="p-3 border font-mono">{s.paymentMode === 'Cash' || s.paymentMode === 'COD' ? `Rs ${s.cost}` : '-'}</td>
                                                <td className="p-3 border"></td>
                                            </tr>
                                        );})}

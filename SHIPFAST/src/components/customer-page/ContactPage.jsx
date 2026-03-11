@@ -3,7 +3,7 @@ import { Mail, Phone, MapPin, Clock } from 'lucide-react';
 
 export function ContactPage() {
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Contact Us</h1>
@@ -39,8 +39,8 @@ export function ContactPage() {
                 <div>
                   <h3 className="font-semibold text-slate-900">Phone</h3>
                   <p className="text-slate-600 mt-1">
-                    +1 (555) 123-4567<br />
-                    +1 (555) 987-6543
+                    +91 9344474088<br />
+                    +91 6384224845
                   </p>
                   <p className="text-sm text-slate-500 mt-1">Mon-Fri 9am-6pm EST</p>
                 </div>
@@ -53,8 +53,8 @@ export function ContactPage() {
                 <div>
                   <h3 className="font-semibold text-slate-900">Email</h3>
                   <p className="text-slate-600 mt-1">
-                    support@shipfast.com<br />
-                    business@shipfast.com
+                    lingesw0561@gmail.com<br />
+                    717823s115@kce.ac.in
                   </p>
                 </div>
               </div>

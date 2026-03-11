@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useShipment } from '../../context/ShipmentContext';
 import { Sidebar } from './Sidebar';
 import { TopNavbar } from './TopNavbar';
+import { AnimatedPage } from './AnimatedPage';
 
 export function DashboardLayout({ user, onLogout, sidebarItems }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -32,11 +33,10 @@ export function DashboardLayout({ user, onLogout, sidebarItems }) {
           <TopNavbar user={user} isSidebarOpen={isSidebarOpen} />
         </div>
 
-        <div className="p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">
-          <Outlet />
+        <div className="p-8 max-w-7xl mx-auto print:p-0 print:max-w-none relative">
+          <AnimatedPage />
         </div>
       </main>
     </div>
   );
 }
-
