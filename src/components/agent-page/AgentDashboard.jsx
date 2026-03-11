@@ -144,7 +144,7 @@ export function AgentDashboard({ view }) {
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
             <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Cash in Hand</div>
-            <div className="text-2xl font-bold text-emerald-600">₹{stats.cashCollected}</div>
+            <div className="text-2xl font-bold text-emerald-600">&#8377;{stats.cashCollected}</div>
          </div>
          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
              <div className="text-slate-500 text-xs font-semibold uppercase mb-1">Shift Timer</div>
@@ -241,7 +241,7 @@ export function AgentDashboard({ view }) {
                                             </div>
                                         </div>
                                         <div className="text-right">
-                                            <div className="font-bold text-xl text-slate-900">₹{shipment.cost}</div>
+                                            <div className="font-bold text-xl text-slate-900">&#8377;{shipment.cost}</div>
                                             <div className="text-xs text-slate-400">Value</div>
                                         </div>
                                     </div>
@@ -448,7 +448,7 @@ function QuickBookingForm() {
                     </div>
                     <div className="flex-1">
                         <div className="text-right mb-1 text-sm text-slate-500">Estimated Cost</div>
-                        <div className="text-2xl font-bold text-slate-900 text-right">₹{formData.weight * 50 + (formData.type === 'Express' ? 200 : 0)}</div>
+                        <div className="text-2xl font-bold text-slate-900 text-right">&#8377;{formData.weight * 50 + (formData.type === 'Express' ? 200 : 0)}</div>
                     </div>
                 </div>
             </div>
@@ -531,7 +531,7 @@ function RunSheetView({ todaysDeliveries }) {
                                                </td>
                                                <td className="p-3 border">{s.type}</td>
                                                <td className="p-3 border text-right font-mono">
-                                                   {s.paymentMode === 'Cash' ? `₹${s.cost}` : '-'}
+                                                   {s.paymentMode === 'Cash' ? `\u20b9${s.cost}` : '-'}
                                                </td>
                                                <td className="p-3 border"></td>
                                            </tr>
@@ -577,7 +577,7 @@ function RunSheetView({ todaysDeliveries }) {
                            <div className="text-sm text-slate-500">{s.receiver.city} • <span className="text-indigo-600">{s.type}</span></div>
                         </div>
                         <div className="text-right text-sm">
-                           <div className="font-medium text-slate-900">COD: ₹{s.cost}</div>
+                           <div className="font-medium text-slate-900">COD: &#8377;{s.cost}</div>
                            <div className="text-slate-500">{s.weight} kg</div>
                         </div>
                      </div>
@@ -607,7 +607,7 @@ function CashCollectionView({ shipments }) {
     const totalCollected = Object.values(breakdown).reduce((a, b) => a + b, 0);
 
     const handleDeposit = () => {
-        toast.success(`Deposit initiated for ₹${totalCollected.toLocaleString()}`);
+        toast.success(`Deposit initiated for \u20b9${totalCollected.toLocaleString()}`);
         // Mock deposit logic - ideally would clear the stats or mark as 'Deposited'
         // For now, we simulate adding to history
         const newTxn = {
@@ -624,7 +624,7 @@ function CashCollectionView({ shipments }) {
         if (!verifyAmount || parseFloat(verifyAmount) <= 0) return toast.error("Enter valid amount");
         
         const amount = parseFloat(verifyAmount);
-        toast.success(`Cash verification submitted for ₹${amount}`);
+        toast.success(`Cash verification submitted for \u20b9${amount}`);
         const newTxn = {
              id: `CSH-${Date.now()}`,
              date: new Date().toLocaleString(),
@@ -644,7 +644,7 @@ function CashCollectionView({ shipments }) {
                 <div className="space-y-4">
                   <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg">
                      <div className="text-slate-400 text-sm font-medium mb-1">Total Verified Revenue</div>
-                     <div className="text-4xl font-bold">₹{totalCollected.toLocaleString()}</div>
+                     <div className="text-4xl font-bold">&#8377;{totalCollected.toLocaleString()}</div>
                      <div className="mt-4 flex gap-2">
                         <button 
                             onClick={handleDeposit}
@@ -672,7 +672,7 @@ function CashCollectionView({ shipments }) {
                                           <div className="text-xs text-slate-500">{txn.date}</div>
                                       </div>
                                       <div className="text-right">
-                                          <div className="font-bold text-indigo-600">₹{txn.amount}</div>
+                                          <div className="font-bold text-indigo-600">&#8377;{txn.amount}</div>
                                           <div className="text-xs text-green-600">{txn.status}</div>
                                       </div>
                                   </div>
@@ -689,7 +689,7 @@ function CashCollectionView({ shipments }) {
                          {Object.entries(breakdown).map(([method, amount]) => (
                              <div key={method} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
                                  <span className="font-medium text-slate-700">{method}</span>
-                                 <span className="font-bold text-slate-900">₹{amount.toLocaleString()}</span>
+                                 <span className="font-bold text-slate-900">&#8377;{amount.toLocaleString()}</span>
                              </div>
                          ))}
                          {Object.keys(breakdown).length === 0 && <p className="text-slate-400 text-sm italic">No collected payments yet</p>}
@@ -710,7 +710,7 @@ function CashCollectionView({ shipments }) {
                      <div>
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Total COD Amount (Cash Only)</label>
                         <div className="relative">
-                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
+                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">&#8377;</span>
                            <input 
                                 type="number" 
                                 className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-lg" 

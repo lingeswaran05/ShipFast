@@ -30,7 +30,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/support")
 @RequiredArgsConstructor
-@CrossOrigin(originPatterns = "*")
+
 public class SupportController {
 
     private final SupportRepository repository;

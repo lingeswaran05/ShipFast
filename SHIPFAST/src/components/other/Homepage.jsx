@@ -4,6 +4,7 @@ import logoImage from '../../assets/logo.png';
 import { Package, MapPin, Clock, Shield, TrendingUp, Users, Zap, Award, Truck, Globe, Star, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useShipment } from '../../context/ShipmentContext';
+import { motion } from 'framer-motion';
 
 export function Homepage() {
   const navigate = useNavigate();
@@ -66,7 +67,12 @@ export function Homepage() {
         </header>
 
         <section className="container mx-auto px-6 py-24">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="grid lg:grid-cols-2 gap-12 items-center"
+          >
             <div className="animate-fade-in-up">
               <div className="inline-block mb-4 px-4 py-2 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full">
                 <span className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
@@ -152,11 +158,20 @@ export function Homepage() {
                 <div className="text-2xl font-bold">24 Hours</div>
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
 
         <section className="container mx-auto px-6 py-20">
-          <div className="text-center mb-16">
+          <motion.div 
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.6 } }
+            }}
+            className="text-center mb-16"
+          >
             <div className="inline-block mb-4 px-4 py-2 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full">
               <span className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 WHY CHOOSE US
@@ -170,7 +185,7 @@ export function Homepage() {
             <p className="text-xl text-slate-600 max-w-2xl mx-auto">
               Comprehensive features designed to make shipping simple, fast, and reliable
             </p>
-          </div>
+          </motion.div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
@@ -228,7 +243,13 @@ export function Homepage() {
         </section>
 
         <section className="container mx-auto px-6 py-20">
-          <div className="bg-gradient-to-r from-purple-600 to-pink-500 rounded-3xl p-12 lg:p-16 shadow-2xl relative overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="bg-gradient-to-r from-purple-600 to-pink-500 rounded-3xl p-12 lg:p-16 shadow-2xl relative overflow-hidden"
+          >
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32" />
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-white/10 rounded-full -ml-48 -mb-48" />
             
@@ -250,11 +271,17 @@ export function Homepage() {
                 <div className="text-xl text-blue-100">Support</div>
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
 
         <section className="container mx-auto px-6 py-20">
-          <div className="bg-gradient-to-br from-slate-900 to-blue-900 rounded-3xl p-12 lg:p-16 text-center shadow-2xl relative overflow-hidden">
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="bg-gradient-to-br from-slate-900 to-blue-900 rounded-3xl p-12 lg:p-16 text-center shadow-2xl relative overflow-hidden"
+          >
             <div className="absolute inset-0 opacity-10">
               <div className="absolute inset-0" style={{
                 backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
@@ -262,7 +289,7 @@ export function Homepage() {
             </div>
             
             <div className="relative z-10">
-              <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center shadow-xl">
+               <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center shadow-xl">
                 <Users className="size-10 text-white" />
               </div>
               <h2 className="text-5xl font-black mb-6 text-white">
@@ -282,7 +309,7 @@ export function Homepage() {
                 </Button>
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
 
         <footer className="border-t border-slate-200 bg-white/80 backdrop-blur-xl mt-20">

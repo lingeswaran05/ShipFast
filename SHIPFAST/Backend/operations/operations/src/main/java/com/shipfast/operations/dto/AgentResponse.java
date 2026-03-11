@@ -11,6 +11,8 @@ public class AgentResponse {
 
     private String agentId;
     private String userId;
+    private String availabilityStatus;
+    private String verificationStatus;
     private String shiftTiming;
     private double successRate;
     private Double averageRating;

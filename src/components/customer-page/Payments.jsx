@@ -110,7 +110,7 @@ export function Payments() {
             <span className="text-sm font-medium text-slate-500">Total Spent</span>
           </div>
           <div className="text-3xl font-bold text-slate-900 relative z-10">
-            ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            &#8377;{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-sm text-green-600 mt-2 flex items-center gap-1 relative z-10">
             <ArrowUpRight className="w-4 h-4" />
@@ -197,7 +197,7 @@ export function Payments() {
                         {trx.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right font-medium text-slate-900">₹{trx.amount}</td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-900">&#8377;{trx.amount}</td>
                     <td className="px-6 py-4 text-right">
                       <button 
                         onClick={() => handleDownloadInvoice(trx.id)}

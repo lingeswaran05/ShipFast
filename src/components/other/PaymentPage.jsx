@@ -38,7 +38,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               <Check className="w-12 h-12 text-white" />
             </div>
             <h2 className="text-3xl font-black text-slate-900">Payment Successful!</h2>
-            <p className="text-lg text-slate-600">Your payment of ₹{amount.toFixed(2)} has been processed successfully</p>
+            <p className="text-lg text-slate-600">Your payment of &#8377;{amount.toFixed(2)} has been processed successfully</p>
             <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4">
               <p className="text-green-800 font-semibold">
                 Transaction ID: TXN{Math.random().toString(36).substr(2, 9).toUpperCase()}
@@ -166,7 +166,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
                     <p className="text-slate-600 mb-4">
                       You will be redirected to PayPal to complete your payment securely
                     </p>
-                    <div className="text-slate-500">Amount: ₹{amount.toFixed(2)}</div>
+                    <div className="text-slate-500">Amount: &#8377;{amount.toFixed(2)}</div>
                   </div>
                 </div>
               )}
@@ -270,7 +270,7 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
                 disabled={isProcessing}
                 className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-3 rounded-lg transition-colors"
               >
-                {isProcessing ? 'Processing Payment...' : `Pay ₹${amount.toFixed(2)}`}
+                {isProcessing ? 'Processing Payment...' : `Pay \u20b9${amount.toFixed(2)}`}
               </button>
             </form>
           </div>
@@ -288,22 +288,22 @@ export function PaymentPage({ amount, serviceType, onPaymentComplete, onBack }) 
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Base Rate</span>
-                <span className="text-slate-800">₹{(amount / 1.2916).toFixed(2)}</span>
+                <span className="text-slate-800">&#8377;{(amount / 1.2916).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Fuel Surcharge (8%)</span>
-                <span className="text-slate-800">₹{(amount / 1.2916 * 0.08).toFixed(2)}</span>
+                <span className="text-slate-800">&#8377;{(amount / 1.2916 * 0.08).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">GST (18%)</span>
-                <span className="text-slate-800">₹{(amount / 1.2916 * 0.18).toFixed(2)}</span>
+                <span className="text-slate-800">&#8377;{(amount / 1.2916 * 0.18).toFixed(2)}</span>
               </div>
             </div>
 
             <div className="border-t border-slate-200 pt-3 mb-4">
               <div className="flex justify-between">
                 <span className="text-slate-800">Total Amount</span>
-                <span className="text-slate-800">₹{amount.toFixed(2)}</span>
+                <span className="text-slate-800">&#8377;{amount.toFixed(2)}</span>
               </div>
             </div>
 

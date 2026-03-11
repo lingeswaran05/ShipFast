@@ -118,7 +118,7 @@ export function CustomerDashboard() {
                 <div className="mt-6 p-4 bg-green-50 border border-green-100 rounded-xl animate-fade-in-up">
                    <div className="flex justify-between items-center">
                       <span className="text-green-700 font-medium">Estimated Cost</span>
-                      <span className="text-2xl font-bold text-green-700">₹{calculatedRate.toFixed(2)}</span>
+                      <span className="text-2xl font-bold text-green-700">&#8377;{calculatedRate.toFixed(2)}</span>
                    </div>
                    <p className="text-xs text-green-600 mt-1 text-center">* Final price may vary based on exact volumetric weight</p>
                 </div>
@@ -165,7 +165,7 @@ export function CustomerDashboard() {
             <div>
               <div className="text-sm text-slate-500">Total Spent</div>
               <div className="text-2xl font-bold text-slate-900">
-                ₹{shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0).toLocaleString()}
+                &#8377;{shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0).toLocaleString()}
               </div>
             </div>
           </div>

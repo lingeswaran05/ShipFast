@@ -7,7 +7,7 @@ export function CustomerReports() {
   // Mock stats data
   const stats = [
     { label: 'Total Shipments', value: '48', icon: BarChart3, color: 'purple' },
-    { label: 'Total Spent', value: '₹12,450', icon: TrendingUp, color: 'pink' },
+    { label: 'Total Spent', value: '\u20b912,450', icon: TrendingUp, color: 'pink' },
     { label: 'Delivery Rate', value: '98.5%', icon: CheckCircle2, color: 'green' },
   ];
 
@@ -105,7 +105,7 @@ export function CustomerReports() {
                <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
                  <div className="w-full bg-purple-100 rounded-t-lg relative group-hover:bg-purple-600 transition-colors" style={{ height: `${h}%` }}>
                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                     ₹{h * 150}
+                     &#8377;{h * 150}
                    </div>
                  </div>
                  <span className="text-xs text-slate-500 font-medium">

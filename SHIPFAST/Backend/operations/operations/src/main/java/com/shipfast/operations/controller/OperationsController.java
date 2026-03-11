@@ -7,15 +7,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/operations")
 @RequiredArgsConstructor
-
 public class OperationsController {
 
     private final OperationsService service;
-
 
     @PostMapping("/agents")
     public AgentResponse createAgent(@RequestBody AgentRequest request) {
@@ -44,6 +43,15 @@ public class OperationsController {
         return service.verifyAgentProfile(userId, request);
     }
 
+    /**
+     * Returns the current agent request status from DB for the given userId.
+     * Response: { "status": "PENDING"|"VERIFIED"|"REJECTED"|"CANCELLED"|"NONE", "hasPending": "true"|"false" }
+     */
+    @GetMapping("/agents/profile/{userId}/request-status")
+    public Map<String, String> getAgentRequestStatus(@PathVariable String userId) {
+        return service.checkAgentRequestStatus(userId);
+    }
+
     @DeleteMapping("/agents/profile/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAgentProfile(@PathVariable String userId) {
@@ -56,8 +64,6 @@ public class OperationsController {
         return service.recordAgentRating(agentIdentifier, request);
     }
 
-
-
     @PostMapping("/runsheet")
     public RunSheetResponse createRunSheet(@RequestBody RunSheetRequest request) {
         return service.createRunSheet(request);
@@ -68,12 +74,10 @@ public class OperationsController {
         return service.getRunSheetsByAgent(agentId);
     }
 
-
     @PostMapping("/scan")
     public void scan(@RequestBody ScanRequest request) {
         service.scanShipment(request);
     }
-
 
     @PostMapping("/cash")
     public CashCollectionResponse recordCash(@RequestBody CashCollectionRequest request) {

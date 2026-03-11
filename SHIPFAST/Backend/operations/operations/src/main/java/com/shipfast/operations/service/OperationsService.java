@@ -73,7 +73,7 @@ public class OperationsService {
                 .successRate(100.0)
                 .averageRating(0.0)
                 .totalRatings(0L)
-                .availabilityStatus("AVAILABLE")
+                .availabilityStatus("OFFLINE")
                 .deliveredCount(0L)
                 .failedCount(0L)
                 .inTransitCount(0L)
@@ -86,16 +86,34 @@ public class OperationsService {
 
     public List<AgentResponse> getAllAgents() {
 
-        return agentRepo.findByVerificationStatus("PENDING")
+        return agentRepo.findAll()
                 .stream()
+            .filter(this::isEligibleForAssignment)
                 .map(this::mapToAgentResponse)
                 .toList();
     }
+
+        private boolean isEligibleForAssignment(AgentProfile agent) {
+        if (agent == null) return false;
+        String verification = String.valueOf(agent.getVerificationStatus() == null ? "" : agent.getVerificationStatus()).trim().toUpperCase();
+        if ("REJECTED".equals(verification)) return false;
+
+        String availability = String.valueOf(agent.getAvailabilityStatus() == null ? "" : agent.getAvailabilityStatus()).trim().toUpperCase();
+        return "AVAILABLE".equals(availability)
+            || "ACTIVE".equals(availability)
+            || "READY".equals(availability)
+            || "IN_TRANSIT".equals(availability)
+            || "ONLINE".equals(availability)
+            || "LOGGED_IN".equals(availability)
+            || "LOGGED-IN".equals(availability);
+        }
 
     private AgentResponse mapToAgentResponse(AgentProfile agent) {
         return AgentResponse.builder()
                 .agentId(agent.getAgentId())
                 .userId(agent.getUserId())
+            .availabilityStatus(agent.getAvailabilityStatus() != null ? agent.getAvailabilityStatus().toUpperCase() : "OFFLINE")
+            .verificationStatus(agent.getVerificationStatus() != null ? agent.getVerificationStatus().toUpperCase() : "PENDING")
                 .shiftTiming(agent.getShiftTiming())
                 .successRate(agent.getSuccessRate())
                 .averageRating(agent.getAverageRating())
@@ -110,9 +128,44 @@ public class OperationsService {
         return mapToAgentProfileResponse(profile);
     }
 
+    /**
+     * Returns the current agent request status for the given userId from the DB.
+     * Possible values: "PENDING", "VERIFIED", "REJECTED", "CANCELLED", "NONE" (no profile found).
+     */
+    public java.util.Map<String, String> checkAgentRequestStatus(String userId) {
+        return agentRepo.findByUserId(userId)
+                .map(profile -> {
+                    String status = profile.getVerificationStatus();
+                    String normalized = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "PENDING";
+                    return java.util.Map.of("status", normalized, "hasPending", "PENDING".equals(normalized) ? "true" : "false");
+                })
+                .orElse(java.util.Map.of("status", "NONE", "hasPending", "false"));
+    }
+
     public AgentProfileResponse upsertAgentProfile(String userId, AgentProfileRequest request) {
-        AgentProfile profile = agentRepo.findByUserId(userId)
-                .orElseGet(() -> AgentProfile.builder()
+        AgentProfile existing = agentRepo.findByUserId(userId).orElse(null);
+
+        // Block re-submission if there is already a PENDING request in DB
+        if (existing != null) {
+            String currentStatus = existing.getVerificationStatus();
+            boolean isCurrentlyPending = currentStatus != null && "PENDING".equalsIgnoreCase(currentStatus.trim());
+            // Allow upsert only if request contains non-agent-request fields (e.g., availabilityStatus update by an agent)
+            boolean isAgentRequestPayload = request.getLicenseNumber() != null
+                    || request.getAadharNumber() != null
+                    || request.getVehicleNumber() != null
+                    || request.getRcBookNumber() != null
+                    || request.getProfileImage() != null
+                    || request.getAadharCopy() != null
+                    || request.getLicenseCopy() != null
+                    || request.getRcBookCopy() != null;
+            if (isCurrentlyPending && isAgentRequestPayload
+                    && (request.getVerificationStatus() == null || "PENDING".equalsIgnoreCase(request.getVerificationStatus()))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "You already have a pending agent request. Please wait for admin review.");
+            }
+        }
+
+        AgentProfile profile = existing != null ? existing : AgentProfile.builder()
                         .agentId("AG-" + UUID.randomUUID().toString().substring(0, 6))
                         .userId(userId)
                         .joinDate(LocalDateTime.now())
@@ -120,11 +173,11 @@ public class OperationsService {
                         .successRate(100.0)
                         .averageRating(0.0)
                         .totalRatings(0L)
-                        .availabilityStatus("AVAILABLE")
+                        .availabilityStatus("OFFLINE")
                         .deliveredCount(0L)
                         .failedCount(0L)
                         .inTransitCount(0L)
-                        .build());
+                        .build();
 
         if (request.getLicenseNumber() != null) profile.setLicenseNumber(request.getLicenseNumber());
         if (request.getAadharNumber() != null) profile.setAadharNumber(request.getAadharNumber());
@@ -146,7 +199,7 @@ public class OperationsService {
         if (request.getInTransitCount() != null) profile.setInTransitCount(Math.max(0L, request.getInTransitCount()));
         if (profile.getAverageRating() == null) profile.setAverageRating(0.0);
         if (profile.getTotalRatings() == null) profile.setTotalRatings(0L);
-        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("AVAILABLE");
+        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("OFFLINE");
         if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
         if (profile.getFailedCount() == null) profile.setFailedCount(0L);
         if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
@@ -169,21 +222,29 @@ public class OperationsService {
                         .successRate(100.0)
                         .averageRating(0.0)
                         .totalRatings(0L)
-                        .availabilityStatus("AVAILABLE")
+                        .availabilityStatus("OFFLINE")
                         .deliveredCount(0L)
                         .failedCount(0L)
                         .inTransitCount(0L)
                         .build());
 
-        boolean verified = request != null && request.getVerified() != null && request.getVerified();
-        profile.setVerificationStatus(verified ? "VERIFIED" : "REJECTED");
+        // If an explicit status override is supplied (e.g., "CANCELLED"), use it directly.
+        String explicitStatus = request != null && request.getVerificationStatus() != null
+                ? request.getVerificationStatus().trim().toUpperCase()
+                : null;
+        if (explicitStatus != null && !explicitStatus.isBlank()) {
+            profile.setVerificationStatus(explicitStatus);
+        } else {
+            boolean verified = request != null && request.getVerified() != null && request.getVerified();
+            profile.setVerificationStatus(verified ? "VERIFIED" : "REJECTED");
+        }
         profile.setVerifiedBy(request != null ? request.getVerifiedBy() : null);
         profile.setVerificationNotes(request != null ? request.getVerificationNotes() : null);
         profile.setUpdatedAt(LocalDateTime.now());
         profile.setVerifiedAt(LocalDateTime.now());
         if (profile.getAverageRating() == null) profile.setAverageRating(0.0);
         if (profile.getTotalRatings() == null) profile.setTotalRatings(0L);
-        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("AVAILABLE");
+        if (profile.getAvailabilityStatus() == null || profile.getAvailabilityStatus().isBlank()) profile.setAvailabilityStatus("OFFLINE");
         if (profile.getDeliveredCount() == null) profile.setDeliveredCount(0L);
         if (profile.getFailedCount() == null) profile.setFailedCount(0L);
         if (profile.getInTransitCount() == null) profile.setInTransitCount(0L);
@@ -261,7 +322,7 @@ public class OperationsService {
                 .aadharCopy(profile.getAadharCopy())
                 .licenseCopy(profile.getLicenseCopy())
                 .rcBookCopy(profile.getRcBookCopy())
-                .availabilityStatus(profile.getAvailabilityStatus() != null ? profile.getAvailabilityStatus() : "AVAILABLE")
+                .availabilityStatus(profile.getAvailabilityStatus() != null ? profile.getAvailabilityStatus() : "OFFLINE")
                 .deliveredCount(profile.getDeliveredCount() != null ? profile.getDeliveredCount() : 0L)
                 .failedCount(profile.getFailedCount() != null ? profile.getFailedCount() : 0L)
                 .inTransitCount(profile.getInTransitCount() != null ? profile.getInTransitCount() : 0L)

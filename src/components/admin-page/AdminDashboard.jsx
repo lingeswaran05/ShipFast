@@ -454,7 +454,7 @@ export function AdminDashboard({ view }) {
                 </div>
 
 
-                <div className="text-3xl font-bold">₹{totalRevenue.toLocaleString()}</div>
+                <div className="text-3xl font-bold">&#8377;{totalRevenue.toLocaleString()}</div>
                 <div className="text-emerald-100 text-sm mt-1">Total Lifetime</div>
               </div>
 
@@ -543,9 +543,9 @@ export function AdminDashboard({ view }) {
                         <tbody className="divide-y divide-slate-100">
                             <tr className="hover:bg-slate-50">
                                 <td className="px-6 py-4 font-medium text-slate-900">Total Revenue</td>
-                                <td className="px-6 py-4 text-emerald-600 font-bold">₹{totalRevenue.toLocaleString()}</td>
+                                <td className="px-6 py-4 text-emerald-600 font-bold">&#8377;{totalRevenue.toLocaleString()}</td>
                                 <td className="px-6 py-4 text-green-600">+12.5%</td>
-                                <td className="px-6 py-4 text-slate-600">₹{(totalRevenue * 1.2).toLocaleString()}</td>
+                                <td className="px-6 py-4 text-slate-600">&#8377;{(totalRevenue * 1.2).toLocaleString()}</td>
                                 <td className="px-6 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">On Track</span></td>
                             </tr>
                             <tr className="hover:bg-slate-50">
@@ -593,7 +593,7 @@ export function AdminDashboard({ view }) {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-slate-900">₹{branch.revenue.toLocaleString()}</div>
+                      <div className="font-bold text-slate-900">&#8377;{branch.revenue.toLocaleString()}</div>
                       <div className="text-sm text-green-600 font-medium">+{branch.performance}%</div>
                     </div>
                   </div>
@@ -719,7 +719,7 @@ export function AdminDashboard({ view }) {
                                 <td className="px-6 py-4 font-medium text-slate-900">{row.slab}</td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
+                                      <span className="text-slate-400">&#8377;</span>
                                       <input 
                                         type="number" 
                                         defaultValue={row.zoneA} 
@@ -730,7 +730,7 @@ export function AdminDashboard({ view }) {
                                 </td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
+                                      <span className="text-slate-400">&#8377;</span>
                                       <input 
                                         type="number" 
                                         defaultValue={row.zoneB} 
@@ -741,7 +741,7 @@ export function AdminDashboard({ view }) {
                                 </td>
                                 <td className="px-6 py-4">
                                    <div className="flex items-center gap-1">
-                                      <span className="text-slate-400">₹</span>
+                                      <span className="text-slate-400">&#8377;</span>
                                       <input 
                                         type="number" 
                                         defaultValue={row.zoneC} 
@@ -971,7 +971,7 @@ export function AdminDashboard({ view }) {
                                          <td className="py-3 font-mono text-slate-600">TRX-00{i}</td>
                                          <td className="py-3 text-slate-600">Oct 2{i}, 2025</td>
                                          <td className="py-3 font-medium text-slate-900">Client {String.fromCharCode(64+i)}</td>
-                                         <td className="py-3 text-slate-900 font-bold">₹{1200 + (i*150)}</td>
+                                         <td className="py-3 text-slate-900 font-bold">&#8377;{1200 + (i*150)}</td>
                                          <td className="py-3 text-green-600 font-medium">Completed</td>
                                      </tr>
                                  ))}
