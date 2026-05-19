@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile default="true" name="Default" enabled="true" />
+    </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="admin" target="21" />
+      <module name="Authenticate" target="25" />
+      <module name="communications" target="17" />
+      <module name="operations" target="17" />
+      <module name="reporting" target="17" />
+      <module name="shipment" target="21" />
+    </bytecodeTargetLevel>
+  </component>
+</project>
