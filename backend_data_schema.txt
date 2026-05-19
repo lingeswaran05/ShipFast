@@ -1,0 +1,357 @@
+BACKEND DATA SCHEMA & REQUIREMENTS
+===============================
+This document details the data structures used in the NewShipFast frontend to guide the creation of a Spring Boot backend.
+
+1. USER ENTITY
+   (Used for Authentication & Role Management)
+   -------------------------------------------------
+   Fields:
+   - id (String/UUID)
+   - name (String)
+   - email (String)
+   - role (String: 'admin', 'agent', 'driver', 'customer')
+   - profilePic (String, URL)
+   - phone (String, optional)
+
+   Sample JSON:
+   {
+     "id": "u123456789",
+     "name": "John Doe",
+     "email": "john@example.com",
+     "role": "customer",
+     "profilePic": "https://example.com/pic.jpg",
+     "phone": "9876543210"
+   }
+
+2. SHIPMENT ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (String, e.g., 'SF123456789')
+   - sender (Object)
+     - name (String)
+     - phone (String)
+     - city (String)
+     - pincode (String)
+   - receiver (Object)
+     - name (String)
+     - phone (String)
+     - city (String)
+     - pincode (String)
+   - status (String: 'Booked', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled')
+   - type (String: 'Standard', 'Express')
+   - weight (Float/Double)
+   - cost (Decimal/Double)
+   - date (Date/String ISO: 'YYYY-MM-DD')
+   - paymentMode (String: 'UPI', 'Card', 'Cash', 'Net Banking')
+   - paymentStatus (String: 'Pending', 'Paid')
+   - assignedTo (String, ID of driver/agent, nullable)
+   - history (List of Objects)
+     - status (String)
+     - location (String)
+     - timestamp (DateTime String)
+
+   Sample JSON:
+   {
+     "id": "SF123456789",
+     "sender": {
+       "name": "Rahul Sharma",
+       "phone": "9876543210",
+       "city": "Mumbai",
+       "pincode": "400001"
+     },
+     "receiver": {
+       "name": "Priya Singh",
+       "phone": "9123456780",
+       "city": "Delhi",
+       "pincode": "110001"
+     },
+     "status": "In Transit",
+     "type": "Standard",
+     "weight": 2.5,
+     "cost": 250.00,
+     "date": "2025-12-20",
+     "paymentMode": "UPI",
+     "paymentStatus": "Paid",
+     "history": [
+       {
+         "status": "Booked",
+         "location": "Mumbai",
+         "timestamp": "2025-12-20T10:00:00"
+       },
+       {
+         "status": "In Transit",
+         "location": "Mumbai - Delhi Highway",
+         "timestamp": "2025-12-21T14:30:00"
+       }
+     ]
+   }
+
+3. BRANCH/HUB ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (Long/Integer)
+   - name (String)
+   - type (String: 'Hub', 'Branch')
+   - state (String)
+   - status (String: 'Active', 'Maintenance', 'Closed')
+   - capacity (String/Percentage)
+   - manager (String, Name of Manager)
+   - contact (String, Phone/Landline)
+   - staffCount (Integer)
+   - location (String, Specific Address/Area)
+   - description (String)
+
+   Sample JSON:
+   {
+     "id": 1,
+     "name": "Mumbai Central Hub",
+     "type": "Hub",
+     "state": "Maharashtra",
+     "status": "Active",
+     "capacity": "85%",
+     "manager": "Arun Singh",
+     "contact": "022-12345678",
+     "staffCount": 15,
+     "location": "Mumbai Central",
+     "description": "Main hub for western region logistics."
+   }
+
+4. VEHICLE ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (String, License Plate Number, e.g., 'MH-01-AB-1234')
+   - type (String: 'Van', 'Truck', 'Scooter')
+   - driver (String, Name of Driver, or 'N/A')
+   - status (String: 'In Transit', 'Available', 'Delivering', 'Maintenance')
+   - location (String, City/Area)
+   - seats (Integer)
+   - rcBook (String, RC Number)
+   - photo (String, URL, nullable)
+
+   Sample JSON:
+   {
+     "id": "MH-01-AB-1234",
+     "type": "Van",
+     "driver": "Rajesh Kumar",
+     "status": "In Transit",
+     "location": "Mumbai",
+     "seats": 2,
+     "rcBook": "RC123456",
+     "photo": null
+   }
+
+5. STAFF ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (Long/Integer)
+   - name (String)
+   - role (String: 'Manager', 'Driver', 'Agent')
+   - branch (String, Branch Name)
+   - status (String: 'Active', 'Inactive')
+   - phone (String)
+   - email (String)
+   - performance (Object)
+     - deliveries (Integer)
+     - rating (Float/Double)
+     - shift (String: 'Day', 'Night')
+
+   Sample JSON:
+   {
+     "id": 1,
+     "name": "Arun Singh",
+     "role": "Manager",
+     "branch": "Mumbai Central Hub",
+     "status": "Active",
+     "phone": "9876543210",
+     "email": "arun.singh@shipfast.com",
+     "performance": {
+       "deliveries": 0,
+       "rating": 4.8,
+       "shift": "Day"
+     }
+   }
+
+6. PAYMENT/TRANSACTION ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (String, e.g., 'TRX-987654321')
+   - date (Date/String)
+   - description (String)
+   - amount (String/Decimal, e.g., '₹191.16')
+   - status (String: 'Completed', 'Failed', 'Pending')
+   - method (String: 'Credit Card', 'UPI', 'Net Banking')
+
+   Sample JSON:
+   {
+     "id": "TRX-987654321",
+     "date": "Dec 20, 2025",
+     "description": "Shipment #SF123456789",
+     "amount": "191.16",
+     "status": "Completed",
+     "method": "Credit Card •••• 4242"
+   }
+
+7. NOTIFICATION ENTITY
+   -------------------------------------------------
+   Fields:
+   - id (Long/Integer)
+   - message (String)
+   - role (String: 'admin', 'customer', 'agent', 'driver', 'all')
+   - timestamp (DateTime String)
+
+   Sample JSON:
+   {
+     "id": 1700000000000,
+     "message": "Shipment SF123 picked up.",
+     "role": "customer",
+     "timestamp": "10:30 AM"
+   }
+COMPREHENSIVE BACKEND DATA SCHEMA (V2)
+========================================
+This document outlines the complete data requirements for the Shipment Management System, extracted from frontend logic, dashboards, and booking forms.
+
+[1] CORE IDENTITY & ACCESS MANAGEMENT
+=====================================
+1.1 User Entity (Table: `users`)
+    - id: UUID (Primary Key)
+    - name: VARCHAR(100)
+    - email: VARCHAR(150) (Unique)
+    - password_hash: VARCHAR(255)
+    - role: ENUM('Admin', 'Manager', 'Agent', 'Driver', 'Customer', 'Sorter')
+    - phone: VARCHAR(20)
+    - profile_pic_url: TEXT
+    - status: ENUM('Active', 'Inactive', 'Suspended')
+    - created_at: TIMESTAMP
+    - last_login: TIMESTAMP
+
+1.2 Staff Profile Entity (Table: `staff_profiles`)
+    *Extends User for internal employees*
+    - user_id: UUID (Foreign Key)
+    - branch_id: INT (Foreign Key)
+    - dob: DATE
+    - blood_group: VARCHAR(5)
+    - address: TEXT
+    - joining_date: DATE
+    - shift: ENUM('Morning', 'Day', 'Night', 'Flexible')
+    - documents: JSONB
+      {
+        "aadhar": { "uploaded": boolean, "url": "..." },
+        "pan": { "uploaded": boolean, "url": "..." },
+        "license": { "uploaded": boolean, "url": "..." }
+      }
+    - performance_metrics: JSONB (Derived/Cached)
+      {
+        "rating": 4.8,
+        "total_deliveries": 1250,
+        "on_time_rate": "98%"
+      }
+
+[2] LOGISTICS NETWORK
+=====================
+2.1 Branch/Hub Entity (Table: `branches`)
+    - id: INT (Primary Key, Auto Inc)
+    - name: VARCHAR(100)
+    - type: ENUM('Hub', 'Branch')
+    - code: VARCHAR(20) (e.g., 'MUM-01')
+    - address: TEXT
+    - city: VARCHAR(50)
+    - state: VARCHAR(50)
+    - pincode: VARCHAR(10)
+    - manager_id: UUID (Foreign Key -> Users)
+    - contact_phone: VARCHAR(20)
+    - status: ENUM('Active', 'Maintenance', 'Closed')
+    - capacity_status: INT (Percentage 0-100)
+
+2.2 Vehicle Entity (Table: `vehicles`)
+    - id: VARCHAR(20) (Primary Key, License Plate, e.g., 'MH-01-AB-1234')
+    - type: ENUM('Van', 'Truck', 'Scooter')
+    - current_driver_id: UUID (Foreign Key, Nullable)
+    - status: ENUM('Available', 'In Transit', 'Delivering', 'Maintenance')
+    - current_location: VARCHAR(100) (City/Hub Name)
+    - fuel_type: ENUM('Petrol', 'Diesel', 'Electric')
+    - capacity_volume: FLOAT (Cubic Feet)
+    - rc_book_details:VARCHAR(50)
+    - photo_url: TEXT
+
+[3] SHIPMENT & OPERATIONS
+=========================
+3.1 Shipment Entity (Table: `shipments`)
+    - id: VARCHAR(20) (Primary Key, e.g., 'SF1000001')
+    - customer_id: UUID (Foreign Key, Nullable if guest)
+    - booking_date: TIMESTAMP
+    - status: ENUM('Booked', 'Received at Hub', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed Attempt', 'Cancelled')
+    - service_type: ENUM('Standard', 'Express', 'Same Day')
+    - transport_mode: ENUM('Air', 'Road', 'Rail')
+    - weight_kg: FLOAT
+    - dimensions_cm: JSON { "l": 10, "w": 10, "h": 10 }
+    - content_type: ENUM('Documents', 'Electronics', 'Clothing', 'Fragile', 'Others')
+    - declared_value: DECIMAL(10,2)
+    - total_cost: DECIMAL(10,2)
+    - payment_mode: ENUM('UPI', 'Card', 'Cash', 'Net Banking')
+    - payment_status: ENUM('Pending', 'Paid', 'COD_Collected')
+    
+    -- Sender Details (Embedded or separate Table)
+    - sender_name: VARCHAR(100)
+    - sender_phone: VARCHAR(20)
+    - sender_address: TEXT
+    - sender_city: VARCHAR(50)
+    - sender_pincode: VARCHAR(10)
+    
+    -- Receiver Details
+    - receiver_name: VARCHAR(100)
+    - receiver_phone: VARCHAR(20)
+    - receiver_address: TEXT
+    - receiver_city: VARCHAR(50)
+    - receiver_pincode: VARCHAR(10)
+
+3.2 Shipment History/Logs (Table: `shipment_events`)
+    - id: BIGINT
+    - shipment_id: VARCHAR(20)
+    - status: VARCHAR(50)
+    - location: VARCHAR(100)
+    - timestamp: TIMESTAMP
+    - updated_by: UUID (User ID)
+    - remarks: TEXT
+
+3.3 Run Sheets (Table: `run_sheets`)
+    *For organizing daily deliveries for drivers*
+    - id: VARCHAR(30) (e.g., 'RS-2025-10-24-A')
+    - driver_id: UUID
+    - branch_id: INT
+    - date: DATE
+    - status: ENUM('Created', 'In Progress', 'Completed', 'Reconciled')
+    - shipments: JSONB (List of shipment IDs included)
+
+[4] FINANCIALS & CONFIGURATION
+==============================
+4.1 Pricing Configuration (Table: `pricing_config`)
+    *Found in Admin Dashboard > Pricing*
+    - id: INT
+    - weight_slab: VARCHAR(50) (e.g., '0 - 500g')
+    - zone_a_price: DECIMAL (Metro)
+    - zone_b_price: DECIMAL (Tier 1)
+    - zone_c_price: DECIMAL (Remote)
+    - effective_date: DATE
+
+4.2 Transactions (Table: `transactions`)
+    - id: VARCHAR(50) (TRX ID)
+    - shipment_id: VARCHAR(20)
+    - amount: DECIMAL(10,2)
+    - type: ENUM('Booking', 'COD_Deposit', 'Wallet_Topup')
+    - status: ENUM('Success', 'Failed', 'Pending')
+    - method: VARCHAR(50)
+    - timestamp: TIMESTAMP
+
+[5] API REQUIREMENTS (Inferred)
+===============================
+- GET /api/shipments/track/{id} -> Public tracking info
+- GET /api/admin/dashboard/stats -> Aggregated revenue, active shipments, volume data
+- POST /api/staff/onboard -> Handle personal info + document upload
+- POST /api/shipments/book -> Complex validation of weight/zones -> Price Calc
+- PATCH /api/pricing/update -> Admin only
+- POST /api/agent/scan -> Updates status, logs event, checks for validity
+
+[6] ENUMS & CONSTANTS
+=====================
+- Cities/Zones: Need a master list of serviceable pin codes mapped to Zones (A, B, C) for the pricing logic to work automatically.
+- Service Types: Standard (3-5 days), Express (1-2 days), Same Day.
