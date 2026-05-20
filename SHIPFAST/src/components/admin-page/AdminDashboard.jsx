@@ -22,6 +22,56 @@ const isPaymentSettled = (shipment = {}) => {
 const getRealizedRevenue = (shipment = {}) => (
   isPaymentSettled(shipment) ? (Number(shipment.cost) || 0) : 0
 );
+const normalizeShipmentStatus = (status) => String(status || '').toUpperCase().replace(/_/g, ' ').trim();
+
+function RejectionReasonModal({
+  isOpen,
+  reason,
+  onChange,
+  onClose,
+  onSubmit,
+  isSubmitting = false
+}) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-lg bg-white rounded-xl border border-slate-200 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="text-lg font-bold text-slate-900">Reject Agent Request</h3>
+          <p className="text-sm text-slate-500 mt-1">Send a short reason to customer so they can correct and re-apply.</p>
+        </div>
+        <div className="p-5 space-y-2">
+          <label className="text-sm font-medium text-slate-700">Rejection Reason</label>
+          <textarea
+            rows={4}
+            value={reason}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Example: Aadhaar copy is unclear. Please upload a clear image."
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          />
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isSubmitting || !String(reason || '').trim()}
+            className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60"
+          >
+            {isSubmitting ? 'Sending...' : 'Reject & Send Reason'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AdminDashboard({ view }) {
 
@@ -96,6 +146,9 @@ export function AdminDashboard({ view }) {
   const [selectedAgentRecord, setSelectedAgentRecord] = useState(null);
   const [isAgentDetailOpen, setIsAgentDetailOpen] = useState(false);
   const [isSavingVerification, setIsSavingVerification] = useState(false);
+  const [isRejectReasonOpen, setIsRejectReasonOpen] = useState(false);
+  const [rejectReasonText, setRejectReasonText] = useState('');
+  const [pendingRejectRequest, setPendingRejectRequest] = useState(null);
   const [branchVisibleCount, setBranchVisibleCount] = useState(5);
   const [fleetVisibleCount, setFleetVisibleCount] = useState(5);
   const [staffVisibleCount, setStaffVisibleCount] = useState(5);
@@ -1015,6 +1068,8 @@ export function AdminDashboard({ view }) {
         const requestUserId = request?.userId || request?.email;
         const requestIdentity = getRoleRequestIdentity(request);
         try {
+            setIsSavingVerification(true);
+            setIsAgentDetailOpen(false);
             // The context function expects the whole request object
             await approveRoleRequest(request);
             
@@ -1026,21 +1081,36 @@ export function AdminDashboard({ view }) {
             }));
 
             toast.success('Role request approved. User can now login as an agent.');
+            setSelectedAgentRecord(null);
         } catch (error) {
             toast.error(error.message || 'Failed to approve request');
+        } finally {
+            setIsSavingVerification(false);
         }
     };
 
-    const handleRejectRequest = async (request) => {
+    const openRejectReasonModal = (request) => {
+        setPendingRejectRequest(request);
+        setRejectReasonText('');
+        setIsRejectReasonOpen(true);
+    };
+
+    const handleRejectRequest = async (request, reason) => {
         const requestId = typeof request === 'string' ? request : request?.id;
         const requestUserId = request?.userId || request?.email;
+        const trimmedReason = String(reason || '').trim();
         try {
+            setIsSavingVerification(true);
+            if (!trimmedReason) {
+              toast.error('Rejection reason is required.');
+              return;
+            }
             if (requestUserId) {
               try {
                 await operationsService.verifyAgentProfile(requestUserId, {
                   verified: false,
                   verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
-                  verificationNotes: 'Rejected by admin',
+                  verificationNotes: `Rejected by admin: ${trimmedReason}`,
                   verificationStatus: 'REJECTED'
                 });
               } catch {
@@ -1048,7 +1118,7 @@ export function AdminDashboard({ view }) {
               }
             }
             if (requestId || request) {
-              await rejectRoleRequest(request || requestId);
+              await rejectRoleRequest(request || requestId, trimmedReason);
             }
             const requestIdentity = getRoleRequestIdentity(request);
             setBackendPendingRequests(prev => prev.filter((item) => {
@@ -1058,8 +1128,14 @@ export function AdminDashboard({ view }) {
               return !(sameId || sameUser || sameIdentity);
             }));
             toast.success('Role request rejected.');
+            setIsRejectReasonOpen(false);
+            setPendingRejectRequest(null);
+            setRejectReasonText('');
+            setIsAgentDetailOpen(false);
         } catch (error) {
             toast.error(error.message || 'Failed to reject request');
+        } finally {
+            setIsSavingVerification(false);
         }
     };
 
@@ -1173,6 +1249,18 @@ export function AdminDashboard({ view }) {
             title={deleteConfirmation.title}
             message={deleteConfirmation.message}
         />
+        <RejectionReasonModal
+            isOpen={isRejectReasonOpen}
+            reason={rejectReasonText}
+            onChange={setRejectReasonText}
+            onClose={() => {
+              setIsRejectReasonOpen(false);
+              setPendingRejectRequest(null);
+              setRejectReasonText('');
+            }}
+            onSubmit={() => handleRejectRequest(pendingRejectRequest, rejectReasonText)}
+            isSubmitting={isSavingVerification}
+        />
 
         {isAgentDetailOpen && selectedAgentRecord && (
             <div
@@ -1241,6 +1329,25 @@ export function AdminDashboard({ view }) {
                     </span>
                   </div>
                   <div className="flex gap-2">
+                    {['PENDING', 'PENDING_VERIFICATION'].includes(String(selectedAgentView?.requestData?.status || '').toUpperCase()) ? (
+                      <>
+                        <button
+                          onClick={() => openRejectReasonModal(selectedAgentView?.requestData || selectedAgentRecord)}
+                          disabled={isSavingVerification}
+                          className="px-4 py-2 text-sm font-semibold bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-60"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          onClick={() => handleApproveRequest(selectedAgentView?.requestData || selectedAgentRecord)}
+                          disabled={isSavingVerification}
+                          className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+                        >
+                          {isSavingVerification ? 'Saving...' : 'Approve'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
                     <button
                       onClick={() => handleVerifyAgent(selectedAgentRecord, false)}
                       disabled={isSavingVerification}
@@ -1255,6 +1362,8 @@ export function AdminDashboard({ view }) {
                     >
                       {isSavingVerification ? 'Saving...' : 'Verify Agent'}
                     </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1737,6 +1846,69 @@ export function AdminDashboard({ view }) {
                 <div className="text-2xl font-bold text-amber-600 mt-1">{activeShipmentsCount}</div>
               </div>
             </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 md:p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900">Branch Details</h3>
+                <div className="text-sm text-slate-500">{filteredBranches.length} result(s)</div>
+              </div>
+
+              {visibleBranches.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {visibleBranches.map((branch) => (
+                    <div key={`branch-card-${branch.id}`} className="border border-slate-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-slate-900">{branch.name || 'Unnamed Branch'}</div>
+                          <div className="text-xs uppercase tracking-wider text-slate-500 mt-1">{branch.type || 'Branch'}</div>
+                        </div>
+                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                          {branch.status || 'Active'}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600 flex items-start gap-2">
+                        <MapPin className="w-4 h-4 mt-0.5 text-slate-400" />
+                        <span>{branch.location || '-'}, {branch.state || '-'}</span>
+                      </div>
+                      <div className="text-sm text-slate-600">Manager: {branch.manager || '-'}</div>
+                      <div className="text-sm text-slate-600">Contact: {branch.contact || '-'}</div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => openBranchModal(branch)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => confirmDelete('branch', branch.id, 'Delete Branch', 'Are you sure you want to delete this branch?')}
+                          className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-sm font-semibold hover:bg-red-200"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 py-6 text-center border border-dashed border-slate-200 rounded-xl">
+                  No branches found for current filters.
+                </div>
+              )}
+
+              {filteredBranches.length > 5 && (
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setBranchVisibleCount((prev) => (prev >= filteredBranches.length ? 5 : filteredBranches.length))}
+                    className="px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white hover:bg-slate-50"
+                  >
+                    {branchVisibleCount >= filteredBranches.length ? 'Show Less' : `Show More (${filteredBranches.length - branchVisibleCount})`}
+                  </button>
+                </div>
+              )}
+            </div>
              </div>
         )}
 
@@ -2039,7 +2211,7 @@ export function AdminDashboard({ view }) {
                                                                 Approve
                                                             </button>
                                                             <button
-                                                                onClick={() => handleRejectRequest(request)}
+                                                                onClick={() => openRejectReasonModal(request)}
                                                                 className="px-3 py-1.5 text-sm font-bold bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
                                                             >
                                                                 Reject
@@ -2322,6 +2494,8 @@ export function AdminDashboard({ view }) {
                         <tbody className="divide-y divide-slate-100">
                           {visibleManagedShipments.length > 0 ? visibleManagedShipments.map((shipment) => {
                             const shipmentId = getShipmentIdentifier(shipment);
+                            const shipmentStatusKey = normalizeShipmentStatus(shipment.status);
+                            const isLockedShipment = shipmentStatusKey === 'DELIVERED' || shipmentStatusKey === 'CANCELLED';
                             const assignedAgentId = String(shipment.assignedAgentId || shipment.assignedToAgentId || '').trim();
                             const selectedAgentId = String(shipmentAgentDrafts[shipmentId] ?? assignedAgentId).trim();
                             const assignActionKey = `assign:${shipmentId}`;
@@ -2357,6 +2531,7 @@ export function AdminDashboard({ view }) {
                                     <select
                                       value={selectedAgentId}
                                       onChange={(e) => setShipmentAgentDrafts((prev) => ({ ...prev, [shipmentId]: e.target.value }))}
+                                      disabled={isLockedShipment}
                                       className="min-w-[180px] px-2 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     >
                                       <option value="">Select agent</option>
@@ -2378,10 +2553,10 @@ export function AdminDashboard({ view }) {
                                     <button
                                       type="button"
                                       onClick={() => handleAssignManagedShipment(shipment)}
-                                      disabled={!selectedAgentId || isAssigning}
+                                      disabled={!selectedAgentId || isAssigning || isLockedShipment}
                                       className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
                                     >
-                                      {isAssigning ? 'Saving...' : (assignedAgentId ? 'Change' : 'Assign')}
+                                      {isLockedShipment ? 'Locked' : (isAssigning ? 'Saving...' : (assignedAgentId ? 'Change' : 'Assign'))}
                                     </button>
                                   </div>
                                 </td>
@@ -2725,17 +2900,19 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
     }, []);
 
     const mappedAgents = useMemo(() => {
-        const blockedNames = new Set(['kyle reese', 'kyle rease', 'kyle resse']);
         const byKey = new Map();
-        (users || [])
-          .filter((user) => String(user?.role || '').toLowerCase() === 'agent')
-          .filter((user) => !blockedNames.has(String(user?.name || '').trim().toLowerCase()))
+        const sourceAgents = [
+          ...(users || []),
+          ...((contextStaff || []).filter((entry) => String(entry?.role || '').trim().toLowerCase() === 'agent'))
+        ];
+        sourceAgents
+          .filter((user) => String(user?.role || '').trim().toLowerCase() === 'agent')
           .forEach((user) => {
             const key = user.userId || user.id || user.email;
             if (!key || byKey.has(key)) return;
             byKey.set(key, {
               id: user.id || user.userId || user.email,
-              userId: user.userId || user.id,
+              userId: user.userId || user.id || user.email,
               email: user.email,
               name: user.name || user.email || 'Unnamed Agent',
               branch: user.branch || '',
@@ -2746,7 +2923,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
           });
         return Array.from(byKey.values())
           .map((staff) => {
-            const userKey = staff.userId || staff.id || staff.email;
+            const userKey = String(staff.userId || staff.id || staff.email || '').trim();
             const lookupKeys = [
               userKey,
               staff.userId,
@@ -2764,7 +2941,7 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
             return {
               ...staff,
               userKey,
-              assignmentAgentId: userKey,
+              assignmentAgentId: userKey || 'AGENT-' + Math.random().toString(36).substr(2, 9),
               runtimeAgentId: profile?.agentId || userKey,
               identityCandidates: getAgentIdentityCandidates({
                 assignmentAgentId: userKey,
@@ -2779,14 +2956,11 @@ function AdminRunSheetView({ shipments = [], contextBranches = [], contextStaff,
               isLoggedIn: isOnlineAvailability(availabilityStatus)
             };
           })
-          .filter((staff) => staff.assignmentAgentId);
-    }, [users, agentProfiles, liveProfileIndex]);
+          .filter((staff) => Boolean(staff.assignmentAgentId) && String(staff.assignmentAgentId).trim().length > 0);
+    }, [users, contextStaff, agentProfiles, liveProfileIndex]);
 
     const selectableAgents = useMemo(() => (
-      mappedAgents.filter((agent) => {
-        const userStatus = String(agent.status || 'active').toLowerCase();
-        return Boolean(agent.assignmentAgentId) && userStatus !== 'inactive';
-      })
+      mappedAgents.filter((agent) => Boolean(String(agent.assignmentAgentId || '').trim()))
     ), [mappedAgents]);
 
     const dropdownAgents = useMemo(() => (

@@ -237,6 +237,18 @@ public class AuthServiceImpl implements AuthService {
         return mapToProfileResponse(user, profile);
     }
 
+    @Override
+    public UserProfileResponse getUserByEmailOrId(String emailOrId) {
+        UserAuth user = userAuthRepository.findByEmail(emailOrId)
+                .orElseGet(() -> userAuthRepository.findByUserId(emailOrId)
+                .orElseThrow(() -> new CustomException("User not found")));
+
+        UserProfile profile = userProfileRepository.findByUserId(user.getUserId())
+                .orElse(new UserProfile());
+
+        return mapToProfileResponse(user, profile);
+    }
+
     // ================= CHANGE PASSWORD =================
 
     @Override

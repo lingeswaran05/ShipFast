@@ -237,6 +237,7 @@ const mapShipment = (shipment = {}) => {
     sender: {
       name: sender.name || '',
       phone: sender.phone || '',
+      email: sender.email || shipment.senderEmail || shipment.customerEmail || '',
       doorAddress: senderDoorAddress,
       address: senderAddress,
       city: originCity,
@@ -246,6 +247,7 @@ const mapShipment = (shipment = {}) => {
     receiver: {
       name: receiver.name || '',
       phone: receiver.phone || '',
+      email: receiver.email || '',
       doorAddress: receiverDoorAddress,
       address: receiverAddress,
       city: destinationCity,
@@ -391,6 +393,7 @@ export const shipmentService = {
       throw new Error('Shipment create endpoint is unavailable');
     }
     const identifier = resolveUserIdentifier(userId);
+    const currentUser = authStorage.getCurrentUser() || {};
     const request = {
       customerId: identifier || undefined,
       serviceType: normalizeServiceType(payload.type || payload.service),
@@ -398,6 +401,7 @@ export const shipmentService = {
       sender: {
         name: payload.sender?.name,
         phone: payload.sender?.phone,
+        email: payload.sender?.email || currentUser.email || '',
         doorAddress: payload.sender?.doorAddress || payload.sender?.address,
         city: payload.sender?.city,
         state: payload.sender?.state,
@@ -412,6 +416,7 @@ export const shipmentService = {
       recipient: {
         name: payload.receiver?.name,
         phone: payload.receiver?.phone,
+        email: payload.receiver?.email || '',
         doorAddress: payload.receiver?.doorAddress || payload.receiver?.address,
         city: payload.receiver?.city,
         state: payload.receiver?.state,

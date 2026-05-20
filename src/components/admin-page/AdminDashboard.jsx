@@ -7,10 +7,30 @@ import { SectionDownloader } from '../shared/SectionDownloader';
 import { ConfirmationModal } from '../shared/ConfirmationModal';
 import { toast } from 'sonner';
 
+const AGENT_AVAILABILITY = ['AVAILABLE', 'ACTIVE', 'READY'];
+const normalizeAvailability = (value) => String(value || '').toUpperCase().replace(/ /g, '_');
+const isAvailableForAssignment = (value) => AGENT_AVAILABILITY.includes(normalizeAvailability(value));
+
 export function AdminDashboard({ view }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { shipments, branches: contextBranches, vehicles: contextVehicles, staff: contextStaff, addBranch, addVehicle, updateBranch, updateVehicle, updateStaff, removeBranch, removeStaff, addStaff } = useShipment();
+  const { 
+    shipments, 
+    branches: contextBranches, 
+    vehicles: contextVehicles, 
+    staff: contextStaff, 
+    users,
+    addBranch, 
+    addVehicle, 
+    updateBranch, 
+    updateVehicle, 
+    updateStaff, 
+    removeBranch, 
+    removeStaff, 
+    addStaff,
+    assignShipmentToAgent,
+    refreshShipments
+  } = useShipment();
   
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
@@ -24,13 +44,12 @@ export function AdminDashboard({ view }) {
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Agent', branch: '', status: 'Active' });
   const [isEditing, setIsEditing] = useState(false);
   const vehicleFileInputRef = useRef(null);
-  // Handle auto-opening of branch modal from navigation state
+
   useEffect(() => {
     if (view === 'branches' && location.state?.openBranchId && contextBranches.length > 0) {
         const branchToOpen = contextBranches.find(b => b.id === location.state.openBranchId);
         if (branchToOpen) {
             openBranchModal(branchToOpen);
-            // Clear the state to prevent reopening on subsequent renders
             navigate(location.pathname, { replace: true, state: {} });
         }
     }
@@ -39,7 +58,6 @@ export function AdminDashboard({ view }) {
   const activeShipmentsCount = shipments.filter(s => s.status !== 'Delivered' && s.status !== 'Cancelled').length;
   const totalRevenue = shipments.reduce((acc, s) => acc + (parseFloat(s.cost) || 0), 0);
   
-  // --- Handlers ---
   const handleBranchSubmit = (e) => {
       e.preventDefault();
       if (isEditing) {
@@ -121,7 +139,6 @@ export function AdminDashboard({ view }) {
       setShowStaffModal(true);
   };
   
-  // Dynamic Analytics Data
   const { revenueData, volumeData } = useMemo(() => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const today = new Date();
@@ -137,7 +154,7 @@ export function AdminDashboard({ view }) {
     });
 
     shipments.forEach(s => {
-        const sDate = s.date; // YYYY-MM-DD
+        const sDate = s.date;
         const dayEntry = last7Days.find(d => d.date === sDate);
         if (dayEntry) {
             dayEntry.volume += 1;
@@ -147,7 +164,6 @@ export function AdminDashboard({ view }) {
 
     return { revenueData: last7Days, volumeData: last7Days };
   }, [shipments]);
-
 
   const onStaffFormSubmit = (e) => {
       e.preventDefault();
@@ -171,7 +187,6 @@ export function AdminDashboard({ view }) {
             message={deleteConfirmation.message}
         />
 
-        {/* Branch Modal */}
         {showBranchModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowBranchModal(false)}>
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -207,7 +222,6 @@ export function AdminDashboard({ view }) {
             </div>
         )}
 
-        {/* Vehicle Modal */}
         {showVehicleModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowVehicleModal(false)}>
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -284,7 +298,6 @@ export function AdminDashboard({ view }) {
             </div>
         )}
 
-        {/* Staff Modal */}
         {showStaffModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowStaffModal(false)}>
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -297,7 +310,6 @@ export function AdminDashboard({ view }) {
 
                     <form onSubmit={onStaffFormSubmit} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Personal Details */}
                             <div className="space-y-4">
                                 <h4 className="font-semibold text-slate-700 flex items-center gap-2">
                                     <Users className="w-4 h-4" /> Personal Information
@@ -312,7 +324,6 @@ export function AdminDashboard({ view }) {
                                 <textarea className="w-full p-3 border rounded-lg" placeholder="Address" rows="2" value={newStaff.personalDetails?.address || ''} onChange={e => setNewStaff({...newStaff, personalDetails: {...newStaff.personalDetails, address: e.target.value}})}></textarea>
                             </div>
 
-                            {/* Job & Documents */}
                             <div className="space-y-4">
                                 <h4 className="font-semibold text-slate-700 flex items-center gap-2">
                                     <Briefcase className="w-4 h-4" /> Job Details
@@ -879,6 +890,15 @@ export function AdminDashboard({ view }) {
              </div>
         )}
 
+        {view === 'run-sheet' && (
+            <RunSheetView 
+                shipments={shipments}
+                users={users}
+                assignShipmentToAgent={assignShipmentToAgent}
+                refreshShipments={refreshShipments}
+            />
+        )}
+
         {view === 'performance' && (
              <div className="space-y-6">
                  <div>
@@ -894,7 +914,6 @@ export function AdminDashboard({ view }) {
                         </h3>
                     </div>
 
-                    {/* Service Breakdown Summary */}
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8 border-b border-slate-100">
                         <div>
                              <h4 className="font-bold text-slate-700 uppercase text-xs tracking-wider mb-4">Service Type Breakdown</h4>
@@ -983,4 +1002,97 @@ export function AdminDashboard({ view }) {
         )}
       </div>
   );
+}
+
+function RunSheetView({ shipments, users, assignShipmentToAgent, refreshShipments }) {
+    const [selectedAgentId, setSelectedAgentId] = useState('');
+    const [selectedShipmentIds, setSelectedShipmentIds] = useState([]);
+
+    const availableAgents = useMemo(() => 
+        users.filter(u => u.role === 'agent' && isAvailableForAssignment(u.availabilityStatus)),
+        [users]
+    );
+
+    const unassignedShipments = useMemo(() => 
+        shipments.filter(s => !s.assignedAgentId && s.status !== 'Delivered' && s.status !== 'Cancelled'),
+        [shipments]
+    );
+
+    const handleAssign = async () => {
+        if (!selectedAgentId) return toast.error('Please select an agent.');
+        if (selectedShipmentIds.length === 0) return toast.error('Please select at least one shipment.');
+
+        try {
+            for (const shipmentId of selectedShipmentIds) {
+                await assignShipmentToAgent(shipmentId, selectedAgentId);
+            }
+            toast.success(`${selectedShipmentIds.length} shipment(s) assigned successfully.`);
+            setSelectedShipmentIds([]);
+            refreshShipments();
+        } catch (error) {
+            toast.error(`Failed to assign shipments: ${error.message}`);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-2xl font-bold text-slate-800">Run Sheet Generation</h1>
+                <p className="text-slate-600">Assign shipments to available agents.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">Unassigned Shipments</h3>
+                    <div className="max-h-[60vh] overflow-y-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="p-3"><input type="checkbox" onChange={(e) => setSelectedShipmentIds(e.target.checked ? unassignedShipments.map(s => s.id) : [])} /></th>
+                                    <th className="p-3 text-sm font-semibold text-slate-600">ID</th>
+                                    <th className="p-3 text-sm font-semibold text-slate-600">Destination</th>
+                                    <th className="p-3 text-sm font-semibold text-slate-600">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {unassignedShipments.map(shipment => (
+                                    <tr key={shipment.id} className="hover:bg-slate-50">
+                                        <td className="p-3"><input type="checkbox" checked={selectedShipmentIds.includes(shipment.id)} onChange={() => setSelectedShipmentIds(prev => prev.includes(shipment.id) ? prev.filter(id => id !== shipment.id) : [...prev, shipment.id])} /></td>
+                                        <td className="p-3 font-mono text-sm">{shipment.id}</td>
+                                        <td className="p-3 text-sm">{shipment.receiver.city}</td>
+                                        <td className="p-3 text-sm"><span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs font-medium">{shipment.status}</span></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">Assign to Agent</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-sm font-medium text-slate-700">Available Agents</label>
+                            <select 
+                                value={selectedAgentId}
+                                onChange={e => setSelectedAgentId(e.target.value)}
+                                className="w-full p-3 mt-1 border rounded-lg bg-slate-50"
+                            >
+                                <option value="">Select an agent</option>
+                                {availableAgents.map(agent => (
+                                    <option key={agent.id} value={agent.id}>{agent.name} ({agent.availabilityStatus})</option>
+                                ))}
+                            </select>
+                        </div>
+                        <button 
+                            onClick={handleAssign}
+                            disabled={!selectedAgentId || selectedShipmentIds.length === 0}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                            Assign {selectedShipmentIds.length} Shipments
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 }

@@ -1,4 +1,31 @@
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$serviceTitles = "Gateway", "Auth", "Shipment", "Operations", "Admin", "Communications", "Reporting", "Frontend"
+
+function Stop-ServiceWindows {
+  foreach ($title in $serviceTitles) {
+    Get-Process -Name powershell, pwsh -ErrorAction SilentlyContinue |
+      Where-Object { $_.MainWindowTitle -like "*$title*" -and $_.Id -ne $PID } |
+      ForEach-Object {
+        Write-Host "Closing old $title service window (process $($_.Id))"
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+      }
+  }
+}
+
+function Stop-PortListener($port) {
+  try {
+    $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    foreach ($conn in $connections) {
+      $pidToStop = $conn.OwningProcess
+      if ($pidToStop -gt 0 -and $pidToStop -ne $PID) {
+        Write-Host "Stopping existing process $pidToStop on port $port"
+        Stop-Process -Id $pidToStop -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } catch {
+    # Port is free or Get-NetTCPConnection is unavailable.
+  }
+}
 
 function Start-Svc($title, $relativePath, $command) {
   Start-Process powershell -ArgumentList @(
@@ -7,6 +34,17 @@ function Start-Svc($title, $relativePath, $command) {
     "Set-Location '$root'; Set-Location '$relativePath'; `$Host.UI.RawUI.WindowTitle='$title'; $command"
   )
 }
+
+$servicePorts = 8088, 8085, 8081, 8082, 8083, 8086, 8087, 5173
+
+Stop-ServiceWindows
+Start-Sleep -Seconds 1
+
+foreach ($port in $servicePorts) {
+  Stop-PortListener $port
+}
+
+Start-Sleep -Seconds 2
 
 Start-Svc "Gateway" "Backend/Gateway" ".\mvnw.cmd spring-boot:run"
 Start-Svc "Auth" "Backend/Authenticate" ".\mvnw.cmd spring-boot:run"
