@@ -567,6 +567,7 @@ export function ShipmentProvider({ children }) {
   const refreshShipments = async () => {
     if (!currentUser) return [];
     let userShipments = [];
+    let didLoadSuccessfully = false;
     try {
       setIsRefreshing(true);
       const role = normalizeRole(currentUser.role);
@@ -577,14 +578,17 @@ export function ShipmentProvider({ children }) {
         userShipments = ownerIdentifiers.length > 0 ? await shipmentService.getShipments(ownerIdentifiers) : [];
         userShipments = filterCustomerShipments(userShipments, currentUser);
       }
+      didLoadSuccessfully = true;
     } catch (error) {
-      console.warn('Failed to load shipments from backend, using empty fallback', error);
-      userShipments = [];
+      console.warn('Failed to load shipments from backend, preserving last known shipment state', error);
+      return shipments;
     } finally {
       setIsRefreshing(false);
     }
-    setShipments(userShipments || []);
-    setLastDataSyncAt(new Date().toISOString());
+    if (didLoadSuccessfully) {
+      setShipments(userShipments || []);
+      setLastDataSyncAt(new Date().toISOString());
+    }
     return userShipments;
   };
 

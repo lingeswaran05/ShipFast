@@ -113,6 +113,7 @@ export function AgentDashboard({ view }) {
   const [activeTab, setActiveTab] = useState('deliveries'); 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterCity, setFilterCity] = useState('');
+  const [stableOverviewShipments, setStableOverviewShipments] = useState([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [adminMessage, setAdminMessage] = useState('');
     const [isSendingAdminMessage, setIsSendingAdminMessage] = useState(false);
@@ -345,6 +346,7 @@ export function AgentDashboard({ view }) {
     const shipmentList = useMemo(() => {
       let list = [];
       const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
+      const includesTerm = (value, term) => String(value || '').toLowerCase().includes(term);
 
       if (activeTab === 'deliveries') {
           list = agentShipments.filter((s) => normalize(s.status) === 'BOOKED');
@@ -362,17 +364,46 @@ export function AgentDashboard({ view }) {
           const term = filterCity.toLowerCase();
           list = list.filter(s => {
               if (activeTab === 'pickups') {
-                  return s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
+                  return (
+                    includesTerm(s.receiver?.city, term) ||
+                    includesTerm(s.receiverAddress?.city, term) ||
+                    includesTerm(s.destination, term)
+                  );
               }
               if (activeTab === 'deliveries') {
-                  return s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
+                  return (
+                    includesTerm(s.sender?.city, term) ||
+                    includesTerm(s.senderAddress?.city, term) ||
+                    includesTerm(s.origin, term)
+                  );
               }
-              return (s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) ||
-                     (s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
+              return (
+                includesTerm(s.sender?.city, term) ||
+                includesTerm(s.senderAddress?.city, term) ||
+                includesTerm(s.origin, term) ||
+                includesTerm(s.receiver?.city, term) ||
+                includesTerm(s.receiverAddress?.city, term) ||
+                includesTerm(s.destination, term)
+              );
           });
       }
       return list;
     }, [agentShipments, activeTab, filterStatus, filterCity]);
+
+    useEffect(() => {
+      if (shipmentList.length > 0) {
+        setStableOverviewShipments(shipmentList);
+        return;
+      }
+
+      if (!isRefreshing) {
+        setStableOverviewShipments([]);
+      }
+    }, [shipmentList, isRefreshing]);
+
+    const overviewShipmentList = shipmentList.length > 0
+      ? shipmentList
+      : (isRefreshing ? stableOverviewShipments : shipmentList);
 
   const handleQuickStatusUpdate = async (id, newStatus) => {
       if (normalizeStatus(newStatus) === 'DELIVERED') {
@@ -576,7 +607,6 @@ export function AgentDashboard({ view }) {
             await reassignShipmentToAnotherAgent(shipment, 'Auto reassigned after 5 hours without pickup', { silent: true });
           }
       };
-      processStaleShipments();
       const timer = setInterval(processStaleShipments, 60000);
 
       return () => clearInterval(timer);
@@ -1251,10 +1281,10 @@ export function AgentDashboard({ view }) {
                         {activeTab === 'history' && <Clock className="w-5 h-5 text-slate-600" />}
                         
                         <span className="capitalize">{activeTab}</span> 
-                        <span className="text-slate-400 font-normal text-sm ml-2">({shipmentList.length})</span>
+                      <span className="text-slate-400 font-normal text-sm ml-2">({overviewShipmentList.length})</span>
                     </h2>
                     
-                    {shipmentList.length === 0 ? (
+                    {overviewShipmentList.length === 0 ? (
                         <div className="text-center py-10 bg-white rounded-xl border border-slate-200 border-dashed animate-fade-in">
                              <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                              <p className="text-slate-500">No {activeTab} found matching your filters.</p>
@@ -1262,7 +1292,7 @@ export function AgentDashboard({ view }) {
                         </div>
                     ) : (
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {shipmentList.map(shipment => {
+                        {overviewShipmentList.map(shipment => {
                                 const senderDetails = getPartyDetails(shipment, 'sender');
                                 const receiverDetails = getPartyDetails(shipment, 'receiver');
                                 return (
