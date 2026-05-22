@@ -567,6 +567,7 @@ export function ShipmentProvider({ children }) {
   const refreshShipments = async () => {
     if (!currentUser) return [];
     let userShipments = [];
+    let didLoadSuccessfully = false;
     try {
       setIsRefreshing(true);
       const role = normalizeRole(currentUser.role);
@@ -577,14 +578,17 @@ export function ShipmentProvider({ children }) {
         userShipments = ownerIdentifiers.length > 0 ? await shipmentService.getShipments(ownerIdentifiers) : [];
         userShipments = filterCustomerShipments(userShipments, currentUser);
       }
+      didLoadSuccessfully = true;
     } catch (error) {
-      console.warn('Failed to load shipments from backend, using empty fallback', error);
-      userShipments = [];
+      console.warn('Failed to load shipments from backend, preserving last known shipment state', error);
+      return shipments;
     } finally {
       setIsRefreshing(false);
     }
-    setShipments(userShipments || []);
-    setLastDataSyncAt(new Date().toISOString());
+    if (didLoadSuccessfully) {
+      setShipments(userShipments || []);
+      setLastDataSyncAt(new Date().toISOString());
+    }
     return userShipments;
   };
 
@@ -1090,9 +1094,6 @@ export function ShipmentProvider({ children }) {
       const latestLocalStatus = latestLocalRoleRequest
         ? normalizeRoleRequestStatus(latestLocalRoleRequest?.status)
         : '';
-      if (latestLocalStatus === 'APPROVED') {
-        throw new Error('Your previous request was approved. Please login again.');
-      }
       if (['REJECTED', 'CANCELLED'].includes(latestLocalStatus)) {
         const reviewedAt = new Date().toISOString();
         setRoleRequests((prev) => prev.map((request) => {
@@ -1107,12 +1108,15 @@ export function ShipmentProvider({ children }) {
         }));
       }
 
-      const customerIdentityCandidates = buildIdentityCandidates(
+      const stableIdentityCandidates = buildIdentityCandidates(
         currentUser?.userId,
-        currentUser?.id,
+        currentUser?.id
+      );
+      const customerIdentityCandidates = buildIdentityCandidates(
+        ...stableIdentityCandidates,
         currentUser?.email
       );
-      const primaryProfileUserId = customerIdentityCandidates[0] || '';
+      const primaryProfileUserId = stableIdentityCandidates[0] || '';
 
       const backendRequestStatus = primaryProfileUserId
         ? await operationsService.getAgentRequestStatus(primaryProfileUserId)
@@ -1123,9 +1127,6 @@ export function ShipmentProvider({ children }) {
       const backendHasPending = hasBackendStatus
         && (backendRequestStatus?.hasPending === 'true' || isPendingRoleRequestStatus(effectiveBackendStatus));
 
-      if (effectiveBackendStatus === 'APPROVED') {
-        throw new Error('Your previous request was approved. Please login again.');
-      }
       if (backendHasPending) {
         throw new Error('You already have a pending request');
       }
@@ -1376,13 +1377,11 @@ export function ShipmentProvider({ children }) {
         }
       }
 
-      // Build all possible identities for robust matching and backend updates.
+      // Build all possible account identities (never role-request ids like rr-*).
       const requestIdentityCandidates = buildIdentityCandidates(
         requestRecord?.userId,
-        requestRecord?.id,
         requestRecord?.email,
         requestRecord?.requestRecord?.userId,
-        requestRecord?.requestRecord?.id,
         requestRecord?.requestRecord?.email
       );
 
@@ -1401,7 +1400,14 @@ export function ShipmentProvider({ children }) {
         matchedUserByIdentity?.email
       );
 
-      const userIdentifier = identityCandidates[0];
+      const userIdentifier =
+        matchedUserByIdentity?.userId ||
+        matchedUserByIdentity?.id ||
+        requestRecord?.userId ||
+        requestRecord?.requestRecord?.userId ||
+        requestRecord?.email ||
+        requestRecord?.requestRecord?.email ||
+        identityCandidates[0];
       if (!userIdentifier) {
           throw new Error("No user identifier found in the request.");
       }
@@ -1413,8 +1419,10 @@ export function ShipmentProvider({ children }) {
       const profileUserId =
         fallbackUser?.userId ||
         fallbackUser?.id ||
-        requestRecord.userId ||
-        requestRecord.email;
+        requestRecord?.userId ||
+        requestRecord?.requestRecord?.userId ||
+        requestRecord?.email ||
+        requestRecord?.requestRecord?.email;
 
       const requestedAgentDetails = requestRecord.agentDetails || {};
       const requestedDocs = readRoleRequestDocuments(requestRecord);
@@ -1453,32 +1461,38 @@ export function ShipmentProvider({ children }) {
         }
       }
 
-      // Call the backend service to update the user's role
+      // Call the backend service to update the user's role.
+      // Only allow local fallback for synthetic/local-only role requests.
       let roleUpdateFailed = false;
       let roleUpdateSucceeded = false;
+      let lastRoleUpdateError = null;
+      const isSyntheticRequest = Boolean(requestId && String(requestId).startsWith('rr-'));
       try {
           for (const identity of identityCandidates) {
             try {
               await authService.updateUserRole(identity, roleToAssign);
               roleUpdateSucceeded = true;
               break;
-            } catch {
-              // try next identity candidate
+            } catch (error) {
+              lastRoleUpdateError = error;
             }
           }
           if (!roleUpdateSucceeded) {
-            throw new Error('Failed to update user role in DB');
+            if (isSyntheticRequest) {
+              const reason = lastRoleUpdateError?.message || 'User does not exist in auth DB';
+              console.warn('Backend role update not available for synthetic/local request. Applying locally:', reason);
+              roleUpdateFailed = true;
+            } else {
+              throw (lastRoleUpdateError || new Error('Failed to update user role in DB'));
+            }
           }
       } catch (error) {
-          if (
-            String(error.message).includes('found') ||
-            String(error.message).includes('Failed to update') ||
-            String(error.message).includes('404')
-          ) {
-              console.warn("Backend update failed (likely mock user). Applying locally:", error.message);
-              roleUpdateFailed = true;
+          if (isSyntheticRequest) {
+            const reason = error?.message || 'Unknown role update error';
+            console.warn('Backend role update failed for synthetic/local request. Applying locally:', reason);
+            roleUpdateFailed = true;
           } else {
-              throw error;
+            throw error;
           }
       }
 
@@ -1494,8 +1508,8 @@ export function ShipmentProvider({ children }) {
 
         if (roleUpdateFailed) {
           filtered.push({
-            userId: requestRecord?.userId || matchedUserByIdentity?.userId || matchedUserByIdentity?.id || userIdentifier,
-            id: requestRecord?.id || matchedUserByIdentity?.id || undefined,
+            userId: requestRecord?.userId || requestRecord?.requestRecord?.userId || matchedUserByIdentity?.userId || matchedUserByIdentity?.id || userIdentifier,
+            id: matchedUserByIdentity?.id || requestRecord?.userId || requestRecord?.requestRecord?.userId || undefined,
             email: requestRecord?.email || matchedUserByIdentity?.email || '',
             role: normalizeRole(roleToAssign),
             blocked: false,
@@ -1567,7 +1581,7 @@ export function ShipmentProvider({ children }) {
 
   };
 
-  const rejectRoleRequest = async (requestInput) => {
+  const rejectRoleRequest = async (requestInput, rejectionReason = '') => {
       const requestId = typeof requestInput === 'string' ? requestInput : requestInput?.id;
       const requestIdentity = toIdentityValue(
         requestInput?.userId ||
@@ -1597,6 +1611,8 @@ export function ShipmentProvider({ children }) {
         }
       }
 
+      const adminReason = String(rejectionReason || '').trim();
+      const finalReason = adminReason || 'Request rejected by admin due to incomplete or invalid details.';
       const matchedUser = (users || []).find((user) => {
         const requestIdentities = getRoleRequestIdentityValues(requestRecord);
         const userIdentities = [user?.userId, user?.id, user?.email].map(toIdentityValue).filter(Boolean);
@@ -1625,7 +1641,7 @@ export function ShipmentProvider({ children }) {
           await operationsService.verifyAgentProfile(identity, {
             verified: false,
             verifiedBy: currentUser?.name || currentUser?.email || 'Admin',
-            verificationNotes: 'Rejected by admin',
+            verificationNotes: `Rejected by admin: ${finalReason}`,
             verificationStatus: 'REJECTED'
           });
         } catch {
@@ -1645,6 +1661,7 @@ export function ShipmentProvider({ children }) {
           return {
             ...request,
             status: 'REJECTED',
+            rejectionReason: finalReason,
             reviewedAt,
             reviewedBy
           };
@@ -1655,6 +1672,7 @@ export function ShipmentProvider({ children }) {
           ...requestRecord,
           id: requestRecord.id || requestId || `rr-${Date.now()}`,
           status: 'REJECTED',
+          rejectionReason: finalReason,
           reviewedAt,
           reviewedBy
         }, ...next].slice(0, MAX_ROLE_REQUESTS);
@@ -1663,9 +1681,22 @@ export function ShipmentProvider({ children }) {
       const targetUserId = targetIdentityCandidates[0] || requestRecord?.userId || requestRecord?.email;
       if (targetUserId) {
         try {
-          await communicationService.sendNotification(targetUserId, 'IN_APP', 'Your request was rejected. Please contact admin by ticket.');
+          await communicationService.sendNotification(targetUserId, 'IN_APP', `Your agent request was rejected: ${finalReason}`);
         } catch {
           // non-blocking notification
+        }
+        try {
+          await communicationService.createTicket({
+            userId: targetUserId,
+            subject: 'Agent Request Rejected',
+            category: 'Role Request',
+            priority: 'Medium',
+            message: finalReason,
+            senderName: currentUser?.name || currentUser?.email || 'Admin',
+            senderRole: 'admin'
+          });
+        } catch {
+          // non-blocking ticket creation
         }
       }
       addNotification('Agent request rejected. User remains customer.', 'admin');
@@ -1789,6 +1820,33 @@ export function ShipmentProvider({ children }) {
         const updatedUser = { ...currentUser, role: nextRole, blocked: false };
         setCurrentUser(updatedUser);
         authStorage.setCurrentUser(updatedUser);
+      }
+
+      if (nextRole === 'customer') {
+        const targetIdentitySet = new Set(
+          [target?.userId, target?.id, target?.email]
+            .map(toIdentityValue)
+            .filter(Boolean)
+        );
+        if (targetIdentitySet.size > 0) {
+          const reviewedAt = new Date().toISOString();
+          setRoleRequests((prev) => prev.map((request) => {
+            const requestIds = [request?.userId, request?.email, request?.id]
+              .map(toIdentityValue)
+              .filter(Boolean);
+            const belongsToTarget = requestIds.some((id) => targetIdentitySet.has(id));
+            if (!belongsToTarget) return request;
+            const status = normalizeRoleRequestStatus(request?.status);
+            if (status !== 'APPROVED') return request;
+            return {
+              ...request,
+              status: 'CANCELLED',
+              reviewedAt,
+              reviewedBy: currentUser?.email || 'admin-role-downgrade',
+              rejectionReason: request?.rejectionReason || 'Role changed back to customer by admin'
+            };
+          }));
+        }
       }
   };
 

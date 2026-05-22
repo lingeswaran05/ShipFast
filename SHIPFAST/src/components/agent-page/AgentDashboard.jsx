@@ -9,6 +9,7 @@ import { BarcodeGenerator } from '../shared/BarcodeGenerator';
 import { printElementById } from '../../lib/printUtils';
 import Webcam from 'react-webcam';
 import { useNavigate } from 'react-router-dom';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 
 const normalizeStatus = (value) => String(value || '').toUpperCase().replace(/_/g, ' ');
 const isCodPayment = (shipment) => ['cash', 'cod'].includes(String(shipment?.paymentMode || shipment?.paymentMethod || '').toLowerCase());
@@ -35,6 +36,15 @@ const toCanonicalStatus = (value) => {
     const normalized = normalizeStatus(value).replace(/\s+/g, ' ').trim();
     if (normalized === 'FAILED ATTEMPT') return 'FAILED';
     return normalized;
+};
+
+const isNoBarcodeFoundError = (error) => {
+    const name = String(error?.name || '');
+    const message = String(error?.message || '');
+    return (
+        name.includes('NotFound') ||
+        message.includes('No MultiFormat Readers were able to detect the code')
+    );
 };
 
 const isForwardStatusChange = (current, next) => {
@@ -103,6 +113,7 @@ export function AgentDashboard({ view }) {
   const [activeTab, setActiveTab] = useState('deliveries'); 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterCity, setFilterCity] = useState('');
+  const [stableOverviewShipments, setStableOverviewShipments] = useState([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [adminMessage, setAdminMessage] = useState('');
     const [isSendingAdminMessage, setIsSendingAdminMessage] = useState(false);
@@ -116,6 +127,7 @@ export function AgentDashboard({ view }) {
     const barcodeFileInputRef = useRef(null);
     const barcodeWebcamRef = useRef(null);
     const autoReassigningRef = useRef(new Set());
+    const autoScanTimerRef = useRef(null);
 
     const onboardingStorageKey = `sf_agent_onboarding_${currentUser?.email || currentUser?.id || currentUser?.userId || 'default'}`;
     const legacyOnboardingStorageKey = `agent_onboarding_${currentUser?.email || currentUser?.id || currentUser?.userId || 'default'}`;
@@ -248,9 +260,7 @@ export function AgentDashboard({ view }) {
       return (shipments || []).filter((shipment) => isAgentShipment(shipment));
     }, [shipments, isAgentShipment]);
 
-    const isBarcodeSupported = useMemo(() => (
-      typeof window !== 'undefined' && typeof window.BarcodeDetector !== 'undefined'
-    ), []);
+    const isBarcodeSupported = useMemo(() => typeof window !== 'undefined', []);
 
     const matchedScanShipment = useMemo(() => {
       const normalizedScan = String(scanId || '').trim().toUpperCase();
@@ -336,6 +346,7 @@ export function AgentDashboard({ view }) {
     const shipmentList = useMemo(() => {
       let list = [];
       const normalize = (s) => s?.toUpperCase().replace(/_/g, ' ') || '';
+      const includesTerm = (value, term) => String(value || '').toLowerCase().includes(term);
 
       if (activeTab === 'deliveries') {
           list = agentShipments.filter((s) => normalize(s.status) === 'BOOKED');
@@ -353,17 +364,46 @@ export function AgentDashboard({ view }) {
           const term = filterCity.toLowerCase();
           list = list.filter(s => {
               if (activeTab === 'pickups') {
-                  return s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term);
+                  return (
+                    includesTerm(s.receiver?.city, term) ||
+                    includesTerm(s.receiverAddress?.city, term) ||
+                    includesTerm(s.destination, term)
+                  );
               }
               if (activeTab === 'deliveries') {
-                  return s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term);
+                  return (
+                    includesTerm(s.sender?.city, term) ||
+                    includesTerm(s.senderAddress?.city, term) ||
+                    includesTerm(s.origin, term)
+                  );
               }
-              return (s.sender?.city?.toLowerCase().includes(term) || s.senderAddress?.city?.toLowerCase().includes(term) || s.origin?.toLowerCase().includes(term)) ||
-                     (s.receiver?.city?.toLowerCase().includes(term) || s.receiverAddress?.city?.toLowerCase().includes(term) || s.destination?.toLowerCase().includes(term));
+              return (
+                includesTerm(s.sender?.city, term) ||
+                includesTerm(s.senderAddress?.city, term) ||
+                includesTerm(s.origin, term) ||
+                includesTerm(s.receiver?.city, term) ||
+                includesTerm(s.receiverAddress?.city, term) ||
+                includesTerm(s.destination, term)
+              );
           });
       }
       return list;
     }, [agentShipments, activeTab, filterStatus, filterCity]);
+
+    useEffect(() => {
+      if (shipmentList.length > 0) {
+        setStableOverviewShipments(shipmentList);
+        return;
+      }
+
+      if (!isRefreshing) {
+        setStableOverviewShipments([]);
+      }
+    }, [shipmentList, isRefreshing]);
+
+    const overviewShipmentList = shipmentList.length > 0
+      ? shipmentList
+      : (isRefreshing ? stableOverviewShipments : shipmentList);
 
   const handleQuickStatusUpdate = async (id, newStatus) => {
       if (normalizeStatus(newStatus) === 'DELIVERED') {
@@ -489,7 +529,10 @@ export function AgentDashboard({ view }) {
             assignedAgentId: null
           });
           await refreshShipments();
-          if (!options.silent) toast.info('No available agent. Shipment returned to admin runsheet queue');
+          if (!options.silent) {
+            toast.info('No available agent. Shipment returned to admin runsheet queue');
+            navigate('/agent/scan');
+          }
           return true;
         }
         const targetAgentId = nextAgent.assignmentAgentId;
@@ -524,6 +567,7 @@ export function AgentDashboard({ view }) {
         await refreshShipments();
         if (!options.silent) {
           toast.success(`Shipment sent to ${nextAgent.name}`);
+          navigate('/agent/scan');
         }
         return true;
       } catch (error) {
@@ -539,7 +583,8 @@ export function AgentDashboard({ view }) {
       currentUser?.userId,
       currentUser?.id,
       currentUser?.email,
-      refreshShipments
+      refreshShipments,
+      navigate
   ]);
 
   useEffect(() => {
@@ -562,7 +607,6 @@ export function AgentDashboard({ view }) {
             await reassignShipmentToAnotherAgent(shipment, 'Auto reassigned after 5 hours without pickup', { silent: true });
           }
       };
-      processStaleShipments();
       const timer = setInterval(processStaleShipments, 60000);
 
       return () => clearInterval(timer);
@@ -593,18 +637,75 @@ export function AgentDashboard({ view }) {
       throw new Error('Barcode scan is not supported on this browser. Use manual entry.');
     }
 
-    const detector = new window.BarcodeDetector({ formats: SCAN_BARCODE_FORMATS });
-    const blob = typeof source === 'string' ? await (await fetch(source)).blob() : source;
-    const bitmap = await createImageBitmap(blob);
-    try {
-      const barcodes = await detector.detect(bitmap);
-      const value = String(barcodes?.[0]?.rawValue || '').trim();
-      return value || '';
-    } finally {
-      if (typeof bitmap.close === 'function') {
-        bitmap.close();
+    // Try BarcodeDetector API first if available (works better with data URLs)
+    if (typeof window.BarcodeDetector !== 'undefined' && typeof createImageBitmap === 'function') {
+      try {
+        const detector = new window.BarcodeDetector({ formats: SCAN_BARCODE_FORMATS });
+        const blob = typeof source === 'string' ? await (await fetch(source)).blob() : source;
+        const bitmap = await createImageBitmap(blob);
+        try {
+          const barcodes = await detector.detect(bitmap);
+          const value = String(barcodes?.[0]?.rawValue || '').trim();
+          if (value) return value;
+        } finally {
+          if (typeof bitmap.close === 'function') {
+            bitmap.close();
+          }
+        }
+      } catch (error) {
+        console.warn('BarcodeDetector failed:', error);
+        // Fall through to ZXing
       }
     }
+
+    // Fallback to ZXing library
+    const reader = new BrowserMultiFormatReader();
+    let objectUrl = '';
+    try {
+      let imageUrl = source;
+      
+      // If source is a data URL string from webcam screenshot, use it directly
+      if (typeof source === 'string' && source.startsWith('data:')) {
+        imageUrl = source;
+      } else if (typeof source === 'string') {
+        // If it's a URL, try to fetch and convert to object URL
+        imageUrl = source;
+      } else {
+        // If it's a blob/file, create object URL
+        imageUrl = URL.createObjectURL(source);
+        objectUrl = imageUrl;
+      }
+      
+      try {
+        const result = await reader.decodeFromImageUrl(imageUrl);
+        const value = String(result?.getText?.() || result?.text || '').trim();
+        if (value) return value;
+      } catch (error) {
+        console.warn('ZXing decodeFromImageUrl failed:', error);
+        
+        // If it's a data URL, try converting to blob and decoding
+        if (imageUrl.startsWith('data:')) {
+          try {
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const tempUrl = URL.createObjectURL(blob);
+            try {
+              const result = await reader.decodeFromImageUrl(tempUrl);
+              const value = String(result?.getText?.() || result?.text || '').trim();
+              if (value) return value;
+            } finally {
+              URL.revokeObjectURL(tempUrl);
+            }
+          } catch (e) {
+            console.warn('Failed to decode data URL as blob:', e);
+          }
+        }
+        if (!isNoBarcodeFoundError(error)) throw error;
+      }
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+    return '';
   }, [isBarcodeSupported]);
 
   const handleBarcodeFile = async (file) => {
@@ -648,6 +749,44 @@ export function AgentDashboard({ view }) {
       setIsBarcodeDecoding(false);
     }
   }, [decodeBarcodeValueFromSource]);
+
+  useEffect(() => {
+    if (!showBarcodeCamera) {
+      if (autoScanTimerRef.current) {
+        clearInterval(autoScanTimerRef.current);
+        autoScanTimerRef.current = null;
+      }
+      return;
+    }
+
+    autoScanTimerRef.current = setInterval(async () => {
+      if (isBarcodeDecoding) return;
+      const imageSrc = barcodeWebcamRef.current?.getScreenshot?.();
+      if (!imageSrc) return;
+      try {
+        setIsBarcodeDecoding(true);
+        const decodedValue = await decodeBarcodeValueFromSource(imageSrc);
+        if (!decodedValue) return;
+        setScanId(decodedValue);
+        setScanEntryMode('manual');
+        setShowBarcodeCamera(false);
+        toast.success(`Barcode detected: ${decodedValue}`);
+      } catch (error) {
+        if (!isNoBarcodeFoundError(error)) {
+          console.warn('Live barcode scan failed', error);
+        }
+      } finally {
+        setIsBarcodeDecoding(false);
+      }
+    }, 250);
+
+    return () => {
+      if (autoScanTimerRef.current) {
+        clearInterval(autoScanTimerRef.current);
+        autoScanTimerRef.current = null;
+      }
+    };
+  }, [showBarcodeCamera, isBarcodeDecoding, decodeBarcodeValueFromSource]);
 
   const handleScan = async (e) => {
     e.preventDefault();
@@ -1142,10 +1281,10 @@ export function AgentDashboard({ view }) {
                         {activeTab === 'history' && <Clock className="w-5 h-5 text-slate-600" />}
                         
                         <span className="capitalize">{activeTab}</span> 
-                        <span className="text-slate-400 font-normal text-sm ml-2">({shipmentList.length})</span>
+                      <span className="text-slate-400 font-normal text-sm ml-2">({overviewShipmentList.length})</span>
                     </h2>
                     
-                    {shipmentList.length === 0 ? (
+                    {overviewShipmentList.length === 0 ? (
                         <div className="text-center py-10 bg-white rounded-xl border border-slate-200 border-dashed animate-fade-in">
                              <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                              <p className="text-slate-500">No {activeTab} found matching your filters.</p>
@@ -1153,7 +1292,7 @@ export function AgentDashboard({ view }) {
                         </div>
                     ) : (
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {shipmentList.map(shipment => {
+                        {overviewShipmentList.map(shipment => {
                                 const senderDetails = getPartyDetails(shipment, 'sender');
                                 const receiverDetails = getPartyDetails(shipment, 'receiver');
                                 return (
@@ -1422,8 +1561,14 @@ export function AgentDashboard({ view }) {
                       audio={false}
                       ref={barcodeWebcamRef}
                       screenshotFormat="image/jpeg"
+                      screenshotQuality={1}
+                      forceScreenshotSourceSize
                       className="w-full h-full object-cover"
-                      videoConstraints={{ facingMode: 'environment' }}
+                      videoConstraints={{
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                      }}
                     />
                   </div>
                   <div className="p-4 bg-slate-50">

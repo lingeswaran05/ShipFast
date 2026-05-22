@@ -18,4 +18,5 @@ public class Address {
     private String pincode;
     private String address;
     private String phone;
-}
+    private String email;
+} 

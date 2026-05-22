@@ -188,7 +188,7 @@ export function SettingsPage() {
       setBackendRequestStatus({ status: 'NONE', hasPending: 'false' });
       return;
     }
-    const userId = currentUser?.userId || currentUser?.id || currentUser?.email;
+    const userId = currentUser?.userId || currentUser?.id;
     if (!userId) {
       setBackendRequestStatus({ status: 'NONE', hasPending: 'false' });
       return;
@@ -313,23 +313,42 @@ export function SettingsPage() {
     setShowPhotoOptions(false);
   };
 
-  // ─── DB-driven request status — derived from backendRequestStatus (fetched from server) ───
+  // ─── Request status — backend first, local history fallback ───
+  const localLatestRoleRequest = (roleRequests || [])
+    .filter((request) => requestBelongsToCurrentCustomer(request))
+    .sort((a, b) => {
+      const aTime = new Date(a?.reviewedAt || a?.createdAt || 0).getTime();
+      const bTime = new Date(b?.reviewedAt || b?.createdAt || 0).getTime();
+      return bTime - aTime;
+    })[0] || null;
+
   // backendRequestStatus = { status: "NONE"|"PENDING"|"VERIFIED"|"REJECTED"|"CANCELLED", hasPending: "true"|"false" }
   const dbStatus = String(backendRequestStatus?.status || 'NONE').toUpperCase();
   const dbHasPending = backendRequestStatus?.hasPending === 'true' || dbStatus === 'PENDING';
   // Normalize VERIFIED -> APPROVED to match UI convention
   const normalizedDbStatus = dbStatus === 'VERIFIED' ? 'APPROVED' : dbStatus;
+  const normalizedLocalStatus = normalizeRequestStatus(localLatestRoleRequest?.status || 'NONE');
+  const rawEffectiveStatus = normalizedDbStatus !== 'NONE' ? normalizedDbStatus : normalizedLocalStatus;
+  const effectiveStatus = currentUser?.role === 'customer' && rawEffectiveStatus === 'APPROVED'
+    ? 'NONE'
+    : rawEffectiveStatus;
+  const effectivePending = effectiveStatus === 'NONE'
+    ? false
+    : normalizedDbStatus !== 'NONE'
+    ? dbHasPending
+    : isPendingRequestStatus(normalizedLocalStatus);
 
-  // Synthetic latestRoleRequest object — mirrors the shape used in JSX below
-  const latestRoleRequest = (backendRequestStatus && normalizedDbStatus !== 'NONE') ? {
-    status: normalizedDbStatus,
-    reviewedAt: null
+  // Synthetic latestRoleRequest object — mirrors the shape used in JSX below.
+  const latestRoleRequest = effectiveStatus !== 'NONE' ? {
+    status: effectiveStatus,
+    reviewedAt: localLatestRoleRequest?.reviewedAt || localLatestRoleRequest?.updatedAt || null,
+    rejectionReason: localLatestRoleRequest?.rejectionReason || ''
   } : null;
-  const latestRoleRequestStatus = normalizedDbStatus;
-  const myPendingRoleRequest = dbHasPending ? latestRoleRequest : null;
+  const latestRoleRequestStatus = effectiveStatus;
+  const myPendingRoleRequest = effectivePending ? latestRoleRequest : null;
   const canSubmitRoleRequest = !isCheckingStatus &&
-    normalizedDbStatus !== 'APPROVED' &&
-    !dbHasPending;
+    effectiveStatus !== 'APPROVED' &&
+    !effectivePending;
   // ───────────────────────────────────────────────────────────────────────
 
    const handleRoleRequest = async () => {
@@ -529,18 +548,18 @@ export function SettingsPage() {
                            <Phone className="w-4 h-4 text-slate-400" />
                            Phone Number
                         </label>
-                        <input 
+                         <input 
                            type="tel" 
                            name="phone"
                            value={formData.phone}
                            onChange={handleChange}
-                          inputMode="numeric"
-                          pattern="\\d{10}"
-                          maxLength={10}
+                           inputMode="numeric"
+                           pattern="[0-9]{10}"
+                           maxLength={10}
                            disabled={!isEditing}
                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-slate-900 ${!isEditing ? 'bg-slate-50 border-slate-100 text-slate-500' : 'border-slate-200 bg-white'}`}
-                           placeholder="+91"
-                        />
+                           placeholder="10-digit mobile number"
+                         />
                      </div>
 
                      <div className="space-y-2">
@@ -761,6 +780,11 @@ export function SettingsPage() {
                         {latestRoleRequestStatus === 'REJECTED' && (
                           <div className="mt-1 text-xs opacity-90">
                             You can update details and submit a new request.
+                          </div>
+                        )}
+                        {latestRoleRequestStatus === 'REJECTED' && latestRoleRequest?.rejectionReason && (
+                          <div className="mt-2 text-xs font-medium">
+                            Admin reason: {latestRoleRequest.rejectionReason}
                           </div>
                         )}
                         {latestRoleRequestStatus === 'CANCELLED' && (

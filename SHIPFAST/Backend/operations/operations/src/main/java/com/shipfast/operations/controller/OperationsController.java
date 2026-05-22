@@ -26,6 +26,11 @@ public class OperationsController {
         return service.getAllAgents();
     }
 
+    @GetMapping("/agents/{agentIdentifier}")
+    public AgentProfileResponse getAgentByIdentifier(@PathVariable String agentIdentifier) {
+        return service.getAgentProfileByIdentifier(agentIdentifier);
+    }
+
     @GetMapping("/agents/profile/{userId}")
     public AgentProfileResponse getAgentProfile(@PathVariable String userId) {
         return service.getAgentProfileByUserId(userId);

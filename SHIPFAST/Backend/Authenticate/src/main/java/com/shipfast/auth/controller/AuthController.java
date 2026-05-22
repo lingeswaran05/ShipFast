@@ -100,6 +100,17 @@ public class AuthController {
         );
     }
 
+    @GetMapping("/internal/users/{emailOrId}")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> getInternalUser(
+            @PathVariable String emailOrId) {
+
+        UserProfileResponse profile = authService.getUserByEmailOrId(emailOrId);
+
+        return ResponseEntity.ok(
+                new ApiResponse<>(true, "User fetched successfully", profile)
+        );
+    }
+
     @PutMapping("/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateProfile(
             Authentication authentication,

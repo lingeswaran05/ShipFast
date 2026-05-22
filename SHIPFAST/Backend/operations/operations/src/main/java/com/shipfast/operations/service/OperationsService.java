@@ -128,6 +128,14 @@ public class OperationsService {
         return mapToAgentProfileResponse(profile);
     }
 
+    public AgentProfileResponse getAgentProfileByIdentifier(String agentIdentifier) {
+        AgentProfile profile = resolveAgentProfile(agentIdentifier);
+        if (profile == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent profile not found");
+        }
+        return mapToAgentProfileResponse(profile);
+    }
+
     /**
      * Returns the current agent request status for the given userId from the DB.
      * Possible values: "PENDING", "VERIFIED", "REJECTED", "CANCELLED", "NONE" (no profile found).
@@ -137,7 +145,8 @@ public class OperationsService {
                 .map(profile -> {
                     String status = profile.getVerificationStatus();
                     String normalized = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "PENDING";
-                    return java.util.Map.of("status", normalized, "hasPending", "PENDING".equals(normalized) ? "true" : "false");
+                    boolean hasPending = "PENDING".equals(normalized) || "PENDING_VERIFICATION".equals(normalized);
+                    return java.util.Map.of("status", normalized, "hasPending", hasPending ? "true" : "false");
                 })
                 .orElse(java.util.Map.of("status", "NONE", "hasPending", "false"));
     }
@@ -158,11 +167,8 @@ public class OperationsService {
                     || request.getAadharCopy() != null
                     || request.getLicenseCopy() != null
                     || request.getRcBookCopy() != null;
-            if (isCurrentlyPending && isAgentRequestPayload
-                    && (request.getVerificationStatus() == null || "PENDING".equalsIgnoreCase(request.getVerificationStatus()))) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "You already have a pending agent request. Please wait for admin review.");
-            }
+            // A pending agent request can be edited by the same user/admin flow.
+            // Keep the existing profile and merge the latest documents/details below.
         }
 
         AgentProfile profile = existing != null ? existing : AgentProfile.builder()

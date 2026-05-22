@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -15,9 +16,10 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriUtils;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriUtils;
 
 import com.shipfast.shipment.dto.AssignShipmentRequest;
 import com.shipfast.shipment.dto.CalculateRateRequest;
@@ -34,6 +36,7 @@ import com.shipfast.shipment.entity.Shipment;
 import com.shipfast.shipment.entity.TrackingEvent;
 import com.shipfast.shipment.repository.PricingConfigRepository;
 import com.shipfast.shipment.repository.ShipmentRepository;
+import com.shipfast.shipment.service.EmailService;
 import com.shipfast.shipment.service.ShipmentService;
 
 @Service
@@ -51,15 +54,27 @@ public class ShipmentServiceImpl implements ShipmentService {
 
     private final ShipmentRepository shipmentRepository;
     private final PricingConfigRepository pricingConfigRepository;
+    private final EmailService emailService;
+    private final InvoiceService invoiceService;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${operations.service.url:http://localhost:8082}")
     private String operationsServiceUrl;
 
+    @Value("${communications.service.url:http://localhost:8086}")
+    private String communicationsServiceUrl;
+
+    @Value("${auth.service.url:http://localhost:8085/api/v1/auth}")
+    private String authServiceUrl;
+
     public ShipmentServiceImpl(ShipmentRepository shipmentRepository,
-                               PricingConfigRepository pricingConfigRepository) {
+                               PricingConfigRepository pricingConfigRepository,
+                               EmailService emailService,
+                               InvoiceService invoiceService) {
         this.shipmentRepository = shipmentRepository;
         this.pricingConfigRepository = pricingConfigRepository;
+        this.emailService = emailService;
+        this.invoiceService = invoiceService;
     }
 
     @Override
@@ -109,6 +124,7 @@ public class ShipmentServiceImpl implements ShipmentService {
                 .history(new ArrayList<>(List.of(initialEvent)))
                 .build();
 
+        populateSenderEmailFromCustomerIfMissing(shipment);
         return shipmentRepository.save(shipment);
     }
 
@@ -309,7 +325,24 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
         shipment.getHistory().add(event);
 
-        return shipmentRepository.save(shipment);
+        Shipment saved = shipmentRepository.save(shipment);
+        sendStatusNotification(saved, nextStatus, event.getRemarks());
+        
+        // Send status update email for all status changes (not just delivery)
+        try {
+            sendStatusUpdateEmail(saved, nextStatus);
+        } catch (RuntimeException ignored) {
+            // Status update is already saved; email failures can be retried separately.
+        }
+        
+        if ("Delivered".equalsIgnoreCase(nextStatus)) {
+            try {
+                sendDeliveryEmail(saved);
+            } catch (RuntimeException ignored) {
+                // Delivery status is already saved; email failures can be retried separately.
+            }
+        }
+        return saved;
     }
 
     @Override
@@ -409,6 +442,229 @@ public class ShipmentServiceImpl implements ShipmentService {
 
         PricingConfig saved = pricingConfigRepository.save(existing);
         return toPricingConfigDto(saved);
+    }
+
+    private void sendStatusNotification(Shipment shipment, String status, String remarks) {
+        if (shipment == null || !hasText(shipment.getCustomerId())) return;
+        String message = "Shipment " + text(shipment.getTrackingNumber(), shipment.getId())
+                + " status updated to " + normalizeStatus(status)
+                + (hasText(remarks) ? ". " + remarks.trim() : ".");
+        try {
+            restTemplate.postForObject(
+                    communicationsServiceUrl + "/api/notifications/send?userId={userId}&type={type}&message={message}",
+                    null,
+                    Object.class,
+                    shipment.getCustomerId(),
+                    "IN_APP",
+                    message
+            );
+        } catch (RestClientException ignored) {
+            // Shipment status should remain successful even if the notification service is down.
+        }
+    }
+
+    private void sendDeliveryEmail(Shipment shipment) {
+        String senderEmail = resolveSenderEmail(shipment);
+        if (!hasText(senderEmail)) return;
+
+        String tracking = text(shipment.getTrackingNumber(), shipment.getId());
+        String agentName = resolveAgentName(shipment);
+        String body = String.join("\n",
+                "Hello " + text(shipment.getSender() != null ? shipment.getSender().getName() : null, "Customer") + ",",
+                "",
+                "Your shipment " + tracking + " has been delivered successfully.",
+                "",
+                "Delivery details:",
+                "Status: Delivered",
+                "Delivered at: " + (shipment.getDeliveredAt() != null ? shipment.getDeliveredAt() : shipment.getUpdatedAt()),
+                "Delivered by: " + text(shipment.getDeliveredBy(), agentName),
+                "Agent ID: " + text(firstNonBlank(shipment.getDeliveredByAgentId(), shipment.getAssignedAgentId()), "-"),
+                "Receiver: " + text(shipment.getRecipient() != null ? shipment.getRecipient().getName() : null, "-"),
+                "Tracking ID: " + tracking,
+                "",
+                "The invoice image is attached. Proof of delivery is attached when available.",
+                "Please give your feedback from the My Shipments page in your ShipFast dashboard.",
+                "",
+                "Regards,",
+                "ShipFast Courier"
+        );
+
+        byte[] invoice = invoiceService.generateInvoice(shipment);
+        emailService.sendEmail(
+                senderEmail,
+                "Shipment Status: Delivered - " + tracking,
+                body,
+                invoice,
+                "Invoice-" + tracking + ".png",
+                "image/png"
+        );
+
+        byte[] pod = decodeDataUrl(shipment.getProofOfDeliveryImage());
+        if (pod != null && pod.length > 0) {
+            emailService.sendEmail(
+                    senderEmail,
+                    "Proof of Delivery - " + tracking,
+                    "Proof of delivery for shipment " + tracking + " is attached.",
+                    pod,
+                    "Proof-of-Delivery-" + tracking + podExtension(shipment.getProofOfDeliveryImage()),
+                    podContentType(shipment.getProofOfDeliveryImage())
+            );
+        }
+    }
+    private void sendStatusUpdateEmail(Shipment shipment, String newStatus) {
+        // Skip sending emails for already delivered status (handled separately)
+        if ("Delivered".equalsIgnoreCase(newStatus)) {
+            return;
+        }
+        
+        String senderEmail = resolveSenderEmail(shipment);
+        if (!hasText(senderEmail)) return;
+
+        String tracking = text(shipment.getTrackingNumber(), shipment.getId());
+        String statusText = normalizeStatus(newStatus);
+        String formattedStatus = statusText.replace('_', ' ');
+        
+        String body = buildStatusUpdateEmailBody(shipment, formattedStatus, tracking);
+        
+        try {
+            emailService.sendEmail(
+                    senderEmail,
+                    "Shipment Status Update: " + formattedStatus + " - " + tracking,
+                    body,
+                    null,
+                    null,
+                    null
+            );
+        } catch (RuntimeException ex) {
+            // Log but don't fail - status update is already saved
+            System.err.println("Failed to send status update email for shipment " + tracking + ": " + ex.getMessage());
+        }
+    }
+
+    private String buildStatusUpdateEmailBody(Shipment shipment, String status, String tracking) {
+        String senderName = text(shipment.getSender() != null ? shipment.getSender().getName() : null, "Customer");
+        String receiverName = text(shipment.getRecipient() != null ? shipment.getRecipient().getName() : null, "Recipient");
+        String agentName = resolveAgentName(shipment);
+        String agentId = text(firstNonBlank(shipment.getDeliveredByAgentId(), shipment.getAssignedAgentId()), "-");
+        
+        StringBuilder body = new StringBuilder();
+        body.append("Hello ").append(senderName).append(",\n");
+        body.append("\n");
+        body.append("Your shipment ").append(tracking).append(" has been updated.\n");
+        body.append("\n");
+        body.append("Update details:\n");
+        body.append("Status: ").append(status).append("\n");
+        body.append("Updated at: ").append(shipment.getUpdatedAt()).append("\n");
+        body.append("Tracking ID: ").append(tracking).append("\n");
+        body.append("Receiver: ").append(receiverName).append("\n");
+        body.append("Service Type: ").append(text(shipment.getServiceType(), "-")).append("\n");
+        body.append("Weight: ").append(shipment.getPackageDetails() != null ? 
+            text(String.valueOf(shipment.getPackageDetails().getWeight()), "-") : "-").append(" kg\n");
+        
+        if (!"BOOKED".equalsIgnoreCase(status)) {
+            body.append("Assigned Agent: ").append(agentName).append("\n");
+            body.append("Agent ID: ").append(agentId).append("\n");
+        }
+        
+        body.append("\n");
+        body.append("You can track your shipment anytime from the My Shipments page in your ShipFast dashboard.\n");
+        body.append("\n");
+        body.append("Regards,\n");
+        body.append("ShipFast Courier\n");
+        
+        return body.toString();
+    }
+    @SuppressWarnings("unchecked")
+    private String resolveAgentName(Shipment shipment) {
+        String agentIdentifier = firstNonBlank(shipment.getDeliveredByAgentId(), shipment.getAssignedAgentId());
+        if (!hasText(agentIdentifier)) return "Assigned Agent";
+        try {
+            Map<String, Object> agent = restTemplate.getForObject(
+                    operationsServiceUrl + "/api/operations/agents/"
+                            + UriUtils.encodePathSegment(agentIdentifier, java.nio.charset.StandardCharsets.UTF_8),
+                    Map.class
+            );
+            if (agent != null) {
+                return firstNonBlank(
+                        asText(agent.get("name")),
+                        asText(agent.get("fullName")),
+                        asText(agent.get("userId")),
+                        asText(agent.get("agentId")),
+                        agentIdentifier
+                );
+            }
+        } catch (RestClientException ignored) {
+            // Keep delivery mail available even if operations service cannot be reached.
+        }
+        return agentIdentifier;
+    }
+
+    private String resolveSenderEmail(Shipment shipment) {
+        if (shipment == null) return null;
+        String senderEmail = shipment.getSender() != null ? shipment.getSender().getEmail() : null;
+        if (hasText(senderEmail)) return senderEmail.trim();
+
+        String resolved = lookupUserEmail(shipment.getCustomerId());
+        if (hasText(resolved) && shipment.getSender() != null) {
+            shipment.getSender().setEmail(resolved.trim());
+            try {
+                shipmentRepository.save(shipment);
+            } catch (RuntimeException ignored) {
+                // best-effort backfill
+            }
+        }
+        return resolved;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String lookupUserEmail(String emailOrId) {
+        if (!hasText(emailOrId)) return null;
+        try {
+            Map<String, Object> response = restTemplate.getForObject(
+                    authServiceUrl + "/internal/users/"
+                            + UriUtils.encodePathSegment(emailOrId, java.nio.charset.StandardCharsets.UTF_8),
+                    Map.class
+            );
+            if (response == null) return null;
+            Object data = response.get("data");
+            if (data instanceof Map<?, ?> dataMap) {
+                Object email = dataMap.get("email");
+                return email != null ? String.valueOf(email) : null;
+            }
+            Object email = response.get("email");
+            return email != null ? String.valueOf(email) : null;
+        } catch (RestClientException ignored) {
+            return null;
+        }
+    }
+
+    private void populateSenderEmailFromCustomerIfMissing(Shipment shipment) {
+        if (shipment == null || shipment.getSender() == null || hasText(shipment.getSender().getEmail())) return;
+        String email = lookupUserEmail(shipment.getCustomerId());
+        if (hasText(email)) {
+            shipment.getSender().setEmail(email.trim());
+        }
+    }
+
+    private byte[] decodeDataUrl(String value) {
+        if (!hasText(value)) return null;
+        String raw = value.trim();
+        int comma = raw.indexOf(',');
+        String base64 = comma >= 0 ? raw.substring(comma + 1) : raw;
+        try {
+            return Base64.getMimeDecoder().decode(base64);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private String podContentType(String dataUrl) {
+        if (hasText(dataUrl) && dataUrl.startsWith("data:image/png")) return "image/png";
+        return "image/jpeg";
+    }
+
+    private String podExtension(String dataUrl) {
+        return "image/png".equals(podContentType(dataUrl)) ? ".png" : ".jpg";
     }
 
     private RateCalculationResponse calculateRateFromInputs(double weight,
@@ -670,6 +926,22 @@ public class ShipmentServiceImpl implements ShipmentService {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String text(String value, String fallback) {
+        return hasText(value) ? value.trim() : fallback;
+    }
+
+    private String asText(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (hasText(value)) return value.trim();
+        }
+        return null;
     }
 
     private String resolveInitialPaymentStatus(String paymentMethod) {
