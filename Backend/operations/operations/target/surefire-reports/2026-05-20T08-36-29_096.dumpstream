@@ -1,0 +1,5 @@
+# Created at 2026-05-20T08:36:29.504
+Boot Manifest-JAR contains absolute paths in classpath 'D:\PROJECT\Courier Management System\NewShipFast\SHIPFAST\SHIPFAST\Backend\operations\operations\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+

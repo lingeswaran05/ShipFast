@@ -1,0 +1,16 @@
+com\shipfast\communication\service\NotificationService.class
+com\shipfast\communication\dto\SupportTicketReplyRequest.class
+com\shipfast\communication\entity\SupportMessage$SupportMessageBuilder.class
+com\shipfast\communication\dto\ApiResponse.class
+com\shipfast\communication\repository\NotificationRepository.class
+com\shipfast\communication\entity\SupportMessage.class
+com\shipfast\communication\dto\SupportTicketCreateRequest.class
+com\shipfast\communication\dto\SupportTicketStatusRequest.class
+com\shipfast\communication\entity\Notification.class
+com\shipfast\communication\exception\GlobalExceptionHandler.class
+com\shipfast\communication\CommunicationsApplication.class
+com\shipfast\communication\repository\SupportRepository.class
+com\shipfast\communication\entity\SupportTicket.class
+com\shipfast\communication\controller\NotificationController.class
+com\shipfast\communication\controller\SupportController.class
+com\shipfast\communication\service\impl\NotificationServiceImpl.class
